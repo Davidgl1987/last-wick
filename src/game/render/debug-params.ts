@@ -51,3 +51,19 @@ export function readForcedBossPhase(): 2 | 3 | null {
 export function readGodMode(): boolean {
   return new URLSearchParams(window.location.search).has('godmode');
 }
+
+/**
+ * FLAG TEMPORAL de comparación A/B (playtest luces-optimizadas, 2026-07-25):
+ * activa la sombra cúbica de la vela del héroe (CandleLightView) vía
+ * `?candleshadow` (presencia) o `?candleshadow=1`, que por defecto está
+ * desactivada porque esa sombra —6 pasadas de render por frame, al ser una
+ * pointLight— fue la causa medida de los 23 FPS de la ronda 6 de playtest.
+ * Este flag solo existe para poder comparar con/sin sombra de vela durante
+ * el playtest de la nueva rig de 7 luces; QUIEN LO LEA DESPUÉS PUEDE
+ * BORRARLO (junto con el `castShadow` condicional en CandleLightView.tsx que
+ * lo consume) en cuanto el playtest haya zanjado si merece la pena.
+ */
+export function readCandleShadow(): boolean {
+  const raw = new URLSearchParams(window.location.search).get('candleshadow');
+  return raw === '' || raw === '1';
+}

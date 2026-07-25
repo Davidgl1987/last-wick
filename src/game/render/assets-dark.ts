@@ -17,6 +17,7 @@
 
 import * as THREE from 'three';
 import {
+  arrowMaterial,
   bossBodyMaterial,
   boostMaterial,
   chaserMaterial,
@@ -69,6 +70,27 @@ function applyHazardTones(): void {
   puddleMaterial.color.copy(TONE_DARK_COLOR.puddle);
   boostMaterial.color.copy(TONE_DARK_COLOR.boost);
   mudMaterial.color.copy(TONE_DARK_COLOR.mud);
+}
+
+// ── Emissive de proyectiles (rama `luces-optimizadas`) ─────────────────────
+//
+// El proyectil del héroe ya no lleva pointLight propia (`ProjectileLightPool`
+// eliminado, ver `features/combat/ProjectileView.tsx`): el halo aditivo
+// (`GlowPuddle`) finge la luz sobre el suelo, pero el CUERPO del proyectil
+// también necesita leerse como fuente de luz en la penumbra, no solo su
+// sombra proyectada. `arrowMaterial` (el cono dominante de la flecha, ver
+// `ArrowShape` en ProjectileView.tsx) es Lambert: sin luz de escena cerca se
+// apagaba del todo salvo por el halo. `spellBoltMaterial` NO se toca aquí —
+// ya es `MeshBasicMaterial` (autoiluminado de fábrica, ignora la luz de
+// escena por completo), así que ya "brilla por sí mismo" sin necesitar
+// emissive.
+
+/** Punto de tuning: emissive de la flecha tras perder su pointLight propia — mismo color que su cuerpo (WEAPON_COLOR.arrow), para que "brille de su propio tono" en vez de blanquear. */
+const ARROW_EMISSIVE_INTENSITY = 0.6;
+
+function applyProjectileGlow(): void {
+  arrowMaterial.emissive.copy(WEAPON_COLOR.arrow);
+  arrowMaterial.emissiveIntensity = ARROW_EMISSIVE_INTENSITY;
 }
 
 // ── Siluetas oscuras de personajes ─────────────────────────────────────────
@@ -223,4 +245,5 @@ function applySilhouettes(): void {
 // que alterne estos materiales en runtime, así que no hace falta suscripción
 // ni función reejecutable — se llama una vez y queda fijo toda la sesión.
 applyHazardTones();
+applyProjectileGlow();
 applySilhouettes();

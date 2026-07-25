@@ -35,59 +35,48 @@
 
 import { useFrame } from '@react-three/fiber';
 import { useRef } from 'react';
-import type { Group, Mesh, PointLight } from 'three';
+import type { Group, Mesh } from 'three';
 import type { GameSession } from '@/game/session/session';
 import type { Projectile } from '@/game/world/types';
 import { getUpgradeLevel } from '@/game/session/upgrades';
-import { arrowMaterial, arrowShaftGeometry, arrowTipMaterial, enemyProjectileGlowHaloMaterialForTag, enemyProjectileMaterial, enemyProjectileMaterialForTag, spellBoltMaterial, spellBoltSegmentGeometry, spellSparkGeometry, spellSparkMaterial, unitCircle, unitCone, unitSphere, WEAPON_COLOR } from '@/game/render/assets';
+import { arrowMaterial, arrowShaftGeometry, arrowTipMaterial, enemyProjectileGlowHaloMaterialForTag, enemyProjectileMaterial, enemyProjectileMaterialForTag, glowPuddleMaterial, spellBoltMaterial, spellBoltSegmentGeometry, spellSparkGeometry, spellSparkMaterial, unitCone, unitSphere, WEAPON_COLOR } from '@/game/render/assets';
+import { GLOW_PUDDLE_GROUND_Y, GlowPuddle } from '@/game/render/GlowPuddle';
 import { PROJECTILE_WAX_EMIT_DISTANCE } from '@/game/features/effects/wax';
 import { arrowWidthScaleForLevel } from './upgrade-visuals';
 
 /**
  * Luz de proyectil (punto 3 de playtest: "los ataques de flecha y hechizo
- * deben emitir luz también") — REDISEÑO (playtest: "cuando el boss lanza
- * muchos proyectiles el rendimiento baja un montón, sobre todo con el bullet
- * hell"): antes cada SLOT del pool (hasta `PROJECTILE_POOL_SIZE`=96) montaba
- * su propia pointLight, apagada con `group.visible=false` cuando el slot
- * estaba inactivo. three.js recompila TODOS los programas de shader cada vez
- * que cambia el Nº de luces VISIBLES en la escena — con un bullet hell
- * (decenas de proyectiles apareciendo/muriendo por segundo) eso era una
- * recompilación constante. Fix: POOL FIJO de `PROJECTILE_LIGHT_POOL_SIZE`
- * pointLights, montadas UNA vez (mismo Nº de luces en escena SIEMPRE, cero
- * recompilaciones) en `ProjectileLightPool`, reasignadas cada frame por
- * prioridad — (a) proyectiles del héroe, (b) proyectiles enemigos más
- * CERCANOS al héroe — a los proyectiles activos; las sobrantes quedan con
- * intensity=0 (nunca `visible=false` ni desmontadas, para no volver a variar
- * el recuento). Color del arma activa (`WEAPON_COLOR`, arrow/spell); el
- * proyectil del shooter enemigo (`kind==='enemy'`) recibe una versión bastante
- * más débil, en su propio color. SIN sombra (coste).
+ * deben emitir luz también") — ELIMINADA (rama `luces-optimizadas`, recorte
+ * de luces reales de la escena de ~43 a 7): antes vivía aquí
+ * `ProjectileLightPool`, un pool FIJO de 6 pointLight reasignadas cada frame
+ * por prioridad (rediseño previo, playtest: "cuando el boss lanza muchos
+ * proyectiles el rendimiento baja un montón" — un pool por slot recompilaba
+ * shaders sin parar durante un bullet hell). Ahora NINGÚN proyectil emite luz
+ * real: el halo aditivo que antes solo llevaba el proyectil ENEMIGO
+ * (`glowHaloTexture` pegado al suelo, indistinguible de una luz real desde la
+ * cámara cenital y coste ~0) se generaliza a TODO proyectil, incluido el del
+ * héroe, vía el componente reutilizable `GlowPuddle`
+ * (`render/GlowPuddle.tsx`) — ver el halo único de `ProjectileSlot` más
+ * abajo. El cuerpo del proyectil compensa la pérdida de su pointLight con más
+ * `emissive` propio (`arrowMaterial`, ajustado en `assets-dark.ts`;
+ * `spellBoltMaterial` ya es `MeshBasicMaterial`, autoiluminado de fábrica, no
+ * necesita el mismo tratamiento).
  */
-const PROJECTILE_LIGHT_INTENSITY = 6;
-const PROJECTILE_LIGHT_DISTANCE = 3;
-const PROJECTILE_LIGHT_DECAY = 2;
-const PROJECTILE_LIGHT_INTENSITY_ENEMY = 3;
-const PROJECTILE_LIGHT_DISTANCE_ENEMY = 2.2;
-/** Altura Y del centro del proyectil (mismo valor que `group.position.set` en `ProjectileSlot`). */
-const PROJECTILE_LIGHT_HEIGHT = 0.3;
-/** Tamaño FIJO del pool de luces de proyectil (ver cabecera del fichero): antes leído de un presupuesto de calidad, ahora una constante única. */
-const PROJECTILE_LIGHT_POOL_SIZE = 6;
-
+const PROJECTILE_HALO_RADIUS = 0.6;
+/** Opacidad del halo del proyectil del HÉROE (arrow/spell): mismo valor que ya usaban ram/arrow/spell-tag en el halo de proyectil enemigo (`assets.ts`). */
+const PROJECTILE_HERO_HALO_OPACITY = 0.16;
 /**
- * Halo aditivo bajo CADA proyectil enemigo (feedback playtest 2026-07-17: "me
- * gustaría que cada bola tuviera su luz") — mismo truco barato que un sprite
- * aditivo con `glowHaloTexture` pegado al suelo, indistinguible de una luz
- * real desde la cámara cenital y coste ~0. NO es una pointLight nueva: el
- * recuento de luces reales de la escena se queda fijo (`ProjectileLightPool`,
- * más abajo) — este halo es un mesh MÁS por slot del pool de proyectiles, no
- * una luz.
+ * Altura Y del centro del proyectil (mismo valor que `group.position.set` en
+ * `ProjectileSlot`): ya no es "altura de luz" (no queda ninguna), pero el
+ * halo sigue necesitando cancelarla para quedar pegado al suelo (ver abajo).
  */
-const PROJECTILE_ENEMY_HALO_RADIUS = 0.6;
+const PROJECTILE_GROUP_HEIGHT = 0.3;
 /**
- * Altura LOCAL del halo dentro del group del slot (que ya vive a
- * `PROJECTILE_LIGHT_HEIGHT`=0.3 de mundo): offset negativo para dejarlo
- * pegado al suelo (~0.03 de mundo, mismo criterio que `ItemView.tsx`).
+ * Altura LOCAL del halo dentro del group del slot (que vive a
+ * `PROJECTILE_GROUP_HEIGHT`=0.3 de mundo): offset negativo para dejarlo a
+ * `GLOW_PUDDLE_GROUND_Y` de mundo (mismo criterio que `ItemView.tsx`).
  */
-const PROJECTILE_ENEMY_HALO_LOCAL_Y = 0.03 - PROJECTILE_LIGHT_HEIGHT;
+const PROJECTILE_HALO_LOCAL_Y = GLOW_PUDDLE_GROUND_Y - PROJECTILE_GROUP_HEIGHT;
 
 /**
  * Tamaño VISUAL de los proyectiles (playtest: "los proyectiles mejor un
@@ -253,7 +242,7 @@ function ProjectileSlot({ session, index }: { session: GameSession; index: numbe
   const arrowGroupRef = useRef<Group>(null);
   const spellGroupRef = useRef<Group>(null);
   const enemyBodyRef = useRef<Mesh>(null);
-  const enemyHaloRef = useRef<Mesh>(null);
+  const haloRef = useRef<Mesh>(null);
   const lastKind = useRef<ProjectileKind | null>(null);
   // Cera del proyectil (ver PROJECTILE_TRAIL_SIZE_FACTOR arriba): acumulador
   // propio por slot, de DISTANCIA recorrida (no tiempo — cada slot se
@@ -272,7 +261,7 @@ function ProjectileSlot({ session, index }: { session: GameSession; index: numbe
       return;
     }
     group.visible = true;
-    group.position.set(p.position.x, 0.3, p.position.y);
+    group.position.set(p.position.x, PROJECTILE_GROUP_HEIGHT, p.position.y);
 
     // Orientación: alinea el eje +Z local (asta de flecha / eje del hechizo)
     // con la dirección de movimiento.
@@ -334,11 +323,19 @@ function ProjectileSlot({ session, index }: { session: GameSession; index: numbe
         enemyBody.material = enemyProjectileMaterialForTag(p.colorTag);
       }
     }
-    const enemyHalo = enemyHaloRef.current;
-    if (enemyHalo) {
-      const showHalo = p.kind === 'enemy';
-      enemyHalo.visible = showHalo;
-      if (showHalo) enemyHalo.material = enemyProjectileGlowHaloMaterialForTag(p.colorTag);
+    // Halo de "luz por bala" (ver cabecera del fichero): TODO proyectil
+    // activo lo lleva ahora, no solo el enemigo — reasigna la REFERENCIA del
+    // material según el dueño (mismo truco de swap que el cuerpo del
+    // proyectil enemigo un poco más arriba, cero asignaciones nuevas: ambas
+    // ramas devuelven un material CACHEADO). Héroe = color de su arma activa
+    // (WEAPON_COLOR); enemigo = tinte por colorTag, como antes.
+    const halo = haloRef.current;
+    if (halo) {
+      halo.visible = true;
+      halo.material =
+        p.kind === 'enemy'
+          ? enemyProjectileGlowHaloMaterialForTag(p.colorTag)
+          : glowPuddleMaterial(WEAPON_COLOR[p.kind], PROJECTILE_HERO_HALO_OPACITY);
     }
   });
 
@@ -351,128 +348,22 @@ function ProjectileSlot({ session, index }: { session: GameSession; index: numbe
         <SpellShape session={session} slotIndex={index} />
       </group>
       <mesh ref={enemyBodyRef} geometry={unitSphere} material={enemyProjectileMaterial} />
-      {/* Halo de "luz por bala" (solo proyectiles enemigos): disco aditivo
-          pegado al suelo — indistinguible de una luz real desde la cámara
-          cenital y coste ~0 (sin pointLight nueva). */}
-      <mesh
-        ref={enemyHaloRef}
-        geometry={unitCircle}
-        material={enemyProjectileGlowHaloMaterialForTag('')}
-        rotation-x={-Math.PI / 2}
-        position={[0, PROJECTILE_ENEMY_HALO_LOCAL_Y, 0]}
-        scale={PROJECTILE_ENEMY_HALO_RADIUS}
+      {/* Halo de "luz por bala" (ver cabecera del fichero): TODO proyectil
+          activo lo lleva ahora (antes solo el enemigo) — disco aditivo
+          pegado al suelo vía GlowPuddle, indistinguible de una luz real
+          desde la cámara cenital y coste ~0 (sin pointLight, ver
+          GlowPuddle.tsx). Color/opacidad de montaje son un valor por
+          defecto cualquiera: el useFrame de arriba reasigna `material`
+          cada frame según el dueño real del slot antes de mostrarlo. */}
+      <GlowPuddle
+        meshRef={haloRef}
+        color={WEAPON_COLOR.arrow}
+        radius={PROJECTILE_HALO_RADIUS}
+        opacity={PROJECTILE_HERO_HALO_OPACITY}
+        position={[0, PROJECTILE_HALO_LOCAL_Y, 0]}
         visible={false}
       />
     </group>
-  );
-}
-
-/**
- * Pool FIJO de luces de proyectil (ver cabecera del fichero): SIEMPRE monta
- * exactamente `PROJECTILE_LIGHT_POOL_SIZE` pointLights (nunca más, nunca
- * menos — recuento constante durante toda la vida del componente, sin variar
- * al montar/desmontar proyectiles). Cada frame reasigna las luces a los
- * proyectiles activos por prioridad, sin asignar memoria nueva (arrays de
- * scratch creados una vez vía useRef).
- */
-function ProjectileLightPool({ session }: { session: GameSession }) {
-  const poolSize = PROJECTILE_LIGHT_POOL_SIZE;
-  const lightRefs = useRef<(PointLight | null)[]>([]);
-  // Scratch reutilizado cada frame (cero `new`/allocs en useFrame):
-  // `assignedSlot[k]` = índice en world.projectiles asignado a la luz k (-1
-  // si ninguno); `assignedDist2[k]` = distancia² al héroe del candidato
-  // ocupando el slot k durante la fase 2 (selección top-K de enemigos más
-  // cercanos, ver abajo).
-  const assignedSlot = useRef<number[]>(new Array(poolSize).fill(-1));
-  const assignedDist2 = useRef<number[]>(new Array(poolSize).fill(Infinity));
-
-  useFrame(() => {
-    const world = session.world;
-    const projectiles = world.projectiles;
-    const slots = assignedSlot.current;
-    const dist2 = assignedDist2.current;
-    for (let k = 0; k < poolSize; k++) slots[k] = -1;
-
-    // Fase 1 — prioridad máxima: proyectiles del héroe (flecha/hechizo), en
-    // orden de pool (orden de disparo).
-    let filled = 0;
-    for (let i = 0; i < projectiles.length && filled < poolSize; i++) {
-      const p = projectiles[i];
-      if (p.active && p.owner === 'hero') {
-        slots[filled] = i;
-        filled++;
-      }
-    }
-
-    // Fase 2 — huecos restantes: proyectiles ENEMIGOS más cercanos al héroe
-    // (selección top-K acotada sobre los slots libres [filled..POOL), sin
-    // ordenar ni asignar arrays nuevos — sustituye el peor candidato ya
-    // ocupado si el nuevo está más cerca).
-    if (filled < poolSize) {
-      for (let k = filled; k < poolSize; k++) dist2[k] = Infinity;
-      const heroX = world.hero.position.x;
-      const heroY = world.hero.position.y;
-      for (let i = 0; i < projectiles.length; i++) {
-        const p = projectiles[i];
-        if (!p.active || p.owner !== 'enemy') continue;
-        const dx = p.position.x - heroX;
-        const dy = p.position.y - heroY;
-        const d2 = dx * dx + dy * dy;
-        let worstSlot = -1;
-        let worstDist2 = -1;
-        for (let k = filled; k < poolSize; k++) {
-          if (dist2[k] > worstDist2) {
-            worstDist2 = dist2[k];
-            worstSlot = k;
-          }
-        }
-        if (worstSlot !== -1 && d2 < worstDist2) {
-          slots[worstSlot] = i;
-          dist2[worstSlot] = d2;
-        }
-      }
-    }
-
-    // Aplica la asignación a las luces montadas: posición + color/intensidad
-    // del proyectil asignado, o intensity=0 (NUNCA visible=false/desmontar:
-    // cambiaría el recuento) si el slot quedó sin candidato.
-    for (let k = 0; k < poolSize; k++) {
-      const light = lightRefs.current[k];
-      if (!light) continue;
-      const idx = slots[k];
-      if (idx === -1) {
-        light.intensity = 0;
-        continue;
-      }
-      const p = projectiles[idx];
-      light.position.set(p.position.x, PROJECTILE_LIGHT_HEIGHT, p.position.y);
-      if (p.kind === 'arrow' || p.kind === 'spell') {
-        light.color.copy(WEAPON_COLOR[p.kind]);
-        light.intensity = PROJECTILE_LIGHT_INTENSITY;
-        light.distance = PROJECTILE_LIGHT_DISTANCE;
-      } else {
-        // Mismo colorTag que tiñe el cuerpo/halo del proyectil (ver
-        // `ProjectileSlot`): reutiliza la misma tabla, sin duplicar colores.
-        light.color.copy(enemyProjectileMaterialForTag(p.colorTag).color);
-        light.intensity = PROJECTILE_LIGHT_INTENSITY_ENEMY;
-        light.distance = PROJECTILE_LIGHT_DISTANCE_ENEMY;
-      }
-    }
-  });
-
-  return (
-    <>
-      {Array.from({ length: poolSize }, (_, k) => (
-        <pointLight
-          key={k}
-          ref={(el) => {
-            lightRefs.current[k] = el;
-          }}
-          decay={PROJECTILE_LIGHT_DECAY}
-          intensity={0}
-        />
-      ))}
-    </>
   );
 }
 
@@ -484,7 +375,6 @@ export function ProjectileViews({ session }: { session: GameSession }) {
       {indices.map((i) => (
         <ProjectileSlot key={i} session={session} index={i} />
       ))}
-      <ProjectileLightPool session={session} />
     </>
   );
 }

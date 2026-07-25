@@ -59,6 +59,7 @@ import { ItemViews } from '@/game/features/items/ItemView';
 import { ProjectileViews } from '@/game/features/combat/ProjectileView';
 import { PuddleViews } from '@/game/features/hazards/PuddleView';
 import { RoomView } from './RoomView';
+import { SceneLights } from './SceneLights';
 import { useGameLoop } from './useGameLoop';
 
 /** Componente-driver: registra el loop de sim ANTES que los lectores (orden de montaje). */
@@ -174,17 +175,22 @@ export function GameRoot({
             import.meta.env.DEV && new URLSearchParams(window.location.search).has('rafshim'),
         }}
         camera={{ fov: 45, near: 0.5, far: 80, position: [0, 9.5, 11] }}
-        // Sombras (punto 1 de playtest: "la luz de la vela no debe atravesar
-        // paredes"): una única luz con sombra (CandleLightView, cúbica por
-        // ser pointLight) es asumible en forward rendering.
+        // Sombras: rig de luces rehecho a 7 luces / 1 sola sombra en toda la
+        // escena (la directionalLight de SceneLights.tsx, que sigue al héroe
+        // con cámara ortográfica). La vela del héroe (CandleLightView) ya NO
+        // proyecta sombra por defecto (su sombra cúbica de pointLight era la
+        // causa medida de los 23 FPS de la ronda 6) — solo lo hace tras
+        // `?candleshadow`, flag TEMPORAL de comparación A/B, ver
+        // debug-params.ts.
         shadows
       >
         <SimDriver session={session} />
         <RendererSync />
-        {/* Luz de escena en penumbra: la vela del héroe (CandleLightView) es
-            la fuente de luz principal de la sala. */}
-        <ambientLight intensity={0.22} color="#7c8fc9" />
-        <directionalLight position={[4, 8, 3]} intensity={0.15} color="#aab6e0" />
+        {/* Rig de luz global (hemisphere + directional con sombra, ver
+            SceneLights.tsx): la vela del héroe (CandleLightView) sigue siendo
+            la fuente de luz protagonista de la sala, esto es el relleno de
+            fondo + la única sombra de toda la escena. */}
+        <SceneLights session={session} />
         <color attach="background" args={['#050508']} />
         {/* El fog arranca más allá de la distancia cámara→suelo (~15 u):
             solo funde los bordes lejanos de la sala, nunca el área de juego. */}

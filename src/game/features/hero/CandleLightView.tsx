@@ -15,6 +15,24 @@
  * shake de trauma de CameraRig), pensada para ser sutil y nunca
  * estroboscópica.
  *
+ * Sombra (historial — YA NO por defecto): originalmente esta luz proyectaba
+ * sombra (punto 1 de playtest: "la luz de la vela no debe atravesar
+ * paredes"). El coste medido de esa decisión era real: al ser una pointLight,
+ * la sombra es CÚBICA — 6 pasadas de render de la escena por frame, la causa
+ * confirmada de los 23 FPS de la ronda 6 de playtest (ver GameRoot.tsx,
+ * comentario de RendererSync). Con el rig de luces rehecho (7 luces / 1 sola
+ * sombra en toda la escena, ver SceneLights.tsx) ya no podemos permitirnos
+ * una segunda sombra solo para esto. Lo que compensa la ausencia de sombra:
+ * (a) `CANDLE_BASE_DISTANCE` se recorta de 8.5 a 5.5 — con menos alcance la
+ * luz ya no llega a colarse en la sala contigua a través de una pared, que
+ * era el problema real que la sombra resolvía; (b) la `directionalLight` de
+ * SceneLights.tsx sigue proyectando sombra sobre los volúmenes de la sala
+ * (muros, rocas, pinchos), así que la escena no se queda sin sombra alguna.
+ * `castShadow` sigue existiendo pero pasa a depender de `?candleshadow`
+ * (ver debug-params.ts) — un flag TEMPORAL solo para poder comparar A/B
+ * durante el playtest de esta ronda; bórralo (junto con el flag) en cuanto
+ * el playtest zanje si merece la pena recuperarla.
+ *
  * Nota de tuning: las herramientas de preview/browser estaban prohibidas para
  * esta tarea, así que los valores de intensidad/distancia de abajo son un
  * punto de partida razonado (no verificado visualmente en el juego real) —
@@ -27,6 +45,12 @@ import { useRef } from 'react';
 import { Color, type PointLight } from 'three';
 import type { GameSession } from '@/game/session/session';
 import { WEAPON_COLOR } from '@/game/render/assets';
+import { readCandleShadow } from '@/game/render/debug-params';
+
+// Flag TEMPORAL de comparación A/B (ver debug-params.ts): leído una sola vez
+// al cargar el módulo, mismo momento que el `?rafshim` de main.tsx — no
+// cambia a media partida, así que no hace falta releerlo por render/frame.
+const CANDLE_SHADOW_ENABLED = readCandleShadow();
 
 /** Tono cálido base de la vela (blanco-naranja de llama), antes de mezclar con el color del arma activa. */
 const CANDLE_WARM_COLOR = new Color('#ffb469');
@@ -41,9 +65,29 @@ const CANDLE_COLOR_LERP_STIFFNESS = 10;
  * iluminaba la sala contigua (punto 1 de playtest ronda 2 del modo oscuro).
  */
 const CANDLE_HEIGHT = 0.75;
-/** Alcance base (u de mundo) del círculo iluminado alrededor del héroe: generoso frente al radio de sala (~12-20). */
-const CANDLE_BASE_DISTANCE = 8.5;
-const CANDLE_BASE_INTENSITY = 45;
+/**
+ * Alcance base (u de mundo) del círculo iluminado alrededor del héroe.
+ * Recortado de 8.5 a 5.5 (ver cabecera del fichero: ya no hay sombra que
+ * detenga la luz en el muro, así que con el alcance de antes se colaba en la
+ * sala contigua). Sigue siendo generoso para el radio de sala (~12-20).
+ */
+const CANDLE_BASE_DISTANCE = 5.5;
+/**
+ * Intensidad base — PUNTO DE TUNING, pero razonado: con `decay=2`, three.js
+ * calcula la atenuación de una pointLight como
+ * `(1/d²) × (1 − (d/distance)⁴)²` (ver `getDistanceAttenuation`,
+ * three/src/renderers/shaders/ShaderChunk/lights_pars_begin.glsl.js) — el
+ * primer factor (1/d²) NO depende de `distance` (el corte de alcance), pero
+ * el segundo factor de ventana SÍ, y se vuelve más agresivo cuanto más cerca
+ * está `d` del nuevo corte, más estrecho. A una distancia de referencia
+ * d=3 (bien dentro del charco, no en el borde) ese factor de ventana baja de
+ * ≈0.969 con distance=8.5 a ≈0.831 con distance=5.5 — una caída de ~17% en
+ * la zona que sigue siendo "cerca" del héroe. CANDLE_BASE_INTENSITY sube en
+ * esa misma proporción (45 × 1.17 ≈ 53, redondeado a 55 con un pequeño
+ * margen) para que el charco no se perciba más tímido cerca del héroe solo
+ * por haber recortado el alcance lejano.
+ */
+const CANDLE_BASE_INTENSITY = 55;
 const CANDLE_DECAY = 2;
 
 /** Parpadeo: frecuencias (rad/s) inconmensuradas entre sí y su peso relativo (suman 1 → variación acotada). */
@@ -98,17 +142,18 @@ export function CandleLightView({ session }: { session: GameSession }) {
       distance={CANDLE_BASE_DISTANCE}
       intensity={CANDLE_BASE_INTENSITY}
       color={CANDLE_WARM_COLOR}
-      // Sombra (punto 1 de playtest: "la luz de la vela no debe atravesar
-      // paredes"): única luz con sombra de toda la escena junto a la
-      // linterna de enemigo (cúbica, al ser pointLight — 6 caras), asumible
-      // en forward rendering. near/far del cubo de sombra acordes al alcance
-      // real de la luz (CANDLE_BASE_DISTANCE ≈ 8.5, con margen por el
-      // parpadeo que lo estira hasta ~9.5).
-      castShadow
+      // Sombra DESACTIVADA por defecto (ver cabecera del fichero: coste de
+      // sombra cúbica de pointLight, causa medida de los 23 FPS de la ronda
+      // 6). `castShadow` solo se activa con `?candleshadow`/`?candleshadow=1`
+      // (flag TEMPORAL de comparación A/B, debug-params.ts) — con el flag
+      // activo se comporta EXACTAMENTE igual que antes (mismo mapa/near/far
+      // de abajo, sin tocar), para que la comparación sea limpia.
+      castShadow={CANDLE_SHADOW_ENABLED}
       // 512 (antes 1024, playtest ronda 6: 23 FPS): la sombra de una
       // pointLight es CÚBICA — 6 pasadas de render por frame — y a 1024² son
       // 6 M de texels/frame solo de sombra. A 512² cuesta ¼ y el borde
-      // ligeramente más blando hasta favorece el look de vela.
+      // ligeramente más blando hasta favorece el look de vela. Sin efecto
+      // mientras castShadow sea false (three.js no genera el shadow map).
       shadow-mapSize={[512, 512]}
       shadow-camera-near={0.3}
       shadow-camera-far={10}
