@@ -47,31 +47,40 @@
  *   glitch visual mucho más llamativo que el que este fichero existe para
  *   evitar.
  *
- * POP al reasignar — mitigación elegida: FUNDIDO CORTO de intensidad, no
+ * POP al reasignar — mitigación elegida: FUNDIDO CRUZADO de intensidad, no
  * histéresis. `selectNearestInto` es una función PURA sin memoria del frame
  * anterior (recalcula el top-3 desde cero cada llamada, ver cabecera de
  * `light-pool.ts`): implementar histéresis ahí exigiría comparar la
  * asignación vigente del pool contra el nuevo top-3 y decidir cuándo negarse
  * a robar un slot — más estado, más ramas, y acoplaría una función de datos
  * pura y ya testeada a la política de un consumidor concreto. El fundido, en
- * cambio, ataca el síntoma real: lo que se ve mal no es que el slot cambie de
- * emisor, es que la luz APAREZCA a plena intensidad en una posición nueva de
- * golpe. Por eso cada slot recuerda (en `lastAssigned`, scratch) qué emisor
- * llevaba el frame anterior; si cambia, `fadeElapsed` vuelve a 0 y la
- * intensidad crece linealmente desde 0 hasta la plena en
- * `TORCH_POOL_FADE_DURATION` segundos (mismo criterio de suavizado barato que
- * ya usa el repo, p.ej. el lerp de color de `CandleLightView`). El lado que
- * PIERDE el slot tampoco corta en seco: su antorcha conserva un `GlowPuddle`
- * fijo a sus pies (Tarea 2, `TorchView.tsx`) que no depende de este pool, así
- * que nunca se queda completamente a oscuras, solo pierde el derrame de luz
- * real sobre las paredes cercanas.
+ * cambio, ataca el síntoma real sin tocar la selección.
+ *
+ * Primera versión (solo fundido de ENTRADA): la antorcha SALIENTE cortaba en
+ * seco —intensidad a 0 en el mismo frame en que el slot cambiaba de
+ * emisor— mientras la ENTRANTE aparecía ya en la posición nueva y subía desde
+ * 0. Con las dos cosas ocurriendo en frames contiguos se leía como "se
+ * encienden/apagan" antorchas de golpe (bug reportado por David en la sala de
+ * la tienda). Corregido con un fundido CRUZADO: cada slot es ahora una
+ * pequeña máquina de dos fases —'exiting' / 'entering'— extraída como función
+ * pura en `stepSlotFade` (`torch-pool-fade.ts`, con sus propios tests): al
+ * cambiar la asignación, el slot primero BAJA la intensidad hasta 0
+ * conservando posición/color/cono del emisor VIEJO (fase 'exiting'), y solo
+ * cuando esa salida termina salta al emisor nuevo y sube desde 0 (fase
+ * 'entering'). Cada fase dura `TORCH_POOL_FADE_PHASE_DURATION` segundos por
+ * separado — el ciclo completo de un cruce puede llegar a durar el doble de
+ * esa constante. El lado que PIERDE el slot, además, tampoco se queda a
+ * oscuras del todo mientras dura la salida: su antorcha conserva un
+ * `GlowPuddle` fijo a sus pies (Tarea 2, `TorchView.tsx`) que no depende de
+ * este pool.
  */
 
 import { useFrame } from '@react-three/fiber';
 import { useMemo, useRef } from 'react';
-import type { Object3D, SpotLight } from 'three';
+import { Color, type Object3D, type SpotLight } from 'three';
 import type { GameSession } from '@/game/session/session';
 import { selectNearestInto } from '@/game/render/light-pool';
+import { createSlotFadeState, stepSlotFade, type SlotFadeState } from '@/game/render/torch-pool-fade';
 import {
   collectTorchEmitters,
   SHOPKEEPER_LIGHT_ANGLE,
@@ -99,21 +108,15 @@ const FLICKER_AMPLITUDE = 0.16;
 const FLICKER_PHASE_STEP = 2.3;
 
 /**
- * Duración del fundido al reasignar un slot (ver "POP al reasignar" en la
- * cabecera): corto para no leerse como una luz "encendiéndose" a cámara
- * lenta, largo para que la aparición en la nueva posición pase inadvertida —
- * punto de tuning, calibrado a ojo contra el ritmo de movimiento del héroe.
+ * Duración de CADA fase (salida y entrada por separado, ver "POP al
+ * reasignar" en la cabecera y `stepSlotFade` en `torch-pool-fade.ts`) al
+ * reasignar un slot: corta para no leerse como una luz "encendiéndose" a
+ * cámara lenta, larga para que el cruce entre la antorcha vieja y la nueva
+ * pase inadvertido — punto de tuning, calibrado a ojo contra el ritmo de
+ * movimiento del héroe. El ciclo completo de un cruce (salida + entrada)
+ * puede llegar a durar el doble de esta constante.
  */
-const TORCH_POOL_FADE_DURATION = 0.3;
-
-/**
- * Sentinela de "sin asignación previa": distinto tanto de cualquier índice
- * real (>=0) como de -1 ("slot vacío", ver `selectNearestInto`), así que la
- * primera asignación real de cada slot —incluida la del primer frame de la
- * run— siempre dispara un fundido de entrada en vez de aparecer a plena
- * intensidad de golpe.
- */
-const UNASSIGNED = -2;
+const TORCH_POOL_FADE_PHASE_DURATION = 0.3;
 
 function coneAngleFor(kind: TorchEmitter['kind']): number {
   return kind === 'shopkeeper' ? SHOPKEEPER_LIGHT_ANGLE : TORCH_LIGHT_ANGLE;
@@ -129,6 +132,16 @@ export function TorchLightPool({ session }: { session: GameSession }) {
   // partida, así que se calcula una sola vez al montar.
   const emitters = useMemo(() => collectTorchEmitters(session.world), [session.world]);
 
+  // `THREE.Color` por emisor, precalculado UNA vez (aquí, no en
+  // `torch-placements.ts`: ese módulo se mantiene deliberadamente sin
+  // dependencia de three.js, ver su cabecera). `emitter.color` es un string
+  // (`'#ffb469'`) que otros consumidores siguen leyendo tal cual (p.ej. el
+  // `GlowPuddle` de `TorchView.tsx`), así que el tipo `TorchEmitter.color` no
+  // cambia — solo este pool necesita la versión ya parseada, porque es el
+  // único que la asigna a una luz real CADA FRAME (`light.color.copy(...)`
+  // más abajo evita que three.js reparse el string 3 veces por frame).
+  const emitterColors = useMemo(() => emitters.map((e) => new Color(e.color)), [emitters]);
+
   const lightRefs = useRef<(SpotLight | null)[]>([]);
   const targetRefs = useRef<(Object3D | null)[]>([]);
 
@@ -136,10 +149,11 @@ export function TorchLightPool({ session }: { session: GameSession }) {
   // referencia del array, solo se sobreescriben sus posiciones (mismo
   // patrón que el ancla de `SceneLights.tsx`).
   const nearestScratch = useMemo<number[]>(() => new Array(TORCH_LIGHT_POOL_SIZE).fill(-1), []);
-  /** Emisor que llevaba cada slot en el frame anterior — detecta el cambio de asignación que dispara el fundido (ver cabecera). */
-  const lastAssigned = useMemo<number[]>(() => new Array(TORCH_LIGHT_POOL_SIZE).fill(UNASSIGNED), []);
-  /** Segundos transcurridos desde la última reasignación de cada slot. */
-  const fadeElapsed = useMemo<number[]>(() => new Array(TORCH_LIGHT_POOL_SIZE).fill(0), []);
+  /** Máquina de dos fases (saliendo/entrando) de cada slot — ver `stepSlotFade` en `torch-pool-fade.ts` y "POP al reasignar" en la cabecera. Objetos creados UNA vez, mutados in-place cada frame. */
+  const slotFades = useMemo<SlotFadeState[]>(
+    () => Array.from({ length: TORCH_LIGHT_POOL_SIZE }, () => createSlotFadeState()),
+    [],
+  );
 
   useFrame((state, delta) => {
     const world = session.world;
@@ -155,25 +169,25 @@ export function TorchLightPool({ session }: { session: GameSession }) {
     for (let k = 0; k < TORCH_LIGHT_POOL_SIZE; k++) {
       const light = lightRefs.current[k];
       if (!light) continue;
-      const idx = nearestScratch[k];
 
-      // Cambio de asignación (incluida la primera, ver UNASSIGNED): reinicia el fundido de este slot.
-      if (idx !== lastAssigned[k]) {
-        lastAssigned[k] = idx;
-        fadeElapsed[k] = 0;
-      } else if (fadeElapsed[k] < TORCH_POOL_FADE_DURATION) {
-        fadeElapsed[k] += delta;
-      }
+      // Avanza la máquina de dos fases del slot y obtiene la fracción de
+      // intensidad [0,1] a aplicar; `slot.displayedIdx` (mutado por
+      // `stepSlotFade`) es el emisor que el slot debe PINTAR este frame —
+      // puede seguir siendo el emisor viejo mientras dura la fase 'exiting',
+      // aunque `nearestScratch[k]` ya apunte al nuevo (ver cabecera).
+      const slot = slotFades[k];
+      const fade = stepSlotFade(slot, nearestScratch[k], delta, TORCH_POOL_FADE_PHASE_DURATION);
+      const shownIdx = slot.displayedIdx;
 
-      if (idx === -1) {
+      if (shownIdx === -1) {
         // INVARIANTE: nunca visible=false ni desmontado, solo apagado (ver cabecera).
         light.intensity = 0;
         continue;
       }
 
-      const emitter = emitters[idx];
+      const emitter = emitters[shownIdx];
       light.position.set(emitter.x, emitter.y, emitter.z);
-      light.color.set(emitter.color);
+      light.color.copy(emitterColors[shownIdx]);
       light.distance = emitter.distance;
       light.angle = coneAngleFor(emitter.kind);
       light.penumbra = conePenumbraFor(emitter.kind);
@@ -197,10 +211,9 @@ export function TorchLightPool({ session }: { session: GameSession }) {
         if (light.target !== target) light.target = target;
       }
 
-      // Parpadeo desfasado por ÍNDICE DE EMISOR (idx), no por slot (ver cabecera).
-      const tp = t + idx * FLICKER_PHASE_STEP;
+      // Parpadeo desfasado por ÍNDICE DE EMISOR (shownIdx), no por slot (ver cabecera).
+      const tp = t + shownIdx * FLICKER_PHASE_STEP;
       const flicker = FLICKER_WEIGHT_A * Math.sin(tp * FLICKER_FREQ_A) + FLICKER_WEIGHT_B * Math.sin(tp * FLICKER_FREQ_B);
-      const fade = Math.min(1, fadeElapsed[k] / TORCH_POOL_FADE_DURATION);
       light.intensity = emitter.intensity * (1 + FLICKER_AMPLITUDE * flicker) * fade;
     }
   });
@@ -214,7 +227,8 @@ export function TorchLightPool({ session }: { session: GameSession }) {
               lightRefs.current[i] = el;
             }}
             // Arranca apagado (intensity=0): el primer useFrame reasigna
-            // todo antes de que se note — ver UNASSIGNED en la cabecera.
+            // todo antes de que se note — ver `UNASSIGNED_EMITTER` en
+            // `torch-pool-fade.ts`.
             intensity={0}
             distance={TORCH_LIGHT_DISTANCE}
             decay={TORCH_LIGHT_DECAY}

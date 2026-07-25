@@ -17,6 +17,7 @@
  */
 
 import { Canvas, useThree } from '@react-three/fiber';
+import { Preload } from '@react-three/drei';
 import { useCallback, useEffect, useState } from 'react';
 import type { Material, Object3D } from 'three';
 import { getRoomPool } from '@/game/features/dungeon/rooms';
@@ -208,6 +209,34 @@ export function GameRoot({
         <AimIndicatorView session={session} />
         <CameraRig session={session} />
         <AimInput session={session} />
+        {/*
+          Precompilación de shaders (diagnóstico: tirón de 55,8 ms al entrar
+          en la sala de la tienda, con `renderer.info.programs.length` pasando
+          de 9 a 11 en ESE mismo frame). three.js compila el programa de
+          shader de un material la PRIMERA vez que uno de sus objetos pasa el
+          frustum culling y se renderiza de verdad — no al montar el
+          componente de React. Como toda la mazmorra se monta de golpe desde
+          el arranque de la run (ver cabecera de RoomView.tsx: "renderiza
+          TODAS las salas colocadas en el plano"), los materiales de salas que
+          el héroe aún no ha visitado (antorchas del jefe, luz/geometría del
+          tendero, etc.) quedan sin compilar hasta que la cámara los enfoca
+          por primera vez — de ahí el tirón de golpe al cruzar la puerta.
+
+          `<Preload all />` (drei) hace, en un único `useLayoutEffect` que
+          corre UNA vez al montar este árbol: hace visible temporalmente todo
+          el grafo de la escena, llama a `gl.compile(scene, camera)` (fuerza
+          la compilación de TODOS los materiales presentes, los haya
+          renderizado la cámara o no) y restaura la visibilidad original. Debe
+          ir DESPUÉS de las vistas de arriba en el árbol de hijos del Canvas:
+          necesita que el grafo ya exista para poder recorrerlo.
+
+          Coste que acepta a cambio: la compilación completa se paga UNA vez,
+          al arrancar la run (pequeño micro-tirón inicial, con la pantalla
+          probablemente aún en transición/carga) en lugar de repartirse en
+          tirones de decenas de ms cada vez que el héroe entra en una sala con
+          materiales nuevos — que es precisamente lo que no molesta.
+        */}
+        <Preload all />
       </Canvas>
       <DamageVignette />
       <FpsCounter />
