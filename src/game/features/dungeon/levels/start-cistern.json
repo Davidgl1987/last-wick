@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "id": "start-cistern",
+  "name": "Aljibe Roto",
+  "width": 11,
+  "height": 11,
+  "playerStart": { "x": 0, "y": 4 },
+  "tags": ["inicio"],
+  "doorSlots": [
+    { "side": "north", "offset": 0 },
+    { "side": "south", "offset": 0 },
+    { "side": "east", "offset": 0 },
+    { "side": "west", "offset": 0 }
+  ],
+  "enemies": [],
+  "hazards": [
+    { "id": "mud-1", "kind": "slow", "position": { "x": 0, "y": 0 }, "width": 3.5, "height": 3 },
+    { "id": "rock-1", "kind": "rock", "position": { "x": -2.5, "y": 2.5 }, "width": 1, "height": 1 },
+    { "id": "rock-2", "kind": "rock", "position": { "x": 2.5, "y": -2.5 }, "width": 1, "height": 1 }
+  ],
+  "items": [
+    { "id": "coin-1", "kind": "coin", "position": { "x": -1.5, "y": 3.5 } },
+    { "id": "coin-2", "kind": "coin", "position": { "x": 1.5, "y": 3.5 } },
+    { "id": "coin-3", "kind": "coin", "position": { "x": 0, "y": -4 } }
+  ]
+}

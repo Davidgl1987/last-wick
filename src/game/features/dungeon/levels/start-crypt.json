@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "id": "start-crypt",
+  "name": "Cripta Angosta",
+  "width": 9,
+  "height": 13,
+  "playerStart": { "x": 0, "y": 4.5 },
+  "tags": ["inicio"],
+  "doorSlots": [
+    { "side": "north", "offset": 0 },
+    { "side": "south", "offset": 0 },
+    { "side": "east", "offset": 0 },
+    { "side": "west", "offset": 0 }
+  ],
+  "enemies": [],
+  "hazards": [
+    { "id": "rock-1", "kind": "rock", "position": { "x": -1.5, "y": 3 }, "width": 1, "height": 1 },
+    { "id": "rock-2", "kind": "rock", "position": { "x": 1.5, "y": 3 }, "width": 1, "height": 1 },
+    { "id": "rock-3", "kind": "rock", "position": { "x": -1.5, "y": -3 }, "width": 1, "height": 1 },
+    { "id": "rock-4", "kind": "rock", "position": { "x": 1.5, "y": -3 }, "width": 1, "height": 1 }
+  ],
+  "items": [
+    { "id": "coin-1", "kind": "coin", "position": { "x": 0, "y": 3 } },
+    { "id": "coin-2", "kind": "coin", "position": { "x": 0, "y": -3 } },
+    { "id": "coin-3", "kind": "coin", "position": { "x": 0, "y": -5.5 } }
+  ]
+}

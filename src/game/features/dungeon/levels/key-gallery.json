@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "id": "key-gallery",
+  "name": "Galería de Guardianes",
+  "width": 13,
+  "height": 9,
+  "playerStart": { "x": -5, "y": 0 },
+  "tags": ["llave"],
+  "doorSlots": [
+    { "side": "north", "offset": 0 },
+    { "side": "south", "offset": 0 },
+    { "side": "east", "offset": 0 },
+    { "side": "west", "offset": 0 }
+  ],
+  "enemies": [
+    { "id": "dummy-1", "kind": "dummy", "position": { "x": -2, "y": 2 }, "patrolTarget": { "x": 0, "y": 2 } },
+    { "id": "dummy-2", "kind": "dummy", "position": { "x": -2, "y": -2 }, "patrolTarget": { "x": 0, "y": -2 } },
+    { "id": "shooter-1", "kind": "shooter", "position": { "x": 3, "y": 2 } },
+    { "id": "chaser-1", "kind": "chaser", "position": { "x": 3, "y": -2 } }
+  ],
+  "hazards": [
+    { "id": "rock-1", "kind": "rock", "position": { "x": -1, "y": 0 }, "width": 0.8, "height": 0.8 },
+    { "id": "rock-2", "kind": "rock", "position": { "x": 1, "y": 0 }, "width": 0.8, "height": 0.8 }
+  ],
+  "items": [{ "id": "key-item", "kind": "key", "position": { "x": 5, "y": 0 } }]
+}

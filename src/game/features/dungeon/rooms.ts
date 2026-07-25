@@ -7,18 +7,6 @@
  * el norte.
  */
 
-import boossDenJson from '@/game/features/dungeon/levels/boss-den.json';
-import bossGuardianJson from '@/game/features/dungeon/levels/boss-guardian.json';
-import bossPrismaJson from '@/game/features/dungeon/levels/boss-prisma.json';
-import bossQueenJson from '@/game/features/dungeon/levels/boss-queen.json';
-import bossStormJson from '@/game/features/dungeon/levels/boss-storm.json';
-import bossTestJson from '@/game/features/dungeon/levels/boss-test.json';
-import combatArenaJson from '@/game/features/dungeon/levels/combat-arena.json';
-import combatCrossroadsJson from '@/game/features/dungeon/levels/combat-crossroads.json';
-import combatSpikefieldJson from '@/game/features/dungeon/levels/combat-spikefield.json';
-import keyVaultJson from '@/game/features/dungeon/levels/key-vault.json';
-import shopRefugeJson from '@/game/features/dungeon/levels/shop-refuge.json';
-import startHallJson from '@/game/features/dungeon/levels/start-hall.json';
 import { parseRoomData } from './room-format';
 import type { RoomData } from '@/game/world/types';
 
@@ -83,24 +71,28 @@ export const testRoom: RoomData = {
 
 // ── Pool de salas de serie (GDD §10.2/§13) ────────────────────────────────
 //
-// Cargadas desde src/game/features/dungeon/levels/*.json y validadas con el mismo parser que usa
-// el editor para importar/exportar (room-format.ts): si un JSON de serie
-// estuviera mal formado, falla aquí en tiempo de carga del módulo (arranque
-// del juego), no en mitad de una run.
-
-const SERIES_LEVEL_JSON: readonly unknown[] = [
-  startHallJson,
-  combatCrossroadsJson,
-  combatSpikefieldJson,
-  combatArenaJson,
-  keyVaultJson,
-  shopRefugeJson,
-  boossDenJson,
-  bossGuardianJson,
-  bossQueenJson,
-  bossPrismaJson,
-  bossStormJson,
-];
+// Registro AUTOMÁTICO por directorio: cualquier .json en
+// src/game/features/dungeon/levels/ entra al pool sin tocar este fichero. Esto
+// importa de verdad porque el editor del juego guarda salas nuevas
+// directamente ahí (POST /api/editor/rooms, ver vite.config.ts): con el glob,
+// una sala creada en el editor aparece en el pool de la siguiente run sin que
+// nadie edite TypeScript.
+//
+// `eager: true` fuerza la carga síncrona en tiempo de arranque del módulo (el
+// import.meta.glob se resuelve como si fueran imports estáticos normales, uno
+// por fichero) — mismo comportamiento que los imports manuales que sustituye.
+// `import: 'default'` desenvuelve cada módulo a su export default (el JSON
+// parseado), igual que hacía `import x from '...json'`.
+//
+// Los JSON de serie se validan con el mismo parser que usa el editor para
+// importar/exportar (room-format.ts): si uno estuviera mal formado, falla
+// aquí en tiempo de carga del módulo (arranque del juego), no en mitad de una
+// run — y el error dice QUÉ fichero es, para que sea inmediato de localizar
+// cuando el usuario guarde una sala rota desde el editor.
+const LEVEL_JSON_MODULES = import.meta.glob('./levels/*.json', { eager: true, import: 'default' }) as Record<
+  string,
+  unknown
+>;
 
 /**
  * `boss-test.json` (jefe de pruebas trivial, Fase B0 de docs/plans/BOSSES_PLAN.md
@@ -110,29 +102,37 @@ const SERIES_LEVEL_JSON: readonly unknown[] = [
  * de diseño ya en el pool, este nunca se sortea porque `pickRoomForRole`
  * (features/dungeon/dungeon.ts) prefiere salas 'jefe' con `boss` — y de haber varias,
  * elige entre TODAS con la misma probabilidad, así que hay que excluirlo
- * explícitamente aquí en vez de confiar en esa preferencia.
+ * explícitamente aquí en vez de confiar en esa preferencia. Se filtra por
+ * NOMBRE DE FICHERO (no por un array aparte, ahora que el registro es
+ * automático) para que este caso especial sobreviva al cambio a glob.
  *
  * `boss-guardian.json` (Fase B1, GDD §15.2), `boss-queen.json` (Fase B2, GDD
  * §15.3), `boss-prisma.json` (Fase B3, GDD §15.4) y `boss-storm.json` (Fase
- * B4, GDD §15.5) ya están en `SERIES_LEVEL_JSON` con `boss` definido:
- * `deriveBossSequence` (session.ts) encadena una mazmorra por cada jefe de
- * diseño disponible en el pool, en el orden fijo de dificultad
- * `BOSS_DIFFICULTY_ORDER` (registry.ts; GDD §15.1 punto 9: "un pool de jefes,
- * uno por mazmorra, encadenados dentro de la misma run"). `boss-den.json`
- * sigue en el pool con tag 'jefe' pero SIN
+ * B4, GDD §15.5) tienen `boss` definido en su JSON: `deriveBossSequence`
+ * (session.ts) encadena una mazmorra por cada jefe de diseño disponible en el
+ * pool, en el orden fijo de dificultad `BOSS_DIFFICULTY_ORDER` (registry.ts;
+ * GDD §15.1 punto 9: "un pool de jefes, uno por mazmorra, encadenados dentro
+ * de la misma run"). `boss-den.json` sigue en el pool con tag 'jefe' pero SIN
  * `boss` — queda inerte (nunca se sortea para ningún rol) a propósito: con
  * los 4 jefes de diseño ya cubiertos (B1-B4), no hay un 5.º jefe que colgarle;
  * se conserva sin tocar por ser una decisión ya tomada en B0.
  */
-const DEV_ONLY_LEVEL_JSON: readonly unknown[] = [bossTestJson];
+const DEV_ONLY_LEVEL_FILENAMES: ReadonlySet<string> = new Set(['boss-test.json']);
 
 function loadSeriesRooms(): RoomData[] {
-  const jsons = import.meta.env.DEV ? [...SERIES_LEVEL_JSON, ...DEV_ONLY_LEVEL_JSON] : SERIES_LEVEL_JSON;
+  // Orden alfabético del propio glob (rutas ya vienen ordenadas por Vite;
+  // se ordenan explícitamente aquí para no depender de ese detalle interno).
+  const paths = Object.keys(LEVEL_JSON_MODULES).sort();
   const rooms: RoomData[] = [];
-  for (const json of jsons) {
+  for (const path of paths) {
+    const filename = path.slice(path.lastIndexOf('/') + 1);
+    if (!import.meta.env.DEV && DEV_ONLY_LEVEL_FILENAMES.has(filename)) continue;
+    const json = LEVEL_JSON_MODULES[path];
     const result = parseRoomData(json);
     if (!result.valid || !result.room) {
-      throw new Error(`Sala de serie inválida en src/game/features/dungeon/levels: ${result.errors.join('; ')}`);
+      throw new Error(
+        `Sala de serie inválida en src/game/features/dungeon/levels/${filename}: ${result.errors.join('; ')}`,
+      );
     }
     rooms.push(result.room);
   }

@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "id": "combat-barrels",
+  "name": "Reacción en Cadena",
+  "width": 11,
+  "height": 11,
+  "playerStart": { "x": 0, "y": 4 },
+  "tags": ["combate"],
+  "doorSlots": [
+    { "side": "north", "offset": 0 },
+    { "side": "south", "offset": 0 },
+    { "side": "east", "offset": 0 },
+    { "side": "west", "offset": 0 }
+  ],
+  "enemies": [
+    { "id": "chaser-1", "kind": "chaser", "position": { "x": -2.5, "y": -2.6 } },
+    { "id": "trail-1", "kind": "trail", "position": { "x": 2.6, "y": -2.6 }, "patrolTarget": { "x": 2.6, "y": -4 } }
+  ],
+  "hazards": [
+    { "id": "barrel-1", "kind": "barrel", "position": { "x": -1, "y": -1 }, "width": 0.8, "height": 0.8 },
+    { "id": "barrel-2", "kind": "barrel", "position": { "x": 1, "y": -1 }, "width": 0.8, "height": 0.8 },
+    { "id": "barrel-3", "kind": "barrel", "position": { "x": 0, "y": -2.6 }, "width": 0.8, "height": 0.8 }
+  ],
+  "items": [
+    { "id": "coin-1", "kind": "coin", "position": { "x": 0, "y": 4.5 } },
+    { "id": "potion-1", "kind": "potion", "position": { "x": 0, "y": -4 } }
+  ]
+}

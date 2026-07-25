@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "id": "key-cage",
+  "name": "Jaula del Vacío",
+  "width": 13,
+  "height": 13,
+  "playerStart": { "x": 0, "y": 5 },
+  "tags": ["llave"],
+  "doorSlots": [
+    { "side": "north", "offset": 0 },
+    { "side": "south", "offset": 0 },
+    { "side": "east", "offset": 0 },
+    { "side": "west", "offset": 0 }
+  ],
+  "enemies": [
+    { "id": "dummy-1", "kind": "dummy", "position": { "x": -1, "y": -0.8 }, "patrolTarget": { "x": 1, "y": -0.8 } }
+  ],
+  "hazards": [
+    { "id": "pit-top", "kind": "pit", "position": { "x": 0, "y": 2.4 }, "width": 6, "height": 1.2 },
+    { "id": "pit-left", "kind": "pit", "position": { "x": -2.4, "y": 0 }, "width": 1.2, "height": 6 },
+    { "id": "pit-right", "kind": "pit", "position": { "x": 2.4, "y": 0 }, "width": 1.2, "height": 6 },
+    { "id": "pit-bottom-left", "kind": "pit", "position": { "x": -1.9, "y": -2.4 }, "width": 2.2, "height": 1.2 },
+    { "id": "pit-bottom-right", "kind": "pit", "position": { "x": 1.9, "y": -2.4 }, "width": 2.2, "height": 1.2 },
+    { "id": "rock-1", "kind": "rock", "position": { "x": 4, "y": 4 }, "width": 1, "height": 1 }
+  ],
+  "items": [{ "id": "key-item", "kind": "key", "position": { "x": 0, "y": 0.8 } }]
+}
