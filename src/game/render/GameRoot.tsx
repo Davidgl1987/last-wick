@@ -160,13 +160,11 @@ export function GameRoot({
           antialias: true,
         }}
         camera={{ fov: 45, near: 0.5, far: 80, position: [0, 9.5, 11] }}
-        // Sombras: rig de luces rehecho a 7 luces / 1 sola sombra en toda la
-        // escena (la directionalLight de SceneLights.tsx, que sigue al héroe
-        // con cámara ortográfica). La vela del héroe (CandleLightView) ya NO
-        // proyecta sombra por defecto (su sombra cúbica de pointLight era la
-        // causa medida de los 23 FPS de la ronda 6) — solo lo hace tras
-        // `?candleshadow`, flag TEMPORAL de comparación A/B, ver
-        // debug-params.ts.
+        // Sombras: rig de 7 luces con solo DOS que proyectan sombra — la
+        // directional de SceneLights.tsx (ortográfica, sigue al héroe) y la
+        // vela del héroe (CandleLightView, cúbica: no debe atravesar las
+        // paredes, zanjado en playtest). Todo lo demás que brilla es emissive
+        // o un charco aditivo, nunca una luz real.
         shadows
       >
         <SimDriver session={session} />
