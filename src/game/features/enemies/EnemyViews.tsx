@@ -112,13 +112,7 @@ import { DummyMesh } from '@/game/features/enemies/dummy/Mesh';
 import { ShooterMesh } from '@/game/features/enemies/shooter/Mesh';
 import { SpikeMesh } from '@/game/features/enemies/spike/Mesh';
 import { TrailMesh } from '@/game/features/enemies/trail/Mesh';
-import {
-  applyLanternAim,
-  ENEMY_FILL_LIGHT_INTENSITY,
-  ENEMY_LANTERN_INTENSITY,
-  ENEMY_LIGHT_INTENSITY_BOSS,
-  EnemyLightsRig,
-} from '@/game/features/enemies/EnemyLights';
+import { ENEMY_LIGHT_INTENSITY_BOSS, EnemyLightsRig } from '@/game/features/enemies/EnemyLights';
 import { applyGuardianBossFrame, GuardianBossExtras } from '@/game/features/bosses/guardian/BossView';
 import { applyQueenBossFrame, QueenBossExtras } from '@/game/features/bosses/queen/BossView';
 import { applyPrismaBossFrame, PrismaBossExtras } from '@/game/features/bosses/prisma/BossView';
@@ -133,11 +127,13 @@ const ENEMY_MATERIAL: Record<EnemyKind, Material> = {
   boss: bossBodyMaterial,
 };
 
-// Luz MÓVIL de enemigo (punto 1/2a de playtest): rig de linterna de ojos +
-// relleno (no-boss) y pointLight propia (boss), extraído a `EnemyLights.tsx`
-// (constantes, `applyLanternAim` y el componente de JSX `EnemyLightsRig`) —
-// este componente solo llama a ambos desde el useFrame/JSX de más abajo, en
-// el mismo punto exacto donde vivía el bloque antes.
+// Luz MÓVIL de enemigo (recorte de ~43 a 7 luces reales, rama
+// `luces-optimizadas`): el JEFE conserva su pointLight propia; el resto de
+// arquetipos ya NO monta ninguna luz real, solo un `GlowPuddle` (charco
+// aditivo pegado al suelo). Rig extraído a `EnemyLights.tsx` (constantes y el
+// componente de JSX `EnemyLightsRig`, ver su cabecera para el porqué
+// completo) — este componente solo mirrorea la posición en el useFrame de
+// más abajo, en el mismo punto exacto donde vivía el bloque antes.
 
 /**
  * Material "en reposo" del cuerpo (sin flash de golpe/fase/telegraph
@@ -255,30 +251,27 @@ function EnemyMesh({
   // desde 0).
   const orientationYaw = useRef<number | null>(null);
   const orientationTarget = useRef(0);
-  // Linterna de ojos (punto 1 de playtest, solo no-boss): spotLight + su
-  // target (Object3D hijo del mismo grupo, recolocado cada frame según el
-  // ángulo local calculado más abajo) y el ángulo persistido (para no
-  // degenerar cuando chaser/shooter coinciden con el héroe, distancia ~0).
-  const lanternRef = useRef<THREE.SpotLight>(null);
-  const lanternTargetRef = useRef<THREE.Object3D>(null);
-  const lanternAngle = useRef(0);
-  // Luces del enemigo (fix de rendimiento, ver comentario extenso junto a
-  // `lightsGroupRef` en el JSX de abajo): refs propias para poder apagarlas
-  // con intensity=0 en vez de depender de `group.visible`.
-  const fillLightRef = useRef<THREE.PointLight>(null);
+  // Luz propia del enemigo (ver cabecera de EnemyLights.tsx para el
+  // porqué): el JEFE conserva su pointLight real (sin sombra); el resto de
+  // arquetipos monta un `GlowPuddle` (mesh aditivo, no una luz) en su lugar.
+  // `bossLightRef`/`puddleMeshRef` son los nodos que este useFrame mueve o
+  // apaga; solo uno de los dos grupos (`bossLightGroupRef`/`puddleGroupRef`)
+  // acaba montado según `kind`, el otro se queda en `null` para siempre.
   const bossLightRef = useRef<THREE.PointLight>(null);
+  const puddleMeshRef = useRef<Mesh>(null);
   /**
-   * Group HERMANO de `groupRef` (nunca `groupRef.visible=false` lo apaga):
-   * contiene solo las luces, mirroreando la POSICIÓN de `group` cada frame
-   * (nunca su rotación — ver más abajo por qué). Cambiar el Nº de luces
-   * VISIBLES en la escena recompila todos los shaders (three.js); antes las
-   * luces vivían dentro de `groupRef` y se apagaban solas al morir el
-   * enemigo (`group.visible=false`), lo que recompilaba en CADA muerte
-   * durante una sala con varios enemigos. Con este group aparte, el Nº de
-   * luces montadas para este enemigo es constante durante toda su vida en la
-   * sala (el propio componente se desmonta/monta solo al cambiar de sala).
+   * Groups HERMANOS de `groupRef` (nunca `groupRef.visible=false` los apaga):
+   * uno u otro se monta según `kind` (ver `EnemyLightsRig`) y este useFrame
+   * mirrorea su posición cada frame a partir de la de `group` — nunca su
+   * rotación, ninguno de los dos la necesita. Separarlos de `groupRef` viene
+   * de antes de este recorte: cambiar el Nº de luces VISIBLES en la escena
+   * recompila todos los shaders (three.js), así que la pointLight del jefe
+   * se apaga con `intensity=0` en vez de `group.visible=false` al morir —
+   * el charco no-jefe, al no ser una luz real, sí puede usar `visible=false`
+   * sin ese coste (ver comentario del bloque de abajo que lo apaga).
    */
-  const lightsGroupRef = useRef<Group>(null);
+  const bossLightGroupRef = useRef<Group>(null);
+  const puddleGroupRef = useRef<Group>(null);
 
   useFrame((_, delta) => {
     const world = session.world;
@@ -288,18 +281,13 @@ function EnemyMesh({
 
     const alive = enemy.hp > 0;
     group.visible = alive;
-    // Recuento de luces estable (ver comentario de `lightsGroupRef`): se
-    // apagan con intensity=0, el group que las contiene sigue montado y
-    // visible pase lo que pase.
-    if (lanternRef.current) {
-      lanternRef.current.intensity = alive ? ENEMY_LANTERN_INTENSITY : 0;
-      // castShadow se apaga A LA VEZ que la intensidad (ver comentario de
-      // ENEMY_LANTERN_SHADOW_MAP_SIZE arriba): nunca sombra activa con
-      // intensidad 0.
-      lanternRef.current.castShadow = alive;
-    }
-    if (fillLightRef.current) fillLightRef.current.intensity = alive ? ENEMY_FILL_LIGHT_INTENSITY : 0;
+    // Recuento de luces estable (ver comentario de `bossLightGroupRef`): la
+    // pointLight del jefe se apaga con intensity=0, el group que la contiene
+    // sigue montado y visible pase lo que pase. El charco no-jefe no es una
+    // luz real (mesh aditivo, `visible` normal), así que se apaga sin más
+    // con `visible=false` — decisión explícita, ver cabecera del fichero.
     if (bossLightRef.current) bossLightRef.current.intensity = alive ? ENEMY_LIGHT_INTENSITY_BOSS : 0;
+    if (puddleMeshRef.current) puddleMeshRef.current.visible = alive;
     if (!alive) return;
 
     // Balanceo torpe del Dummy al patrullar (no perseguir): cabeceo vertical
@@ -317,9 +305,18 @@ function EnemyMesh({
     // tamaño fijo del arquetipo.
     const bodyRadius = kind === 'boss' || isLarva ? enemy.radius : ENEMY_RADIUS_RENDER;
     group.position.set(enemy.position.x, bodyRadius + bob, enemy.position.y);
-    // El group de luces solo TRASLADA (nunca rota, ver comentario de
-    // `lightsGroupRef`): mirrorea la posición de `group` cada frame.
-    if (lightsGroupRef.current) lightsGroupRef.current.position.copy(group.position);
+    // Los groups de luz solo TRASLADAN (nunca rotan, ver comentario de
+    // `bossLightGroupRef`): mirrorean la posición de `group` cada frame, cada
+    // uno a su manera. Jefe: posición COMPLETA (incluida la Y flotante de
+    // `bodyRadius + bob`), la pointLight añade su propia altura local encima.
+    // No-jefe: solo X/Z — el charco vive pegado al SUELO, nunca a la altura
+    // flotante del cuerpo, así que su Y se fija a 0 (el offset mínimo sobre
+    // el suelo, `GLOW_PUDDLE_GROUND_Y`, ya lo aporta `GlowPuddle` como
+    // posición LOCAL dentro de este mismo group — sumarlo aquí también lo
+    // duplicaría). Cero asignaciones: `.set`/`.copy` mutan el Vector3
+    // existente.
+    if (bossLightGroupRef.current) bossLightGroupRef.current.position.copy(group.position);
+    if (puddleGroupRef.current) puddleGroupRef.current.position.set(group.position.x, 0, group.position.z);
 
     // La sombra es HIJA del grupo (que ya lleva la posición del enemigo):
     // sus coordenadas son LOCALES. Escribirle coordenadas de mundo aquí la
@@ -397,24 +394,6 @@ function EnemyMesh({
       );
     }
     group.rotation.y = orientationYaw.current;
-
-    // Linterna de ojos (punto 1 de playtest, solo no-boss): dirección LOCAL
-    // del cono de luz según arquetipo, calculada por `applyLanternAim`
-    // (EnemyLights.tsx) — mismo cálculo, mismo punto exacto del frame que
-    // antes de extraerlo (depende de `orientationYaw`/`group.position` de
-    // arriba).
-    if (kind !== 'boss') {
-      applyLanternAim({
-        kind,
-        enemy,
-        heroPosition: world.hero.position,
-        group,
-        orientationYaw: orientationYaw.current,
-        lanternAngle,
-        lanternTargetRef,
-        lanternRef,
-      });
-    }
 
     if (kind === 'boss') {
       // Telegraph genérico (GDD §15.1 punto 2): anillo ámbar visible mientras
@@ -558,23 +537,20 @@ function EnemyMesh({
       {kind === 'boss' && bossId === 'storm' && <StormBossExtras stormHaloRef={stormHaloRef} />}
     </group>
 
-    {/* Luces móviles (punto 1/2a de playtest): rig completo (constantes +
-        JSX) extraído a `EnemyLightsRig` (EnemyLights.tsx) — group HERMANO de
-        `groupRef`, NUNCA oculto (recuento de luces = recompilación de
-        shaders en three.js, ver comentario extenso junto a `lightsGroupRef`
-        allí), se apaga con intensity=0 al morir el enemigo en vez de
-        `visible=false`. */}
+    {/* Luz propia del enemigo (recorte de ~43 a 7 luces reales): rig
+        completo (constantes + JSX) extraído a `EnemyLightsRig`
+        (EnemyLights.tsx) — group HERMANO de `groupRef`, NUNCA oculto (una
+        pointLight real, la del jefe, no puede cambiar de Nº visible en
+        escena sin recompilar shaders, ver comentario extenso junto a
+        `bossLightGroupRef` arriba); el jefe se apaga con intensity=0 al
+        morir, el charco no-jefe con `visible=false` sobre su mesh (no es una
+        luz real, no paga ese coste). */}
     <EnemyLightsRig
       kind={kind}
-      silhouettes
-      enemyLanternEnabled
-      enemyFillLightEnabled
-      shadowsEnabled
-      lightsGroupRef={lightsGroupRef}
-      lanternRef={lanternRef}
-      lanternTargetRef={lanternTargetRef}
-      fillLightRef={fillLightRef}
+      bossLightGroupRef={bossLightGroupRef}
       bossLightRef={bossLightRef}
+      puddleGroupRef={puddleGroupRef}
+      puddleMeshRef={puddleMeshRef}
     />
     </>
   );

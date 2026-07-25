@@ -29,8 +29,7 @@ import { TrailView } from '@/game/features/effects/TrailView';
 import { WaxView } from '@/game/features/effects/WaxView';
 import { forceBossPhase } from '@/game/features/bosses/lifecycle';
 import { QueenColumnsView, QueenTethersView } from '@/game/features/bosses/queen/QueenColumnsView';
-import { BossCandlesView } from '@/game/features/dungeon/BossCandlesView';
-import { ShopLightsView } from '@/game/features/dungeon/ShopLightsView';
+import { TorchPropsView } from '@/game/features/dungeon/TorchPropsView';
 import { EnemyViews } from '@/game/features/enemies/EnemyViews';
 import {
   advanceToNextDungeon,
@@ -60,6 +59,7 @@ import { ProjectileViews } from '@/game/features/combat/ProjectileView';
 import { PuddleViews } from '@/game/features/hazards/PuddleView';
 import { RoomView } from './RoomView';
 import { SceneLights } from './SceneLights';
+import { TorchLightPool } from './TorchLightPool';
 import { useGameLoop } from './useGameLoop';
 
 /** Componente-driver: registra el loop de sim ANTES que los lectores (orden de montaje). */
@@ -209,10 +209,10 @@ export function GameRoot({
         <HeroView session={session} />
         {/* Vela del héroe: luz principal de la sala en penumbra. */}
         <CandleLightView session={session} />
-        {/* Antorchas de la sala del jefe (punto 2b de playtest): no-op fuera de la mazmorra (sin boss vivo). */}
-        <BossCandlesView session={session} />
-        {/* Luz de la sala de tienda (playtest: "la tienda puede emitir luz"): no-op fuera de la mazmorra (sin tendero). */}
-        <ShopLightsView session={session} />
+        {/* Atrezzo de antorchas (jefe + tienda + tendero, ver TorchPropsView.tsx): geometría pura, sin luces reales propias — no-op fuera de la mazmorra (sin boss ni tendero). */}
+        <TorchPropsView session={session} />
+        {/* Pool FIJO de 3 spotLights reales reasignadas por cercanía al héroe entre TODAS las antorchas de la mazmorra (ver TorchLightPool.tsx): sustituye las hasta ~10 spotLight/pointLight permanentes que antes montaban BossCandlesView/ShopLightsView. */}
+        <TorchLightPool session={session} />
         {/* Effects (GDD §12): partículas, estela y ondas expansivas, todos pools preasignados. */}
         <ParticleView pool={session.effects.particles} />
         <TrailView pool={session.effects.trail} />

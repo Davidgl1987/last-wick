@@ -2,14 +2,18 @@
  * Lista ÚNICA de emisores cálidos (antorchas de muro + luz del tendero) de la
  * mazmorra, con TODO lo que hace falta para encender una spotLight sin volver
  * a consultar nada más. Extraída como pieza pura y testeable dentro de la
- * reducción de la escena de ~43 luces a 7 (rama `luces-optimizadas`): hoy
- * `BossCandlesView.tsx` y `ShopLightsView.tsx` calculan cada una su propio
+ * reducción de la escena de ~43 luces a 7 (rama `luces-optimizadas`): antes
+ * `BossCandlesView.tsx` y `ShopLightsView.tsx` calculaban cada una su propio
  * layout de antorchas de muro (mismo `wallTorchLayout`, distinto
  * `includeMidpoints`) para MONTAR una spotLight real por antorcha (~10
  * permanentes entre ambas salas); con el pool fijo de 3 luces reasignadas por
- * cercanía al héroe (`render/light-pool.ts`), hace falta primero la lista
- * COMPLETA de emisores candidatos (aunque solo 3 tengan luz real en un frame
- * dado) en un único sitio, en vez de duplicada entre las dos vistas.
+ * cercanía al héroe (`render/TorchLightPool.tsx`, sobre `render/light-pool.ts`),
+ * hace falta primero la lista COMPLETA de emisores candidatos (aunque solo 3
+ * tengan luz real en un frame dado) en un único sitio. Esta función es hoy la
+ * ÚNICA fuente de posiciones tanto para `TorchLightPool.tsx` (qué encender de
+ * verdad) como para `TorchPropsView.tsx` (qué geometría montar) — las antiguas
+ * `BossCandlesView.tsx`/`ShopLightsView.tsx` desaparecieron al converger ambas
+ * en leer de aquí (ver cabecera de `TorchPropsView.tsx`).
  *
  * Fuentes de cada emisor (mismo criterio que las vistas que sustituye):
  * - Antorchas de la sala del jefe: `bossRoomBounds(world, boss)` (mismo
@@ -27,30 +31,31 @@
  * Robusta a mundos sin jefe y sin tendero (ambos casos simplemente no
  * aportan emisores): nunca lanza.
  *
- * Constantes: duplicadas desde TorchView.tsx (antorcha, hoy privadas ahí) y
- * ShopLightsView.tsx (tendero) — ver comentario de origen en cada bloque más
- * abajo. Una tarea posterior retira las originales de esos dos ficheros una
- * vez el componente de React que monta el pool de 3 luces las sustituya.
+ * Constantes: ÚNICA definición (antes duplicadas también en `TorchView.tsx`
+ * y `ShopLightsView.tsx`; ambas copias ya se retiraron — `TorchView.tsx`
+ * importa `TORCH_LIGHT_COLOR` de aquí para el `GlowPuddle` de la antorcha, y
+ * `ShopLightsView.tsx` desapareció junto con `BossCandlesView.tsx` al
+ * unificarse en `TorchPropsView.tsx`).
  *
- * `wallTorchLayout` en sí (aunque exportada y pura) también se duplica más
- * abajo en vez de importarse de TorchView.tsx: ese fichero es un componente
- * de React cuyo módulo crea materiales/texturas de three.js al cargarse
- * (`assets-dark.ts`, necesita `document`), así que importar CUALQUIER cosa
- * de ahí arrastra esos efectos y revienta en el entorno de test ('node', sin
- * DOM — ver `test.environment` en vite.config.ts, cuyo `include` además solo
- * coge `*.test.ts`, nunca `.tsx`: los componentes de render no tienen
- * cobertura de test directa en este repo). `bossRoomBounds`, en cambio, sí
- * se importa tal cual: `features/bosses/movement.ts` es TS puro sin efectos
- * de módulo y ya se usa desde tests headless (`movement.test.ts`).
+ * `wallTorchLayout` en sí sigue viviendo SOLO aquí, PRIVADA (no se re-exporta
+ * desde `TorchView.tsx`: ningún consumidor la necesita ya fuera de este
+ * fichero, ver arriba) — nunca se importa desde `TorchView.tsx` porque ese
+ * fichero es un componente de React cuyo módulo crea materiales/texturas de
+ * three.js al cargarse (`assets-dark.ts`, necesita `document`), así que
+ * importar CUALQUIER cosa de ahí arrastra esos efectos y revienta en el
+ * entorno de test ('node', sin DOM — ver `test.environment` en
+ * vite.config.ts, cuyo `include` además solo coge `*.test.ts`, nunca `.tsx`:
+ * los componentes de render no tienen cobertura de test directa en este
+ * repo). `bossRoomBounds`, en cambio, sí se importa tal cual:
+ * `features/bosses/movement.ts` es TS puro sin efectos de módulo y ya se usa
+ * desde tests headless (`movement.test.ts`).
  */
 
 import { bossRoomBounds } from '@/game/features/bosses/movement';
 import type { AABB } from '@/engine/geometry';
 import type { World } from '@/game/world/types';
 
-// ── Antorcha de muro (duplicado de src/game/features/dungeon/TorchView.tsx,
-// constantes privadas ahí: TORCH_BASE_Y, TORCH_WAX_HEIGHT, LIGHT_HEIGHT/
-// INTENSITY/DISTANCE/DECAY/COLOR/ANGLE/PENUMBRA) ─────────────────────────────
+// ── Antorcha de muro (ÚNICA definición; TorchView.tsx importa TORCH_LIGHT_COLOR de aquí para su GlowPuddle) ─────────────────────────────
 /** Base de la antorcha a la altura del muro (WALL_HEIGHT=0.9 en RoomView.tsx). */
 const TORCH_BASE_Y = 0.9;
 /** Alto de la cera — igual que `wallTorchWaxGeometry` (render/assets-dark.ts). */
@@ -65,9 +70,8 @@ export const TORCH_LIGHT_COLOR = '#ffb469';
 export const TORCH_LIGHT_ANGLE = 1.0;
 export const TORCH_LIGHT_PENUMBRA = 0.95;
 
-// ── Luz de cabeza del tendero (duplicado de
-// src/game/features/dungeon/ShopLightsView.tsx, constantes privadas ahí:
-// SHOPKEEPER_LIGHT_HEIGHT/INTENSITY/DISTANCE/DECAY/COLOR) ───────────────────
+// ── Luz de cabeza del tendero (ÚNICA definición; antes privada en la ya
+// eliminada ShopLightsView.tsx) ──────────────────────────────────────────
 export const SHOPKEEPER_LIGHT_HEIGHT = 1.9;
 export const SHOPKEEPER_LIGHT_INTENSITY = 10;
 export const SHOPKEEPER_LIGHT_DISTANCE = 5;
@@ -85,15 +89,15 @@ export const SHOPKEEPER_LIGHT_COLOR = '#ffb469';
 export const SHOPKEEPER_LIGHT_ANGLE = 1.3;
 export const SHOPKEEPER_LIGHT_PENUMBRA = 0.95;
 
-// ── Layout de antorchas de muro (duplicado de `wallTorchLayout`,
-// src/game/features/dungeon/TorchView.tsx:191-219 — ver justificación de la
-// duplicación en la cabecera del fichero) ────────────────────────────────────
+// ── Layout de antorchas de muro (ÚNICA definición desde la deduplicación con
+// TorchView.tsx — ver justificación de por qué vive PRIVADA aquí, no
+// re-exportada, en la cabecera del fichero) ─────────────────────────────────
 /** Cuánto sobresale la antorcha del plano del muro (TorchView.tsx: evita que en cámara quede superpuesta al héroe). */
 const TORCH_WALL_OUT = 0.25;
 /** Longitud mínima del muro largo para añadir antorchas también en su punto medio (además de las 4 esquinas). */
 const MIN_WALL_LENGTH_FOR_MIDPOINTS = 8;
 
-/** Posición + dirección de una antorcha de muro (forma mínima que necesita `collectTorchEmitters`, sin el resto de props de React de `WallTorchPlacement`). */
+/** Posición + dirección de una antorcha de muro: forma mínima que necesita `collectTorchEmitters` internamente antes de volcarla a `TorchEmitter`. */
 interface WallTorchPosition {
   x: number;
   z: number;
