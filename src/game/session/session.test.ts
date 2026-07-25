@@ -1,7 +1,8 @@
 /**
  * Integración de arranque (fase 3): la sesión por defecto del juego es un
  * mundo de mazmorra multi-sala generado desde el pool de serie, con semilla
- * forzable (?seed=N) que sobrevive a los reinicios.
+ * forzable (parámetro `seed` de `createDungeonGameSession`) que sobrevive a
+ * los reinicios.
  */
 
 import { describe, expect, it } from 'vitest';

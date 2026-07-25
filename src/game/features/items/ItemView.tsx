@@ -19,7 +19,7 @@
 
 import { useFrame } from '@react-three/fiber';
 import { useRef, useState } from 'react';
-import type { Group, Material, Mesh } from 'three';
+import type { Group } from 'three';
 import type { GameSession } from '@/game/session/session';
 import type { Item } from '@/game/world/types';
 import {
@@ -35,36 +35,14 @@ import {
   shopkeeperHeadMaterial,
   shopkeeperRobeMaterial,
   unitBox,
-  unitCircle,
   unitCone,
   unitSphere,
 } from '@/game/render/assets';
-import { coinGlowHaloMaterial, keyGlowHaloMaterial, potionGlowHaloMaterial } from '@/game/render/assets-dark';
-import { useDarkStore } from '@/game/render/dark-store';
 
 const ITEM_HEIGHT: Record<Item['kind'], number> = { coin: 0.3, potion: 0.32, key: 0.3, shopkeeper: 0 };
 /** Radio visual de la moneda (diámetro del cilindro plano de assets.ts, escalado). */
 const COIN_RADIUS = 0.24;
 const POTION_SCALE = 0.24;
-
-/**
- * Halo de luz falsa (punto 2 de playtest, "las monedas se ven de otra
- * habitación sin iluminar nada"): disco autoemisivo bajo cada item brillante,
- * pegado al suelo (y=0.03) — SOLO los kinds que de verdad "brillan" (grupo
- * "items" de `?glow=`, ver assets.ts). El tendero no lleva halo: es un NPC,
- * no un objeto recogible.
- */
-const ITEM_GLOW_MATERIAL: Partial<Record<Item['kind'], Material>> = {
-  coin: coinGlowHaloMaterial,
-  key: keyGlowHaloMaterial,
-  potion: potionGlowHaloMaterial,
-};
-/** Radio del halo por kind (u de mundo): la poción es el objeto más "importante" visualmente, algo más grande. */
-const ITEM_GLOW_RADIUS: Partial<Record<Item['kind'], number>> = {
-  coin: 0.9,
-  key: 0.85,
-  potion: 1.0,
-};
 
 function CoinShape({ receiveShadow }: { receiveShadow: boolean }) {
   return (
@@ -148,21 +126,13 @@ function ItemMesh({ session, itemId }: { session: GameSession; itemId: string })
   // plena, exista o no un muro/portón entre él y la vela. Con esto arreglado,
   // el muro/portón que SÍ castea sombra (ver RoomView.tsx) por fin oscurece
   // la poción cuando corresponde.
-  const silhouettes = useDarkStore((s) => s.dark >= 1);
-  const glowItemsEnabled = useDarkStore((s) => s.dark >= 1 && s.glow.items);
   const groupRef = useRef<Group>(null);
-  // Halo de brillo: NO es hijo del group de arriba (que gira/rebota con el
-  // objeto — un disco heredando ese giro se vería "inclinarse" fuera del
-  // plano del suelo). Sigue solo x/z del item, con y fija pegada al suelo.
-  const haloRef = useRef<Mesh>(null);
 
   useFrame(() => {
     const item = session.world.items.find((i) => i.id === itemId);
     const group = groupRef.current;
     if (!item || !group) return;
     group.visible = item.active;
-    const halo = haloRef.current;
-    if (halo) halo.visible = item.active;
     if (item.active) {
       // El tendero es un NPC estático (placeholder F4): sin bob ni giro, a
       // diferencia del resto de items recogibles.
@@ -182,34 +152,19 @@ function ItemMesh({ session, itemId }: { session: GameSession; itemId: string })
       } else {
         group.rotation.set(0, session.world.time * 1.5, 0);
       }
-      if (halo) halo.position.set(item.position.x, 0.03, item.position.y);
     }
   });
 
   const item = session.world.items.find((i) => i.id === itemId);
   const kind = item ? item.kind : 'coin';
-  const glowMaterial = ITEM_GLOW_MATERIAL[kind];
 
   return (
-    <>
-      <group ref={groupRef}>
-        {kind === 'coin' && <CoinShape receiveShadow={silhouettes} />}
-        {kind === 'potion' && <PotionShape receiveShadow={silhouettes} />}
-        {kind === 'key' && (
-          <mesh geometry={unitBox} material={keyMaterial} scale={0.22} receiveShadow={silhouettes} />
-        )}
-        {kind === 'shopkeeper' && <ShopkeeperShape receiveShadow={silhouettes} />}
-      </group>
-      {glowItemsEnabled && glowMaterial && (
-        <mesh
-          ref={haloRef}
-          geometry={unitCircle}
-          material={glowMaterial}
-          rotation-x={-Math.PI / 2}
-          scale={ITEM_GLOW_RADIUS[kind] ?? 0.9}
-        />
-      )}
-    </>
+    <group ref={groupRef}>
+      {kind === 'coin' && <CoinShape receiveShadow />}
+      {kind === 'potion' && <PotionShape receiveShadow />}
+      {kind === 'key' && <mesh geometry={unitBox} material={keyMaterial} scale={0.22} receiveShadow />}
+      {kind === 'shopkeeper' && <ShopkeeperShape receiveShadow />}
+    </group>
   );
 }
 

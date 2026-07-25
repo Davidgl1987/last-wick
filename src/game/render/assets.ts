@@ -87,6 +87,45 @@ function createGlowHaloTexture(): THREE.Texture {
 /** Mapa radial blanco→transparente compartido por todos los halos de brillo (ver `createGlowHaloTexture`). */
 export const glowHaloTexture = createGlowHaloTexture();
 
+/**
+ * Caché de materiales de "charco de luz falso" (ver `GlowPuddle.tsx`), CLAVE
+ * `color-hex|opacidad` — nunca se crea un `MeshBasicMaterial` nuevo en tiempo
+ * de render: la primera vez que se pide una combinación color+opacidad se
+ * crea y se guarda, cualquier petición posterior con la misma combinación
+ * devuelve el MISMO objeto. Generaliza el patrón que antes vivía solo en
+ * `enemyProjectileGlowHaloMaterials` (más abajo, ahora migrado a esta
+ * función) para que enemigos y antorchas puedan pedir su propio charco sin
+ * duplicar la construcción del material.
+ */
+const glowPuddleMaterialCache = new Map<string, THREE.MeshBasicMaterial>();
+
+/**
+ * Material aditivo de charco de luz falso para un `color`+`opacity` dados:
+ * `glowHaloTexture` (mapa radial blanco→transparente) teñido por
+ * `material.color` con `AdditiveBlending` y `depthWrite:false` — el mismo
+ * mecanismo barato que ya usaban los halos de proyectil enemigo,
+ * indistinguible de una luz real desde la cámara cenital. CACHEADO por
+ * `color`+`opacity` (ver `glowPuddleMaterialCache`): llamar a esta función
+ * dentro de JSX o de un `useFrame` es seguro, nunca asigna memoria nueva
+ * salvo la primera vez que se ve esa combinación exacta.
+ */
+export function glowPuddleMaterial(color: THREE.ColorRepresentation, opacity: number): THREE.MeshBasicMaterial {
+  const key = `${new THREE.Color(color).getHexString()}|${opacity}`;
+  let material = glowPuddleMaterialCache.get(key);
+  if (!material) {
+    material = new THREE.MeshBasicMaterial({
+      map: glowHaloTexture,
+      color,
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      opacity,
+    });
+    glowPuddleMaterialCache.set(key, material);
+  }
+  return material;
+}
+
 // ── Materiales ────────────────────────────────────────────────────────────
 
 /**
@@ -425,16 +464,8 @@ export const STORM_HALO_DIM_COLOR = new THREE.Color('#1b2530');
 // compartidos para micro-detalles por arquetipo, sin tocar la sim ni la
 // silueta/color de contrato del GDD. ──────────────────────────────────────
 
-/** Ojo simple (esclerótica): esfera pequeña blanca, compartida por Dummy/Chaser. */
-export const eyeWhiteMaterial = new THREE.MeshBasicMaterial({ color: '#f5f7ff' });
-/** Pupila/iris oscuro sobre el ojo. */
+/** Pupila/iris oscuro: ojos de la Lacrimera (trail). */
 export const eyePupilMaterial = new THREE.MeshBasicMaterial({ color: '#12131c' });
-/** Ceja agresiva del Chaser: cuña oscura sobre el ojo. */
-export const chaserBrowMaterial = new THREE.MeshBasicMaterial({ color: '#7a3a12' });
-/** Cañón/ojo del Shooter en reposo: gris metálico apagado. */
-export const shooterEyeMaterial = new THREE.MeshBasicMaterial({ color: '#4a5170' });
-/** Cañón/ojo del Shooter mientras carga: rojo brillante (coherente con su telegraph). */
-export const shooterEyeChargeMaterial = new THREE.MeshBasicMaterial({ color: '#ff5a5a' });
 /** Gota de baba del Trail: mismo verde que su cuerpo, algo más oscuro. */
 export const trailDripMaterial = new THREE.MeshBasicMaterial({
   color: '#2f9464',
@@ -445,8 +476,6 @@ export const trailDripMaterial = new THREE.MeshBasicMaterial({
 
 /** Esfera pequeña para ojos/pupilas/gotas (radio unitario, se escala en el componente). */
 export const smallDotGeometry = new THREE.SphereGeometry(1, 10, 8);
-/** Cuña de ceja/cañón: caja fina reutilizable. */
-export const smallWedgeGeometry = new THREE.BoxGeometry(1, 1, 1);
 
 // ── Proyectiles ────────────────────────────────────────────────────────────
 
@@ -510,70 +539,21 @@ export function enemyProjectileMaterialForTag(colorTag: string): THREE.MeshLambe
 }
 
 /**
- * Halo aditivo bajo cada proyectil enemigo (mismo mecanismo barato que
- * `coinGlowHaloMaterial`/`keyGlowHaloMaterial`/`potionGlowHaloMaterial` más
- * abajo: `glowHaloTexture` + `AdditiveBlending` + `depthWrite:false`), con el
- * mismo color que el tinte de cuerpo de arriba. Generalizado a TODO
- * proyectil enemigo (no solo los de La Tormenta): el shooter clásico (sin
- * `colorTag`) recibe el halo rojo por defecto.
+ * Halo aditivo bajo cada proyectil enemigo, con el mismo color que el tinte
+ * de cuerpo de arriba: generalizado a TODO proyectil enemigo (no solo los de
+ * La Tormenta), el shooter clásico (sin `colorTag`) recibe el halo rojo por
+ * defecto. Migrado a `glowPuddleMaterial` (cacheado por color+opacidad, ver
+ * arriba) — mismos colores/opacidades exactos que antes, sin construir el
+ * `MeshBasicMaterial` a mano por etiqueta.
  */
 const enemyProjectileGlowHaloMaterials: Record<string, THREE.MeshBasicMaterial> = {
-  '': new THREE.MeshBasicMaterial({
-    map: glowHaloTexture,
-    color: '#ff3b3b',
-    transparent: true,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-    opacity: 0.16,
-  }),
-  ram: new THREE.MeshBasicMaterial({
-    map: glowHaloTexture,
-    color: WEAPON_COLOR.body.clone(),
-    transparent: true,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-    opacity: 0.16,
-  }),
-  arrow: new THREE.MeshBasicMaterial({
-    map: glowHaloTexture,
-    color: WEAPON_COLOR.arrow.clone(),
-    transparent: true,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-    opacity: 0.16,
-  }),
-  spell: new THREE.MeshBasicMaterial({
-    map: glowHaloTexture,
-    color: WEAPON_COLOR.spell.clone(),
-    transparent: true,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-    opacity: 0.16,
-  }),
-  'storm-spiral': new THREE.MeshBasicMaterial({
-    map: glowHaloTexture,
-    color: STORM_SPIRAL_PROJECTILE_COLOR,
-    transparent: true,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-    opacity: 0.18,
-  }),
-  'storm-rings': new THREE.MeshBasicMaterial({
-    map: glowHaloTexture,
-    color: STORM_RINGS_PROJECTILE_COLOR,
-    transparent: true,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-    opacity: 0.18,
-  }),
-  'storm-burst': new THREE.MeshBasicMaterial({
-    map: glowHaloTexture,
-    color: STORM_BURST_PROJECTILE_COLOR,
-    transparent: true,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-    opacity: 0.18,
-  }),
+  '': glowPuddleMaterial('#ff3b3b', 0.16),
+  ram: glowPuddleMaterial(WEAPON_COLOR.body, 0.16),
+  arrow: glowPuddleMaterial(WEAPON_COLOR.arrow, 0.16),
+  spell: glowPuddleMaterial(WEAPON_COLOR.spell, 0.16),
+  'storm-spiral': glowPuddleMaterial(STORM_SPIRAL_PROJECTILE_COLOR, 0.18),
+  'storm-rings': glowPuddleMaterial(STORM_RINGS_PROJECTILE_COLOR, 0.18),
+  'storm-burst': glowPuddleMaterial(STORM_BURST_PROJECTILE_COLOR, 0.18),
 };
 
 /** Material de HALO del proyectil enemigo para su `colorTag` ('' u otra etiqueta sin mapear = clásico rojo). */

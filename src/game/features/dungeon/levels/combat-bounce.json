@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "id": "combat-bounce",
+  "name": "Sala de Billar",
+  "width": 11,
+  "height": 9,
+  "playerStart": { "x": 0, "y": 3 },
+  "tags": ["combate"],
+  "doorSlots": [
+    { "side": "north", "offset": 0 },
+    { "side": "south", "offset": 0 },
+    { "side": "east", "offset": 0 },
+    { "side": "west", "offset": 0 }
+  ],
+  "enemies": [
+    { "id": "dummy-1", "kind": "dummy", "position": { "x": 0, "y": -2.5 } },
+    { "id": "chaser-1", "kind": "chaser", "position": { "x": 3.5, "y": -1 } }
+  ],
+  "hazards": [
+    { "id": "rock-1", "kind": "rock", "position": { "x": 0, "y": 0.5 }, "width": 2.4, "height": 2.4 }
+  ],
+  "items": [
+    { "id": "coin-1", "kind": "coin", "position": { "x": 0, "y": 3.6 } },
+    { "id": "potion-1", "kind": "potion", "position": { "x": 0, "y": -3.3 } }
+  ]
+}

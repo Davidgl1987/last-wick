@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "id": "combat-gauntlet",
+  "name": "Desfiladero de Espinas",
+  "width": 13,
+  "height": 9,
+  "playerStart": { "x": 0, "y": 3.3 },
+  "tags": ["combate"],
+  "doorSlots": [
+    { "side": "north", "offset": 0 },
+    { "side": "south", "offset": 0 },
+    { "side": "east", "offset": 0 },
+    { "side": "west", "offset": 0 }
+  ],
+  "enemies": [
+    {
+      "id": "spike-1",
+      "kind": "spike",
+      "position": { "x": -1.7, "y": -1.0 },
+      "patrolTarget": { "x": -1.7, "y": 1.0 },
+      "facing": { "x": 0, "y": 1 }
+    },
+    {
+      "id": "spike-2",
+      "kind": "spike",
+      "position": { "x": 1.7, "y": 0.9 },
+      "patrolTarget": { "x": 1.7, "y": 2.1 },
+      "facing": { "x": 0, "y": 1 }
+    }
+  ],
+  "hazards": [
+    { "id": "spikes-1", "kind": "spikes", "position": { "x": -2.5, "y": -2.1 }, "width": 1.0, "height": 2.6 },
+    { "id": "spikes-2", "kind": "spikes", "position": { "x": -2.5, "y": 2.15 }, "width": 1.0, "height": 2.5 },
+    { "id": "spikes-3", "kind": "spikes", "position": { "x": 2.5, "y": -1.35 }, "width": 1.0, "height": 4.1 },
+    { "id": "spikes-4", "kind": "spikes", "position": { "x": 2.5, "y": 2.85 }, "width": 1.0, "height": 1.1 }
+  ],
+  "items": [
+    { "id": "coin-1", "kind": "coin", "position": { "x": 0, "y": 3.3 } },
+    { "id": "coin-2", "kind": "coin", "position": { "x": -2.5, "y": 0.05 } },
+    { "id": "potion-1", "kind": "potion", "position": { "x": 5, "y": 0 } }
+  ]
+}

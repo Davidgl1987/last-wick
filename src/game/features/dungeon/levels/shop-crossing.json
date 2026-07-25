@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "id": "shop-crossing",
+  "name": "Cruce del Mercader",
+  "width": 11,
+  "height": 9,
+  "playerStart": { "x": 0, "y": 3 },
+  "tags": ["tienda"],
+  "doorSlots": [
+    { "side": "north", "offset": 0 },
+    { "side": "south", "offset": 0 },
+    { "side": "east", "offset": 0 },
+    { "side": "west", "offset": 0 }
+  ],
+  "enemies": [],
+  "hazards": [],
+  "items": [
+    { "id": "shopkeeper", "kind": "shopkeeper", "position": { "x": 0, "y": -0.5 } },
+    { "id": "coin-deco-1", "kind": "coin", "position": { "x": 0, "y": 2 } },
+    { "id": "coin-deco-2", "kind": "coin", "position": { "x": 0, "y": -3 } },
+    { "id": "coin-deco-3", "kind": "coin", "position": { "x": -3.5, "y": -0.5 } },
+    { "id": "coin-deco-4", "kind": "coin", "position": { "x": 3.5, "y": -0.5 } }
+  ]
+}

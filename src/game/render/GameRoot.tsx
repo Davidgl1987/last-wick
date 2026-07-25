@@ -4,9 +4,10 @@
  *
  * Modos:
  * - Run completa (por defecto): mazmorra procedural generada desde el pool de
- *   salas (src/game/features/dungeon/levels/*.json + salas exportadas del editor). La semilla es
- *   aleatoria por run; `?seed=N` en la URL la fuerza (también en reinicios),
- *   para verificación y depuración.
+ *   salas (src/game/features/dungeon/levels/*.json + salas exportadas del
+ *   editor). La semilla es aleatoria por run (el parámetro `seed` de
+ *   `createDungeonGameSession` sigue existiendo — lo usan los tests para
+ *   determinismo — pero ya no se lee de la URL).
  * - Playtest (prop `playtestRoom`): una sola sala del editor, con botón para
  *   volver a él.
  *
@@ -16,12 +17,11 @@
  */
 
 import { Canvas, useThree } from '@react-three/fiber';
+import { Preload } from '@react-three/drei';
 import { useCallback, useEffect, useState } from 'react';
 import type { Material, Object3D } from 'three';
 import { getRoomPool } from '@/game/features/dungeon/rooms';
-import { applyForcedUpgrades, readForcedBossPhase, readForcedBossRoom, readForcedSeed, readForcedUpgrades, readGodMode } from './debug-params';
-import { useDarkStore } from './dark-store';
-import { resolveQualityProfile, useQualityStore } from './quality';
+import { readForcedBossPhase, readForcedBossRoom, readGodMode } from './debug-params';
 import { AimInput } from '@/game/features/hero/AimInput';
 import { CandleLightView } from '@/game/features/hero/CandleLightView';
 import { ParticleView } from '@/game/features/effects/ParticleView';
@@ -30,8 +30,7 @@ import { TrailView } from '@/game/features/effects/TrailView';
 import { WaxView } from '@/game/features/effects/WaxView';
 import { forceBossPhase } from '@/game/features/bosses/lifecycle';
 import { QueenColumnsView, QueenTethersView } from '@/game/features/bosses/queen/QueenColumnsView';
-import { BossCandlesView } from '@/game/features/dungeon/BossCandlesView';
-import { ShopLightsView } from '@/game/features/dungeon/ShopLightsView';
+import { TorchPropsView } from '@/game/features/dungeon/TorchPropsView';
 import { EnemyViews } from '@/game/features/enemies/EnemyViews';
 import {
   advanceToNextDungeon,
@@ -60,6 +59,8 @@ import { ItemViews } from '@/game/features/items/ItemView';
 import { ProjectileViews } from '@/game/features/combat/ProjectileView';
 import { PuddleViews } from '@/game/features/hazards/PuddleView';
 import { RoomView } from './RoomView';
+import { SceneLights } from './SceneLights';
+import { TorchLightPool } from './TorchLightPool';
 import { useGameLoop } from './useGameLoop';
 
 /** Componente-driver: registra el loop de sim ANTES que los lectores (orden de montaje). */
@@ -69,40 +70,22 @@ function SimDriver({ session }: { session: GameSession }) {
 }
 
 /**
- * Sincroniza `gl.shadowMap.enabled` con el store en RUNTIME (controles en
- * vivo de dark/glow desde el menú de pausa): el prop `shadows` del Canvas
- * (más abajo) solo aplica al CREAR el contexto WebGL, así que alternar
- * `dark` en caliente después de montado necesita tocar el renderer
- * directamente aquí. Solo al CAMBIAR `dark` (deps del efecto), nunca cada
- * frame: fuerza `needsUpdate` en todos los materiales de la escena porque
- * activar/desactivar el shadowMap exige que three.js recompile los shaders
- * de sombra — sin esto las sombras quedarían a medio aplicar tras el toggle.
- * Defensivo con `background`/`fog`: aunque `attach` (RoomView.tsx/GameRoot
- * JSX de abajo) ya debería limpiarlos solo al desmontar el JSX condicional
- * de dark=0, forzarlos a `null` aquí es gratis y cierra cualquier resquicio.
+ * Sincroniza `gl.shadowMap.enabled` con el renderer al montar: el prop
+ * `shadows` del Canvas (más abajo) ya lo deja en `true`, pero se fuerza aquí
+ * también para forzar `needsUpdate` en todos los materiales de la escena una
+ * vez (activar el shadowMap exige que three.js compile los shaders de sombra
+ * correctos desde el primer frame).
  *
- * Perfil de calidad (bug de pantalla negra en móvil, render/quality.ts):
- * `shadowsEnabled` del presupuesto es la autoridad en RUNTIME sobre si el
- * shadow map del renderer se activa — el prop `shadows` del Canvas (más
- * abajo) solo puede leer el perfil ya resuelto en un SEGUNDO montaje (la
- * primera vez que se crea el Canvas, `onCreated` —que resuelve el perfil—
- * aún no ha corrido cuando se evalúa ese prop), así que este efecto es el
- * único punto que garantiza `gl.shadowMap.enabled=false` en perfil bajo
- * desde el primer frame. `shadowsEnabled` es dependencia del efecto: si el
- * store se resolviese DESPUÉS del primer render (no debería, ver cabecera
- * de quality.ts) el efecto se re-ejecutaría solo igualmente.
+ * Presupuesto de píxeles (playtest ronda 6: 23 FPS en ventana grande): cada
+ * frame paga la escena + 6 caras de sombra cúbica de la vela — a dpr 2 en un
+ * monitor grande eso hunde el framerate. Tope 1.5 (la nitidez extra de dpr 2
+ * no se aprecia en penumbra).
  */
-function DarkModeSync({ dark }: { dark: 0 | 1 | 2 }) {
+function RendererSync() {
   const { gl, scene, setDpr } = useThree();
-  const shadowsEnabled = useQualityStore((s) => s.budget.shadowsEnabled);
   useEffect(() => {
-    gl.shadowMap.enabled = dark >= 1 && shadowsEnabled;
-    // Presupuesto de píxeles (playtest ronda 6: 23 FPS en ventana grande):
-    // en dark>=1 cada frame paga la escena + 6 caras de sombra cúbica de la
-    // vela — a dpr 2 en un monitor grande eso hunde el framerate. Tope 1.5
-    // solo en oscuro (la nitidez extra de dpr 2 no se aprecia en penumbra);
-    // dark=0 conserva el presupuesto clásico [1, 2] exacto.
-    setDpr(Math.min(window.devicePixelRatio, dark >= 1 ? 1.5 : 2));
+    gl.shadowMap.enabled = true;
+    setDpr(Math.min(window.devicePixelRatio, 1.5));
     scene.traverse((obj: Object3D) => {
       const material = (obj as unknown as { material?: Material | Material[] }).material;
       if (!material) return;
@@ -114,11 +97,7 @@ function DarkModeSync({ dark }: { dark: 0 | 1 | 2 }) {
         material.needsUpdate = true;
       }
     });
-    if (dark === 0) {
-      scene.background = null;
-      scene.fog = null;
-    }
-  }, [dark, gl, scene, setDpr, shadowsEnabled]);
+  }, [gl, scene, setDpr]);
   return null;
 }
 
@@ -145,32 +124,17 @@ export function GameRoot({
         const phase = readForcedBossPhase();
         if (phase) forceBossPhase(s.world, phase);
       } else {
-        s = createDungeonGameSession(getRoomPool(), readForcedSeed(), godMode);
+        // `seed` (2º parámetro) ya no se lee de la URL (era `?seed=`, ver
+        // debug-params.ts): la semilla es siempre aleatoria por run. El
+        // parámetro en sí se queda en `createDungeonGameSession` — los tests
+        // lo usan para determinismo.
+        s = createDungeonGameSession(getRoomPool(), null, godMode);
       }
     }
-    // Herramienta de playtest/verificación (F5, docs/plans/ECONOMY_PLAN.md):
-    // `?upgrades=cuerpo-dano:3,escudo:2,flecha-dano:1` fuerza niveles de
-    // mejora justo tras crear la sesión, vía `applyUpgrade` (sube nivel Y
-    // modificadores coherentes, como una compra/recompensa real). No-op si
-    // no hay parámetro.
-    applyForcedUpgrades(s.world, s.events, readForcedUpgrades());
     return s;
   });
   // Secuencia de run: cambia solo al reiniciar tras game-over/victoria (remonta el canvas).
   const [runSeq, setRunSeq] = useState(0);
-
-  // Penumbra experimental (rama estilo-oscuro): controles en vivo desde el
-  // menú de pausa (PauseModal → useDarkStore → dark-store.ts). El valor
-  // INICIAL sigue viniendo de `?dark=` (mismo default de siempre), pero a
-  // partir de ahí el store manda — este selector reacciona a cada cambio.
-  const darkMode = useDarkStore((s) => s.dark);
-
-  // Perfil de calidad adaptativo (bug de pantalla negra en móvil,
-  // render/quality.ts): selector del presupuesto de sombras, mismo criterio
-  // que `darkMode` de arriba. Solo importa para el prop `shadows` del Canvas
-  // más abajo — el punto que de verdad manda en runtime es `DarkModeSync`
-  // (ver su cabecera), que lee el store directamente.
-  const qualityShadowsEnabled = useQualityStore((s) => s.budget.shadowsEnabled);
 
   const handleRestart = useCallback(() => {
     restartSession(session);
@@ -190,68 +154,30 @@ export function GameRoot({
     <div className="game-root">
       <Canvas
         key={runSeq}
-        onCreated={(state) => {
-          // Perfil de calidad adaptativo (bug de pantalla negra en móvil,
-          // render/quality.ts): se resuelve UNA vez aquí, por capacidades
-          // REALES del contexto WebGL recién creado — SIEMPRE (no solo dev),
-          // antes de que monte cualquier hijo del Canvas (ver cabecera de
-          // quality.ts para la garantía de orden de React Three Fiber).
-          resolveQualityProfile(state.gl.getContext());
-          // Solo dev: expone la escena para el puente de verificación
-          // (inspección de objetos huérfanos; complementa a __flingo).
-          if (import.meta.env.DEV) {
-            (window as unknown as { __flingoScene?: unknown }).__flingoScene = state.scene;
-            // Estado R3F completo para verificación headless (?rafshim): en
-            // páginas ocultas el ResizeObserver no dispara y el renderer se
-            // queda en 300x150 — el driver externo llama a state.setSize().
-            (window as unknown as { __flingoR3F?: unknown }).__flingoR3F = state;
-          }
-        }}
         dpr={[1, 2]}
         gl={{
           powerPreference: 'high-performance',
           antialias: true,
-          // Solo dev+?rafshim: conserva el framebuffer tras presentar para que
-          // la verificación headless pueda leer el frame con toDataURL (ver
-          // shim de rAF en src/app/main.tsx). Coste de memoria irrelevante en dev.
-          preserveDrawingBuffer:
-            import.meta.env.DEV && new URLSearchParams(window.location.search).has('rafshim'),
         }}
         camera={{ fov: 45, near: 0.5, far: 80, position: [0, 9.5, 11] }}
-        // Sombras (rama estilo-oscuro, punto 1 de playtest: "la luz de la
-        // vela no debe atravesar paredes"): SOLO dark>=1 — en dark=0
-        // (paridad EXACTA con `main`) el motor de sombras ni se activa, cero
-        // coste y cero diferencia visual con el look clásico. Una única luz
-        // con sombra (CandleLightView, cúbica por ser pointLight) es
-        // asumible en forward rendering EN PERFIL ALTO — `qualityShadowsEnabled`
-        // (perfil de calidad adaptativo, bug de pantalla negra en móvil,
-        // render/quality.ts) la apaga en perfil bajo. Este prop solo puede
-        // ver el perfil ya resuelto de un montaje ANTERIOR (primer Canvas:
-        // siempre lee el default 'alto' de la store, ver quality.ts) —
-        // `DarkModeSync` es quien manda de verdad en runtime, ver su cabecera.
-        shadows={darkMode >= 1 && qualityShadowsEnabled}
+        // Sombras: rig de 7 luces con solo DOS que proyectan sombra — la
+        // directional de SceneLights.tsx (ortográfica, sigue al héroe) y la
+        // vela del héroe (CandleLightView, cúbica: no debe atravesar las
+        // paredes, zanjado en playtest). Todo lo demás que brilla es emissive
+        // o un charco aditivo, nunca una luz real.
+        shadows
       >
         <SimDriver session={session} />
-        <DarkModeSync dark={darkMode} />
-        {/* Penumbra experimental (?dark=, debug-params.ts): dark=0 mantiene la
-            luz EXACTA de siempre (paridad con main, cero regresiones); dark 1-2
-            la bajan casi a cero para que la vela del héroe (CandleLightView)
-            sea la fuente de luz principal de la sala. */}
-        {darkMode === 0 ? (
-          <>
-            <ambientLight intensity={0.75} />
-            <directionalLight position={[4, 8, 3]} intensity={1.15} />
-          </>
-        ) : (
-          <>
-            <ambientLight intensity={darkMode === 1 ? 0.22 : 0.04} color="#7c8fc9" />
-            {darkMode === 1 && <directionalLight position={[4, 8, 3]} intensity={0.15} color="#aab6e0" />}
-            <color attach="background" args={['#050508']} />
-            {/* El fog arranca más allá de la distancia cámara→suelo (~15 u):
-                solo funde los bordes lejanos de la sala, nunca el área de juego. */}
-            <fog attach="fog" args={['#05050a', 20, 48]} />
-          </>
-        )}
+        <RendererSync />
+        {/* Rig de luz global (hemisphere + directional con sombra, ver
+            SceneLights.tsx): la vela del héroe (CandleLightView) sigue siendo
+            la fuente de luz protagonista de la sala, esto es el relleno de
+            fondo + la única sombra de toda la escena. */}
+        <SceneLights session={session} />
+        <color attach="background" args={['#050508']} />
+        {/* El fog arranca más allá de la distancia cámara→suelo (~15 u):
+            solo funde los bordes lejanos de la sala, nunca el área de juego. */}
+        <fog attach="fog" args={['#05050a', 20, 48]} />
         <RoomView world={session.world} />
         {/* Columnas de la Reina del Enjambre + sus cuerdas (GDD §15.3): no-op
             (return null) fuera de su sala, ver QueenColumnsView.tsx. */}
@@ -264,24 +190,51 @@ export function GameRoot({
         <EnemyViews session={session} />
         <ProjectileViews session={session} />
         <HeroView session={session} />
-        {/* Vela del héroe (solo dark 1-2): luz principal de la sala en penumbra. */}
-        {darkMode >= 1 && <CandleLightView session={session} />}
-        {/* Antorchas de la sala del jefe (punto 2b de playtest, solo dark 1-2): no-op fuera de la mazmorra (sin boss vivo). */}
-        {darkMode >= 1 && <BossCandlesView session={session} />}
-        {/* Luz de la sala de tienda (playtest: "la tienda puede emitir luz"), solo dark 1-2: no-op fuera de la mazmorra (sin tendero). */}
-        {darkMode >= 1 && <ShopLightsView session={session} />}
+        {/* Vela del héroe: luz principal de la sala en penumbra. */}
+        <CandleLightView session={session} />
+        {/* Atrezzo de antorchas (jefe + tienda + tendero, ver TorchPropsView.tsx): geometría pura, sin luces reales propias — no-op fuera de la mazmorra (sin boss ni tendero). */}
+        <TorchPropsView session={session} />
+        {/* Pool FIJO de 3 spotLights reales reasignadas por cercanía al héroe entre TODAS las antorchas de la mazmorra (ver TorchLightPool.tsx): sustituye las hasta ~10 spotLight/pointLight permanentes que antes montaban BossCandlesView/ShopLightsView. */}
+        <TorchLightPool session={session} />
         {/* Effects (GDD §12): partículas, estela y ondas expansivas, todos pools preasignados. */}
         <ParticleView pool={session.effects.particles} />
         <TrailView pool={session.effects.trail} />
-        {/* Capa de cera persistente (solo dark 1-2, playtest ronda 7): rastro
-            de TODOS los movimientos del héroe/sus proyectiles, sin
-            desvanecido — ver wax.ts. Gateada como CandleLightView/
-            BossCandlesView: en dark=0 ni se monta. */}
-        {darkMode >= 1 && <WaxView pool={session.effects.wax} />}
+        {/* Capa de cera persistente (playtest ronda 7): rastro de TODOS los
+            movimientos del héroe/sus proyectiles, sin desvanecido — ver
+            wax.ts. */}
+        <WaxView pool={session.effects.wax} />
         <ShockwaveView pool={session.effects.shockwaves} />
         <AimIndicatorView session={session} />
         <CameraRig session={session} />
         <AimInput session={session} />
+        {/*
+          Precompilación de shaders (diagnóstico: tirón de 55,8 ms al entrar
+          en la sala de la tienda, con `renderer.info.programs.length` pasando
+          de 9 a 11 en ESE mismo frame). three.js compila el programa de
+          shader de un material la PRIMERA vez que uno de sus objetos pasa el
+          frustum culling y se renderiza de verdad — no al montar el
+          componente de React. Como toda la mazmorra se monta de golpe desde
+          el arranque de la run (ver cabecera de RoomView.tsx: "renderiza
+          TODAS las salas colocadas en el plano"), los materiales de salas que
+          el héroe aún no ha visitado (antorchas del jefe, luz/geometría del
+          tendero, etc.) quedan sin compilar hasta que la cámara los enfoca
+          por primera vez — de ahí el tirón de golpe al cruzar la puerta.
+
+          `<Preload all />` (drei) hace, en un único `useLayoutEffect` que
+          corre UNA vez al montar este árbol: hace visible temporalmente todo
+          el grafo de la escena, llama a `gl.compile(scene, camera)` (fuerza
+          la compilación de TODOS los materiales presentes, los haya
+          renderizado la cámara o no) y restaura la visibilidad original. Debe
+          ir DESPUÉS de las vistas de arriba en el árbol de hijos del Canvas:
+          necesita que el grafo ya exista para poder recorrerlo.
+
+          Coste que acepta a cambio: la compilación completa se paga UNA vez,
+          al arrancar la run (pequeño micro-tirón inicial, con la pantalla
+          probablemente aún en transición/carga) en lugar de repartirse en
+          tirones de decenas de ms cada vez que el héroe entra en una sala con
+          materiales nuevos — que es precisamente lo que no molesta.
+        */}
+        <Preload all />
       </Canvas>
       <DamageVignette />
       <FpsCounter />

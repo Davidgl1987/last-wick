@@ -23,8 +23,8 @@
     { "id": "trail-1", "kind": "trail", "position": { "x": 3.5, "y": 0 }, "patrolTarget": { "x": 3.5, "y": -3 } }
   ],
   "hazards": [
-    { "id": "spikes-1", "kind": "spikes", "position": { "x": -4, "y": -2 }, "width": 1.6, "height": 1.6 },
-    { "id": "pit-1", "kind": "pit", "position": { "x": 0, "y": -3 }, "width": 1.8, "height": 1.8 }
+    { "id": "spikes-1", "kind": "spikes", "position": { "x": -4, "y": -2.35 }, "width": 1.6, "height": 1.6 },
+    { "id": "pit-1", "kind": "pit", "position": { "x": 0, "y": -2.05 }, "width": 1.8, "height": 1.8 }
   ],
   "items": [{ "id": "potion-1", "kind": "potion", "position": { "x": 4, "y": 3 } }]
 }

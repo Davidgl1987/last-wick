@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "id": "shop-alcove",
+  "name": "Rincón del Tendero",
+  "width": 9,
+  "height": 11,
+  "playerStart": { "x": 0, "y": 4 },
+  "tags": ["tienda"],
+  "doorSlots": [
+    { "side": "north", "offset": 0 },
+    { "side": "south", "offset": 0 },
+    { "side": "east", "offset": 0 },
+    { "side": "west", "offset": 0 }
+  ],
+  "enemies": [],
+  "hazards": [],
+  "items": [
+    { "id": "shopkeeper", "kind": "shopkeeper", "position": { "x": 0, "y": -1 } },
+    { "id": "coin-deco-1", "kind": "coin", "position": { "x": -2.5, "y": -1 } },
+    { "id": "coin-deco-2", "kind": "coin", "position": { "x": 2.5, "y": -1 } },
+    { "id": "coin-deco-3", "kind": "coin", "position": { "x": -1.5, "y": 3 } },
+    { "id": "coin-deco-4", "kind": "coin", "position": { "x": 1.5, "y": 3 } }
+  ]
+}

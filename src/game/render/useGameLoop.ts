@@ -8,7 +8,7 @@
  */
 
 import { useFrame } from '@react-three/fiber';
-import { useEffect, useRef } from 'react';
+import { useRef } from 'react';
 import { FIXED_DT } from '@/engine/physics';
 import { consumeHitStop, decayTrauma } from '@/game/features/effects/effectsState';
 import { reactToEvent } from '@/game/features/effects/reactToEvent';
@@ -173,32 +173,4 @@ export function useGameLoop(session: GameSession): void {
 
   useFrame((_, delta) => runFrame(delta));
 
-  // Puente de depuración SOLO en dev: permite avanzar la sim desde la consola
-  // o herramientas de verificación aunque el tab esté oculto (RAF pausado).
-  useEffect(() => {
-    if (!import.meta.env.DEV) return;
-    window.__flingo = {
-      session,
-      frame: runFrame,
-      tick: (seconds: number) => {
-        const frames = Math.max(1, Math.round(seconds * 60));
-        for (let i = 0; i < frames; i++) runFrame(1 / 60);
-      },
-    };
-    return () => {
-      delete window.__flingo;
-    };
-    // runFrame se recrea por render pero captura la misma sesión mutable.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session]);
-}
-
-declare global {
-  interface Window {
-    __flingo?: {
-      session: GameSession;
-      frame: (delta: number) => void;
-      tick: (seconds: number) => void;
-    };
-  }
 }

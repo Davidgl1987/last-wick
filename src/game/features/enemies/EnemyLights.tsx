@@ -1,29 +1,37 @@
 /**
- * Rig de luces MÓVILES de enemigo (rama `estilo-oscuro`; extraído de
- * `EnemyViews.tsx` en la pasada pre-release: constantes + JSX + cálculo de
- * puntería de la linterna, todo lo que compone "el enemigo emite su propia
- * luz débil"). El `useFrame` de `EnemyMesh` sigue siendo el único que muta
- * estos refs (mismo orden exacto que antes de la extracción, para no alterar
- * el resultado frame a frame) — este módulo solo aporta las constantes, la
- * función pura `applyLanternAim` y el componente de JSX `EnemyLightsRig`.
+ * Rig de "luz propia" de enemigo (rama `luces-optimizadas`, recorte de la
+ * escena de ~43 a 7 luces reales). Hasta esta pasada, cada enemigo no-jefe
+ * montaba una `spotLight` con sombra (la "linterna de ojos", orientada hacia
+ * donde mira el enemigo, calculada por la extinta `applyLanternAim`) más una
+ * `pointLight` de relleno muy tenue. El problema no era su coste individual:
+ * `EnemyViews` monta este rig por CADA enemigo del array `world.enemies`, que
+ * contiene TODA la mazmorra generada, no solo los enemigos de la sala visible
+ * — en una mazmorra típica (~11 enemigos) eso son ~22 luces reales y ~11
+ * shadow maps vivos a la vez, muy por encima del presupuesto de 7 luces de
+ * toda la escena. Ahora los no-jefe NO montan ninguna luz real: en su lugar,
+ * `EnemyLightsRig` planta un `GlowPuddle` (src/game/render/GlowPuddle.tsx) —
+ * un disco aditivo pegado al suelo, mismo color que sus ojos emissive
+ * (`ENEMY_LIGHT_COLOR[kind]`), coste ~0 frente a una `pointLight`/`spotLight`
+ * de verdad — que basta para leer "aquí hay algo que emite luz débil" sin
+ * gastar presupuesto de luz real. Los ojos emissive (`MeshBasicMaterial` en
+ * cada `<kind>/Mesh.tsx`) siguen siendo los que de verdad delatan al enemigo
+ * en la oscuridad: no dependen de luz y no se han tocado.
  *
- * Punto 1 de playtest ronda 2 de penumbra: "que lo que dé la luz fueran los
- * ojos, como linternas muy débiles, ahora es como si tuvieran una bombilla"
- * — sustituye la pointLight omnidireccional original por una `spotLight`
- * débil que sale de los ojos, orientada hacia donde MIRA el enemigo, + una
- * pointLight MUY tenue para que el cuerpo no quede negro del todo. Mismo
- * color que los ojos/acentos emisivos ya existentes de cada arquetipo
- * (assets-dark.ts), para que la luz se lea como "el brillo de sus ojos
- * alcanza el entorno", no como un añadido aparte. `boss` conserva su
- * pointLight de siempre (sin linterna: punto 2 de playtest le da más luz
- * propia) y usa un ámbar genérico (no distingue por bossId: los acentos de
- * cada jefe ya tienen su propio idioma visual, esta luz solo necesita
- * delatar "algo grande se mueve ahí").
+ * El JEFE es la excepción: conserva su `pointLight` de siempre
+ * (`ENEMY_LIGHT_*_BOSS`) tal cual, sin sombra — es el foco de luz de su
+ * propia sala (una sala entera para él solo, con las velas de
+ * `BossCandlesView` completando el resto), y al ser un único enemigo por
+ * partida no pesa como el resto del array.
+ *
+ * El `useFrame` de `EnemyMesh` (EnemyViews.tsx) sigue siendo el único que
+ * muta los refs de este rig — este módulo solo aporta las constantes y el
+ * componente de JSX `EnemyLightsRig`.
  */
 
 import type { RefObject } from 'react';
-import type { Group, Object3D, PointLight, SpotLight } from 'three';
-import type { Enemy, EnemyKind } from '@/game/world/types';
+import type { Group, Mesh, PointLight } from 'three';
+import type { EnemyKind } from '@/game/world/types';
+import { GlowPuddle } from '@/game/render/GlowPuddle';
 
 export const ENEMY_LIGHT_COLOR: Record<EnemyKind, string> = {
   dummy: '#ffc169',
@@ -33,8 +41,6 @@ export const ENEMY_LIGHT_COLOR: Record<EnemyKind, string> = {
   shooter: '#7cc7ff',
   boss: '#e0b56a',
 };
-/** Altura LOCAL de la luz del jefe/relleno sobre el centro del cuerpo del enemigo (el `group` ya vive a `bodyRadius` del suelo). */
-export const ENEMY_LIGHT_HEIGHT = 0.5;
 /** Jefe (punto 2a de playtest: "que el propio jefe emita [más] luz"): antes 4/3.5, ahora bastante más luminoso — las velas de sala (BossCandlesView) completan el resto. */
 export const ENEMY_LIGHT_INTENSITY_BOSS = 14;
 /**
@@ -48,233 +54,65 @@ export const ENEMY_LIGHT_INTENSITY_BOSS = 14;
 export const ENEMY_LIGHT_DISTANCE_BOSS = 5;
 /**
  * La luz del jefe vive POR ENCIMA de su cuerpo (radio de render de jefe ~1),
- * no dentro: a la altura genérica (0.5) quedaba embebida en la esfera y ni el
- * propio cuerpo ni el suelo alrededor recibían luz apreciable (verificado en
- * arena ?boss=b1) — el Lambert solo ilumina caras orientadas HACIA la luz.
+ * no dentro: a la altura genérica (0.5, la que usaba el antiguo relleno
+ * no-jefe) quedaba embebida en la esfera y ni el propio cuerpo ni el suelo
+ * alrededor recibían luz apreciable (verificado en arena ?boss=b1) — el
+ * Lambert solo ilumina caras orientadas HACIA la luz.
  */
 export const ENEMY_LIGHT_HEIGHT_BOSS = 1.7;
 export const ENEMY_LIGHT_DECAY = 2;
 
-/**
- * Linterna de ojos (spotLight, no-boss): altura LOCAL a la que viven los ojos
- * de cada arquetipo (0.3-0.4, bastante más abajo que la vieja "bombilla" a
- * 0.5). Parámetros de linterna DÉBIL (los spots concentran, lucen menos que
- * una point a igual intensidad): alcance corto, cono estrecho, penumbra
- * suave. CON sombra desde playtest de David ("hay luces que parece que
- * traspasan las paredes"): mapa pequeño, ver `ENEMY_LANTERN_SHADOW_MAP_SIZE`
- * más abajo (antes SIN sombra — solo la vela del héroe bloqueaba luz).
- *
- * Punto 6 de playtest ronda 4 ("apuntan hacia donde miran, y un poco abajo
- * para que dejen el rastro de luz"): el punto-objetivo (target) de la
- * spotLight ya NO vive a la misma altura que la luz (eso apuntaba el cono en
- * horizontal, paralelo al suelo, sin proyectar ningún charco) — su altura
- * LOCAL se fija cada frame a `-group.position.y` (ver `applyLanternAim`),
- * que cancela exactamente la altura a la que `lightsGroupRef` (el padre, que
- * solo TRASLADA, mirroreando `group.position`) vive sobre el suelo, así el
- * target cae siempre en el PLANO DEL SUELO (y=0 de mundo) sea cual sea el
- * radio del enemigo. `ENEMY_LANTERN_TARGET_DISTANCE` (antes 1, alcance corto
- * para no degenerar la dirección) pasa a marcar cuánto por DELANTE cae ese
- * charco.
- */
-export const ENEMY_LANTERN_HEIGHT = 0.35;
-export const ENEMY_LANTERN_TARGET_DISTANCE = 1.3;
-export const ENEMY_LANTERN_INTENSITY = 10;
-export const ENEMY_LANTERN_DISTANCE = 4;
-export const ENEMY_LANTERN_ANGLE = 0.55;
-export const ENEMY_LANTERN_PENUMBRA = 0.7;
-export const ENEMY_LANTERN_DECAY = 2;
-/**
- * Sombra de la linterna (playtest de David: "no sé por qué hay luces que
- * parece que traspasan las paredes... la poción no debería verse" — la
- * iluminaba el cono de la linterna A TRAVÉS de un muro): mapa PEQUEÑO (una
- * spotLight es 1 sola pasada de sombra, no las 6 de una pointLight cúbica —
- * asumible por enemigo vivo). near/far ajustados al alcance corto real de la
- * linterna (`ENEMY_LANTERN_DISTANCE`=4, con margen).
- *
- * Trade-off de recompilación de shaders (mismo problema ya resuelto para el
- * RECUENTO de luces con `lightsGroupRef`, ver `EnemyViews.tsx`): three.js
- * recompila los shaders que dependen del Nº de luces CON SOMBRA cada vez que
- * ese número cambia. Al morir un enemigo se apaga `intensity=0` Y
- * `castShadow=false` A LA VEZ (useFrame de `EnemyViews.tsx`) — eso SÍ dispara
- * una recompilación (una única vez, en el frame de la muerte, aceptable). Lo
- * que NO se hace es dejar `castShadow=true` con intensidad 0: three.js
- * seguiría rellenando el shadow map de esa luz cada frame para un enemigo
- * muerto que no aporta nada, coste puro sin beneficio. Al (re)aparecer
- * enemigos con la sala (montaje), `castShadow` nace en `true` vía JSX (el
- * propio group de luces solo se monta cuando `silhouettes`, es decir
- * dark>=1).
- */
-export const ENEMY_LANTERN_SHADOW_MAP_SIZE = 256;
-export const ENEMY_LANTERN_SHADOW_NEAR = 0.1;
-export const ENEMY_LANTERN_SHADOW_FAR = 4.5;
-/** Relleno MUY tenue (mismo color que la linterna) para que el cuerpo no quede negro del todo fuera del cono. */
-export const ENEMY_FILL_LIGHT_INTENSITY = 0.8;
-export const ENEMY_FILL_LIGHT_DISTANCE = 1.5;
-
-/** Radio de render fijo de un enemigo no-jefe (mismo valor que `ENEMY_RADIUS_RENDER` en `EnemyViews.tsx`; duplicado aquí solo para la posición local por defecto del target en el JSX, ver más abajo). */
+/** Radio de render fijo de un enemigo no-jefe (mismo valor que `ENEMY_RADIUS_RENDER` en `EnemyViews.tsx`; duplicado aquí solo para calcular el radio del charco por debajo). */
 const ENEMY_RADIUS_RENDER = 0.4;
-
 /**
- * Linterna de ojos (punto 1 de playtest, solo no-boss): dirección LOCAL del
- * cono de luz según arquetipo — reutiliza la MISMA matemática que ya usa
- * cada `<kind>/Mesh.tsx` para orientar sus ojos, sin duplicar constantes:
- * dummy/trail no giran nada extra (el `group` ya apunta en la dirección de
- * patrulla/velocidad vía `orientationYaw`, así que el cono mira "hacia
- * delante" en local); spike usa su `facing` fijo (misma fórmula que
- * `spikeSecondaryGroupRef` en spike/Mesh.tsx); chaser y shooter apuntan al
- * héroe (misma fórmula que `chaserFaceRef`/`shooterEyeGroupRef` en sus
- * respectivos Mesh.tsx), conservando el último ángulo válido cuando la
- * distancia al héroe degenera a ~0.
- *
- * Llamar SOLO cuando `kind !== 'boss'`, en el mismo punto del `useFrame` de
- * `EnemyMesh` donde vivía este bloque antes de la extracción (después de
- * fijar `orientationYaw` y `group.position` de este frame): el ángulo de
- * mundo final depende de ambos.
+ * Radio del charco de luz falso de un enemigo no-jefe: desborda bastante
+ * `ENEMY_RADIUS_RENDER` para leerse como derrame de luz alrededor del cuerpo,
+ * no como una peana ajustada a los pies (punto de tuning).
  */
-export function applyLanternAim(params: {
-  kind: EnemyKind;
-  enemy: Enemy;
-  heroPosition: { x: number; y: number };
-  group: Group;
-  orientationYaw: number | null;
-  lanternAngle: { current: number };
-  lanternTargetRef: RefObject<Object3D | null>;
-  lanternRef: RefObject<SpotLight | null>;
-}): void {
-  const { kind, enemy, heroPosition, group, orientationYaw, lanternAngle, lanternTargetRef, lanternRef } = params;
-  // Ángulo de MUNDO directo: antes se restaba `group.rotation.y` para
-  // cancelar la rotación del padre (la linterna vivía dentro de `group`, que
-  // rota con la orientación del enemigo). Ahora vive en `lightsGroupRef`, que
-  // solo TRASLADA (nunca rota) — su espacio local YA es el mundo, así que no
-  // hace falta cancelar nada. Mismo ángulo de mundo final que antes en los 3
-  // casos (spike/chaser-shooter usaban la resta para compensar exactamente
-  // esa rotación; dummy/trail apuntaban "hacia delante" del cuerpo, que en
-  // mundo es `orientationYaw`).
-  if (kind === 'spike') {
-    lanternAngle.current = Math.atan2(enemy.facing.x, enemy.facing.y);
-  } else if (kind === 'chaser' || kind === 'shooter') {
-    const dxHero = heroPosition.x - enemy.position.x;
-    const dyHero = heroPosition.y - enemy.position.y;
-    if (Math.hypot(dxHero, dyHero) > 1e-4) {
-      lanternAngle.current = Math.atan2(dxHero, dyHero);
-    }
-  } else {
-    lanternAngle.current = orientationYaw ?? 0;
-  }
-  if (lanternTargetRef.current) {
-    // Altura LOCAL = -group.position.y: `lightsGroupRef` (el padre de este
-    // target) mirrorea `group.position` cada frame (en `EnemyViews.tsx`,
-    // `lightsGroupRef.current.position.copy(group.position)`), así que restar
-    // esa misma altura aquí cancela el offset y deja el target en el plano
-    // del suelo real (y=0 de mundo) — el cono apunta hacia abajo y por
-    // delante en vez de en horizontal (punto 6 de playtest ronda 4).
-    lanternTargetRef.current.position.set(
-      Math.sin(lanternAngle.current) * ENEMY_LANTERN_TARGET_DISTANCE,
-      -group.position.y,
-      Math.cos(lanternAngle.current) * ENEMY_LANTERN_TARGET_DISTANCE,
-    );
-  }
-  // El target de una spotLight es un Object3D aparte que three.js no añade
-  // solo al padre correcto: se fija UNA vez que ambas refs existen
-  // (comparación de identidad, barata) en vez de depender de props JSX.
-  if (lanternRef.current && lanternTargetRef.current && lanternRef.current.target !== lanternTargetRef.current) {
-    lanternRef.current.target = lanternTargetRef.current;
-  }
-}
+export const ENEMY_GLOW_PUDDLE_RADIUS = ENEMY_RADIUS_RENDER * 2.5;
+/** Opacidad del charco, tenue como el resto de halos aditivos del juego (proyectiles, ver `assets.ts`) — punto de tuning. */
+export const ENEMY_GLOW_PUDDLE_OPACITY = 0.16;
 
 /**
- * Group HERMANO de `groupRef` (nunca `groupRef.visible=false` lo apaga):
- * contiene solo las luces, mirroreando la POSICIÓN de `group` cada frame
- * (nunca su rotación — ver comentario de `applyLanternAim`). Cambiar el Nº
- * de luces VISIBLES en la escena recompila todos los shaders (three.js);
- * antes las luces vivían dentro de `groupRef` y se apagaban solas al morir
- * el enemigo (`group.visible=false`), lo que recompilaba en CADA muerte
- * durante una sala con varios enemigos. Con este group aparte, el Nº de
- * luces montadas para este enemigo es constante durante toda su vida en la
- * sala (el propio componente se desmonta/monta solo al cambiar de sala) — se
- * apagan con intensity=0 al morir, en vez de `visible=false` (ver useFrame
- * de `EnemyViews.tsx`).
+ * Rig de "luz propia" de un enemigo, montado como HERMANO de `groupRef` (el
+ * group del cuerpo, que flota a `bodyRadius` del suelo y rota con la
+ * orientación) — nunca dentro: tanto la pointLight del jefe como el
+ * `GlowPuddle` no-jefe necesitan una posición de mundo que el `useFrame` de
+ * `EnemyViews.tsx` calcula y mirrorea aparte cada frame (mismo problema que
+ * ya resolvía este patrón antes de este recorte: cambiar el Nº de luces
+ * VISIBLES en la escena recompila todos los shaders de three.js, así que las
+ * luces reales viven en un group que nunca se desmonta ni se oculta por
+ * `visible=false`, apagándose con `intensity=0` en su lugar).
  *
- * No-boss: linterna de ojos (spotLight débil, dirección calculada en
- * `applyLanternAim`, CON sombra de mapa pequeño) + relleno point MUY tenue
- * SIN sombra (alcance mínimo, no le da tiempo a cruzar un muro de forma
- * visible) para que el cuerpo no quede negro del todo. Boss: conserva su
- * pointLight de siempre, más luminosa (punto 2a) y SIN sombra (su arena es
- * una sala entera, ver ENEMY_LIGHT_DISTANCE_BOSS) — las velas de sala
- * (BossCandlesView) hacen el resto.
- *
- * Perfil de calidad adaptativo (bug de pantalla negra en móvil,
- * render/quality.ts): la linterna de ojos es, junto a la vela del héroe, una
- * de las DOS únicas fuentes de shadow map de la escena — con hasta ~5
- * enemigos vivos a la vez eso son ~5 shadow maps extra, la otra mitad del
- * diagnóstico (además de agotar el presupuesto de LUCES simultáneas, no solo
- * de sombras). `enemyLanternEnabled===false` (perfil bajo) ni siquiera monta
- * la spotLight/target — el enemigo se queda SOLO con el relleno (barato, sin
- * sombra, se conserva en los dos perfiles). Si algún día un perfil futuro
- * combinase linterna montada + sombras apagadas, `shadowsEnabled` cubre ese
- * caso también (`castShadow` más abajo).
+ * - Jefe: `bossLightGroupRef` mirrorea la posición COMPLETA de `group`
+ *   (incluida la altura, `bodyRadius` sobre el suelo) — la pointLight añade
+ *   `ENEMY_LIGHT_HEIGHT_BOSS` local por encima de eso. Sin sombra (ver
+ *   comentario de `ENEMY_LIGHT_DISTANCE_BOSS`).
+ * - No-jefe: `puddleGroupRef` mirrorea solo X/Z de `group` y fija la altura
+ *   al SUELO (nunca la altura flotante del cuerpo) — el charco tiene que
+ *   quedarse pegado al suelo pase lo que pase con el bamboleo/radio del
+ *   enemigo. El `GlowPuddle` en su interior no necesita más ajuste: su
+ *   propia posición por defecto ya vive a `GLOW_PUDDLE_GROUND_Y` sobre el
+ *   origen de su padre. Se apaga con `puddleMeshRef.current.visible=false`
+ *   al morir el enemigo (una malla no es una luz real: no hay recompilación
+ *   de shaders que evitar aquí, a diferencia de la pointLight del jefe).
  */
 export function EnemyLightsRig({
   kind,
-  silhouettes,
-  enemyLanternEnabled,
-  enemyFillLightEnabled,
-  shadowsEnabled,
-  lightsGroupRef,
-  lanternRef,
-  lanternTargetRef,
-  fillLightRef,
+  bossLightGroupRef,
   bossLightRef,
+  puddleGroupRef,
+  puddleMeshRef,
 }: {
   kind: EnemyKind;
-  silhouettes: boolean;
-  enemyLanternEnabled: boolean;
-  enemyFillLightEnabled: boolean;
-  shadowsEnabled: boolean;
-  lightsGroupRef: RefObject<Group | null>;
-  lanternRef: RefObject<SpotLight | null>;
-  lanternTargetRef: RefObject<Object3D | null>;
-  fillLightRef: RefObject<PointLight | null>;
+  bossLightGroupRef: RefObject<Group | null>;
   bossLightRef: RefObject<PointLight | null>;
+  puddleGroupRef: RefObject<Group | null>;
+  puddleMeshRef: RefObject<Mesh | null>;
 }) {
-  return (
-    <group ref={lightsGroupRef}>
-      {silhouettes && kind !== 'boss' && enemyLanternEnabled && (
-        <>
-          <spotLight
-            ref={lanternRef}
-            color={ENEMY_LIGHT_COLOR[kind]}
-            intensity={ENEMY_LANTERN_INTENSITY}
-            distance={ENEMY_LANTERN_DISTANCE}
-            angle={ENEMY_LANTERN_ANGLE}
-            penumbra={ENEMY_LANTERN_PENUMBRA}
-            decay={ENEMY_LANTERN_DECAY}
-            position={[0, ENEMY_LANTERN_HEIGHT, 0]}
-            // Sombra (ver ENEMY_LANTERN_SHADOW_MAP_SIZE arriba): mapa de spot
-            // pequeño, 1 sola pasada extra por enemigo vivo — nace en
-            // `shadowsEnabled` porque este group de luces solo se monta con
-            // dark>=1 (dentro de eso, según el perfil de calidad); el
-            // useFrame de EnemyViews.tsx la apaga junto con la intensidad al
-            // morir, sin superar nunca `shadowsEnabled` de vuelta a `true`.
-            castShadow={shadowsEnabled}
-            shadow-mapSize={[ENEMY_LANTERN_SHADOW_MAP_SIZE, ENEMY_LANTERN_SHADOW_MAP_SIZE]}
-            shadow-camera-near={ENEMY_LANTERN_SHADOW_NEAR}
-            shadow-camera-far={ENEMY_LANTERN_SHADOW_FAR}
-          />
-          <object3D ref={lanternTargetRef} position={[0, -ENEMY_RADIUS_RENDER, ENEMY_LANTERN_TARGET_DISTANCE]} />
-        </>
-      )}
-      {silhouettes && kind !== 'boss' && enemyFillLightEnabled && (
-        <pointLight
-          ref={fillLightRef}
-          color={ENEMY_LIGHT_COLOR[kind]}
-          intensity={ENEMY_FILL_LIGHT_INTENSITY}
-          distance={ENEMY_FILL_LIGHT_DISTANCE}
-          decay={ENEMY_LIGHT_DECAY}
-          position={[0, ENEMY_LIGHT_HEIGHT, 0]}
-        />
-      )}
-      {silhouettes && kind === 'boss' && (
+  if (kind === 'boss') {
+    return (
+      <group ref={bossLightGroupRef}>
         <pointLight
           ref={bossLightRef}
           color={ENEMY_LIGHT_COLOR.boss}
@@ -283,7 +121,17 @@ export function EnemyLightsRig({
           decay={ENEMY_LIGHT_DECAY}
           position={[0, ENEMY_LIGHT_HEIGHT_BOSS, 0]}
         />
-      )}
+      </group>
+    );
+  }
+  return (
+    <group ref={puddleGroupRef}>
+      <GlowPuddle
+        meshRef={puddleMeshRef}
+        color={ENEMY_LIGHT_COLOR[kind]}
+        radius={ENEMY_GLOW_PUDDLE_RADIUS}
+        opacity={ENEMY_GLOW_PUDDLE_OPACITY}
+      />
     </group>
   );
 }

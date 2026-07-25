@@ -1,5 +1,5 @@
 /**
- * Chaser: cejas/mirada agresivas orientadas al héroe + pulso de escala al
+ * Chaser: ojos rasgados emisivos orientados al héroe + pulso de escala al
  * acelerar (heroAiming, misma señal que ya usa su IA para correr más).
  */
 
@@ -9,15 +9,8 @@ import type { RefObject } from 'react';
 import type { Group } from 'three';
 import type { GameSession } from '@/game/session/session';
 import type { Enemy } from '@/game/world/types';
-import {
-  chaserBrowMaterial,
-  eyePupilMaterial,
-  eyeWhiteMaterial,
-  smallDotGeometry,
-  smallWedgeGeometry,
-} from '@/game/render/assets';
+import { smallDotGeometry } from '@/game/render/assets';
 import { chaserEyeGlowMaterial } from '@/game/render/assets-dark';
-import { useDarkStore } from '@/game/render/dark-store';
 
 /**
  * Radio/altura del pivote de la cara del Chaser sobre la superficie de su
@@ -39,7 +32,6 @@ export function ChaserMesh({
 }) {
   // `chaserFaceAngle` conserva el último ángulo válido hacia el héroe (mundo)
   // para no degenerar cuando coincide con el centro del enemigo (distancia ~0).
-  const silhouettes = useDarkStore((s) => s.dark >= 1);
   const chaserFaceRef = useRef<Group>(null);
   const chaserFaceAngle = useRef(0);
 
@@ -89,54 +81,21 @@ export function ChaserMesh({
     // useFrame (proyección sobre la superficie esférica); el valor JSX
     // es solo el estado inicial antes del primer frame.
     <group ref={chaserFaceRef} position={[0, CHASER_FACE_HEIGHT, CHASER_FACE_RADIUS]}>
-      {silhouettes ? (
-        <>
-          {/* Acechador del Umbral: ojos rasgados violeta emisivos (concept art). */}
-          <mesh
-            geometry={smallDotGeometry}
-            material={chaserEyeGlowMaterial}
-            position={[-0.13, -0.02, 0]}
-            rotation-z={0.35}
-            scale={[0.045, 0.12, 0.03]}
-          />
-          <mesh
-            geometry={smallDotGeometry}
-            material={chaserEyeGlowMaterial}
-            position={[0.13, -0.02, 0]}
-            rotation-z={-0.35}
-            scale={[0.045, 0.12, 0.03]}
-          />
-        </>
-      ) : (
-        <>
-          <mesh geometry={smallDotGeometry} material={eyeWhiteMaterial} position={[-0.13, -0.02, 0]} scale={0.09} />
-          <mesh geometry={smallDotGeometry} material={eyeWhiteMaterial} position={[0.13, -0.02, 0]} scale={0.09} />
-          <mesh geometry={smallDotGeometry} material={eyePupilMaterial} position={[-0.13, -0.02, 0.06]} scale={0.045} />
-          <mesh geometry={smallDotGeometry} material={eyePupilMaterial} position={[0.13, -0.02, 0.06]} scale={0.045} />
-        </>
-      )}
-      {/* Cejas agresivas: cuñas inclinadas hacia el centro (ceño fruncido).
-          Ocultas en dark>=1 (punto 4 de playtest ronda 4: "quítale las cejas
-          a los enemigos"); en dark=0 se quedan tal cual (paridad con el
-          look clásico). */}
-      {!silhouettes && (
-        <>
-          <mesh
-            geometry={smallWedgeGeometry}
-            material={chaserBrowMaterial}
-            position={[-0.13, 0.09, 0.02]}
-            rotation-z={0.5}
-            scale={[0.16, 0.045, 0.05]}
-          />
-          <mesh
-            geometry={smallWedgeGeometry}
-            material={chaserBrowMaterial}
-            position={[0.13, 0.09, 0.02]}
-            rotation-z={-0.5}
-            scale={[0.16, 0.045, 0.05]}
-          />
-        </>
-      )}
+      {/* Acechador del Umbral: ojos rasgados violeta emisivos (concept art). */}
+      <mesh
+        geometry={smallDotGeometry}
+        material={chaserEyeGlowMaterial}
+        position={[-0.13, -0.02, 0]}
+        rotation-z={0.35}
+        scale={[0.045, 0.12, 0.03]}
+      />
+      <mesh
+        geometry={smallDotGeometry}
+        material={chaserEyeGlowMaterial}
+        position={[0.13, -0.02, 0]}
+        rotation-z={-0.35}
+        scale={[0.045, 0.12, 0.03]}
+      />
     </group>
   );
 }

@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "id": "combat-pits",
+  "name": "Borde del Abismo",
+  "width": 11,
+  "height": 11,
+  "playerStart": { "x": 0, "y": 4 },
+  "tags": ["combate"],
+  "doorSlots": [
+    { "side": "north", "offset": 0 },
+    { "side": "south", "offset": 0 },
+    { "side": "east", "offset": 0 },
+    { "side": "west", "offset": 0 }
+  ],
+  "enemies": [
+    { "id": "shooter-1", "kind": "shooter", "position": { "x": 2.7, "y": -3.4 } },
+    {
+      "id": "spike-1",
+      "kind": "spike",
+      "position": { "x": -3.5, "y": 2.5 },
+      "patrolTarget": { "x": -3.5, "y": -2 },
+      "facing": { "x": 0, "y": -1 }
+    }
+  ],
+  "hazards": [
+    { "id": "pit-1", "kind": "pit", "position": { "x": 0, "y": -0.5 }, "width": 4.6, "height": 3.6 }
+  ],
+  "items": [
+    { "id": "coin-1", "kind": "coin", "position": { "x": 0, "y": 4.5 } },
+    { "id": "potion-1", "kind": "potion", "position": { "x": -3.7, "y": -4 } }
+  ]
+}
