@@ -32,8 +32,6 @@ import type { GameSession } from '@/game/session/session';
 import { pushEvent } from '@/engine/events';
 import { barrelInAir, type HazardSpawn } from '@/game/world/types';
 import { barrelHoopMaterial, barrelMaterial, blobShadowMaterial, boostMaterial, mudMaterial, pitMaterial, scorchMaterial, spikesMaterial, spikesNeedleMaterial, unitCircle, unitCylinder, unitPlane, unitSpikeNeedle } from '@/game/render/assets';
-import { pitGlowMaterial } from '@/game/render/assets-dark';
-import { useDarkStore } from '@/game/render/dark-store';
 
 const HAZARD_QUAD_Y = 0.03;
 const BARREL_HEIGHT = 0.7;
@@ -122,39 +120,18 @@ function SpikesField({ hazard }: { hazard: HazardSpawn }) {
  * suelo-claro/agujero-negro ya es inconfundible por sí solo; el reborde de
  * piedra clara de rondas anteriores quedaba redundante y añadía un marco que
  * el usuario percibía como ruido visual.
- *
- * Penumbra experimental (dark 1-2, `?glow=fosos`): bajo luz casi nula el
- * contraste suelo/foso deja de leerse (ambos caen a negro), así que se pinta
- * un quad Basic (autoemisivo) ligeramente MÁS GRANDE justo debajo del quad
- * negro — el margen que asoma alrededor es el aro tenue del borde. `dark=0`
- * nunca renderiza este quad extra (el selector de `useDarkStore` de abajo ya
- * viene en `false`).
  */
-const PIT_GLOW_MARGIN = 0.18;
-
 function PitQuad({ hazard }: { hazard: HazardSpawn }) {
-  const pitGlowEnabled = useDarkStore((s) => s.dark >= 1 && s.glow.fosos);
   const x = hazard.position.x;
   const z = hazard.position.y;
   return (
-    <>
-      {pitGlowEnabled && (
-        <mesh
-          geometry={unitPlane}
-          material={pitGlowMaterial}
-          rotation-x={-Math.PI / 2}
-          position={[x, HAZARD_QUAD_Y - 0.002, z]}
-          scale={[hazard.width + PIT_GLOW_MARGIN, hazard.height + PIT_GLOW_MARGIN, 1]}
-        />
-      )}
-      <mesh
-        geometry={unitPlane}
-        material={pitMaterial}
-        rotation-x={-Math.PI / 2}
-        position={[x, HAZARD_QUAD_Y, z]}
-        scale={[hazard.width, hazard.height, 1]}
-      />
-    </>
+    <mesh
+      geometry={unitPlane}
+      material={pitMaterial}
+      rotation-x={-Math.PI / 2}
+      position={[x, HAZARD_QUAD_Y, z]}
+      scale={[hazard.width, hazard.height, 1]}
+    />
   );
 }
 

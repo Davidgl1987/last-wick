@@ -2,11 +2,10 @@
  * Shooter: "ojo/cañón" orientado siempre al héroe, que se ilumina (cambia de
  * material apagado a material de carga) mientras `shooterPhase==='charge'`.
  *
- * Aguaboca (rama `estilo-oscuro`, solo dark>=1): el "ojo" pasa a ser una
- * boca-tubo (cilindro corto horizontal, `unitCylinder` reutilizado con
- * rotación local) en vez del punto esférico de `dark=0` — mismo criterio de
- * intercambio de material al cargar/descargar, solo cambian geometría y
- * paleta (piedra oscura ↔ azul brillante en vez de gris ↔ rojo).
+ * Aguaboca: el "ojo" es una boca-tubo (cilindro corto horizontal,
+ * `unitCylinder` reutilizado con rotación local) — mismo criterio de
+ * intercambio de material al cargar/descargar, piedra oscura ↔ azul
+ * brillante.
  */
 
 import { useFrame } from '@react-three/fiber';
@@ -15,16 +14,8 @@ import type { RefObject } from 'react';
 import type { Group, Mesh } from 'three';
 import type { GameSession } from '@/game/session/session';
 import type { Enemy } from '@/game/world/types';
-import {
-  shooterEyeChargeMaterial,
-  shooterEyeMaterial,
-  shooterTelegraphMaterial,
-  smallDotGeometry,
-  unitCircle,
-  unitCylinder,
-} from '@/game/render/assets';
+import { shooterTelegraphMaterial, unitCircle, unitCylinder } from '@/game/render/assets';
 import { shooterTubeGlowMaterial, shooterTubeRestMaterial } from '@/game/render/assets-dark';
-import { useDarkStore } from '@/game/render/dark-store';
 
 export function ShooterMesh({
   session,
@@ -35,13 +26,6 @@ export function ShooterMesh({
   enemyId: string;
   groupRef: RefObject<Group | null>;
 }) {
-  const silhouettes = useDarkStore((s) => s.dark >= 1);
-  // Material/geometría "en reposo" y "cargando" del ojo/cañón, según modo:
-  // recalculado cada render (objeto barato) para reaccionar en caliente al
-  // toggle de `dark` desde el menú de pausa — antes eran constantes fijas de
-  // carga de módulo (`EYE_REST_MATERIAL`/`EYE_CHARGE_MATERIAL`).
-  const eyeRestMaterial = silhouettes ? shooterTubeRestMaterial : shooterEyeMaterial;
-  const eyeChargeMaterial = silhouettes ? shooterTubeGlowMaterial : shooterEyeChargeMaterial;
   const telegraphRef = useRef<Mesh>(null);
   const shooterEyeGroupRef = useRef<Group>(null);
   const shooterEyeMeshRef = useRef<Mesh>(null);
@@ -67,29 +51,21 @@ export function ShooterMesh({
       shooterEyeGroupRef.current.rotation.y = Math.atan2(dx, dy) - group.rotation.y;
     }
     // Asignación directa cada frame (barata: un solo property write, sin
-    // allocation) en vez de solo en la transición de `charging`: así el
-    // material se mantiene correcto también justo tras remontar por un
-    // toggle de `dark` en caliente desde el menú de pausa (que cambia
-    // `eyeRestMaterial`/`eyeChargeMaterial`, ver comentario de cabecera del
-    // componente), sin depender de que `charging` cambie ese mismo frame.
+    // allocation) en vez de solo en la transición de `charging`.
     const eye = shooterEyeMeshRef.current;
-    if (eye) eye.material = charging ? eyeChargeMaterial : eyeRestMaterial;
+    if (eye) eye.material = charging ? shooterTubeGlowMaterial : shooterTubeRestMaterial;
   });
 
   return (
     <>
       <group ref={shooterEyeGroupRef} position={[0, 0.05, 0.36]}>
-        {silhouettes ? (
-          <mesh
-            ref={shooterEyeMeshRef}
-            geometry={unitCylinder}
-            material={eyeRestMaterial}
-            rotation-x={Math.PI / 2}
-            scale={[0.22, 0.22, 0.42]}
-          />
-        ) : (
-          <mesh ref={shooterEyeMeshRef} geometry={smallDotGeometry} material={eyeRestMaterial} scale={0.13} />
-        )}
+        <mesh
+          ref={shooterEyeMeshRef}
+          geometry={unitCylinder}
+          material={shooterTubeRestMaterial}
+          rotation-x={Math.PI / 2}
+          scale={[0.22, 0.22, 0.42]}
+        />
       </group>
       <mesh
         ref={telegraphRef}

@@ -1,8 +1,7 @@
 /**
- * Iluminación de la sala de tienda (rama `estilo-oscuro`, playtest de David:
- * "la tienda puede emitir luz, el placeholder por ejemplo y varios cirios en
- * las esquinas"): atrezzo visual puro (SIN colisión, la sim no lo conoce),
- * montado SOLO en dark>=1 desde GameRoot — mismo patrón que
+ * Iluminación de la sala de tienda (playtest de David: "la tienda puede
+ * emitir luz, el placeholder por ejemplo y varios cirios en las esquinas"):
+ * atrezzo visual puro (SIN colisión, la sim no lo conoce) — mismo patrón que
  * `BossCandlesView.tsx`.
  *
  * Sala de tienda: se localiza vía el item `kind==='shopkeeper'` (siempre
@@ -75,11 +74,8 @@ export function ShopLightsView({ session }: { session: GameSession }) {
     return {
       x: shopkeeper.position.x,
       z: shopkeeper.position.y,
-      // `false` = sin puntos medios, YA por diseño (comentario de cabecera:
-      // sala pequeña y cuadrada, 4 esquinas bastan) en TODOS los perfiles de
-      // calidad — no depende de `budget.wallTorchMidpoints` (perfil de
-      // calidad adaptativo, render/quality.ts): esta vista ya cumple lo que
-      // el perfil bajo pide, sin necesitar el store aquí.
+      // `false` = sin puntos medios (comentario de cabecera: sala pequeña y
+      // cuadrada, 4 esquinas bastan).
       torches: wallTorchLayout(bounds, false),
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

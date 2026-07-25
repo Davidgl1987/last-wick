@@ -1,12 +1,8 @@
 /**
- * Luz de vela del héroe (rama `estilo-oscuro`, experimento de iluminación):
- * en dark 1-2 (`?dark=`, debug-params.ts) el héroe ES la fuente de luz
- * principal de la sala. Este componente mueve una `pointLight` siguiendo su
- * posición interpolada cada frame (useFrame, SIN setState de React — mismo
- * patrón que CameraRig/HeroView: la sim nunca sabe que esta luz existe).
- *
- * Montaje: SOLO en dark 1-2 (GameRoot decide si renderiza este componente;
- * en dark=0 ni siquiera se monta, cero coste y cero diferencia con `main`).
+ * Luz de vela del héroe: el héroe ES la fuente de luz principal de la sala.
+ * Este componente mueve una `pointLight` siguiendo su posición interpolada
+ * cada frame (useFrame, SIN setState de React — mismo patrón que
+ * CameraRig/HeroView: la sim nunca sabe que esta luz existe).
  *
  * Color: cálido de vela base mezclado con el color del arma activa
  * (`WEAPON_COLOR`, mismo mapeo que `heroMaterial`/`aimDotMaterial` en
@@ -31,7 +27,6 @@ import { useRef } from 'react';
 import { Color, type PointLight } from 'three';
 import type { GameSession } from '@/game/session/session';
 import { WEAPON_COLOR } from '@/game/render/assets';
-import { useQualityStore } from '@/game/render/quality';
 
 /** Tono cálido base de la vela (blanco-naranja de llama), antes de mezclar con el color del arma activa. */
 const CANDLE_WARM_COLOR = new Color('#ffb469');
@@ -64,11 +59,6 @@ const FLICKER_AMPLITUDE = 0.12;
 const FLICKER_DISTANCE_FRACTION = 0.5;
 
 export function CandleLightView({ session }: { session: GameSession }) {
-  // Perfil de calidad adaptativo (bug de pantalla negra en móvil,
-  // render/quality.ts): esta es una de las DOS únicas fuentes de shadow map
-  // de toda la escena (la otra es la linterna de enemigo, EnemyLights.tsx) —
-  // en perfil bajo se apaga por completo (`castShadow` más abajo).
-  const shadowsEnabled = useQualityStore((s) => s.budget.shadowsEnabled);
   const lightRef = useRef<PointLight>(null);
   const currentColor = useRef(CANDLE_WARM_COLOR.clone());
   const targetColorScratch = useRef(new Color());
@@ -109,15 +99,12 @@ export function CandleLightView({ session }: { session: GameSession }) {
       intensity={CANDLE_BASE_INTENSITY}
       color={CANDLE_WARM_COLOR}
       // Sombra (punto 1 de playtest: "la luz de la vela no debe atravesar
-      // paredes"): en perfil de calidad alto, única luz con sombra de toda
-      // la escena junto a la linterna de enemigo (cúbica, al ser pointLight
-      // — 6 caras), asumible en forward rendering. near/far del cubo de
-      // sombra acordes al alcance real de la luz (CANDLE_BASE_DISTANCE ≈
-      // 8.5, con margen por el parpadeo que lo estira hasta ~9.5). En
-      // perfil bajo (GPU limitada, render/quality.ts) se apaga: es una de
-      // las dos fuentes de shadow map que agotaban MAX_FRAGMENT_UNIFORM_VECTORS/
-      // MAX_TEXTURE_IMAGE_UNITS en móvil (bug de pantalla negra).
-      castShadow={shadowsEnabled}
+      // paredes"): única luz con sombra de toda la escena junto a la
+      // linterna de enemigo (cúbica, al ser pointLight — 6 caras), asumible
+      // en forward rendering. near/far del cubo de sombra acordes al alcance
+      // real de la luz (CANDLE_BASE_DISTANCE ≈ 8.5, con margen por el
+      // parpadeo que lo estira hasta ~9.5).
+      castShadow
       // 512 (antes 1024, playtest ronda 6: 23 FPS): la sombra de una
       // pointLight es CÚBICA — 6 pasadas de render por frame — y a 1024² son
       // 6 M de texels/frame solo de sombra. A 512² cuesta ¼ y el borde

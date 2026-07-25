@@ -5,12 +5,12 @@
  * color del arma activa del héroe en el momento de depositarse (TrailPool ya
  * guarda r/g/b por punto), mismo lenguaje visual que heroMaterial.
  *
- * SOLO dark=0 (rama `estilo-oscuro`, playtest ronda 7): la cera de dark>=1
- * (antes emitida aquí con vida/desvanecido, y con esferitas de color de arma
- * para los proyectiles) tiene ahora su propia capa persistente sin
- * desvanecido (`session.effects.wax`, `WaxView.tsx`) — `HeroView.tsx` y
- * `ProjectileView.tsx` ya no emiten a este pool en dark>=1, así que este
- * componente vuelve a ser exactamente el de siempre, sin bifurcar por modo.
+ * La cera (antes emitida aquí con vida/desvanecido, y con esferitas de color
+ * de arma para los proyectiles) vive ahora en su propia capa persistente sin
+ * desvanecido (`session.effects.wax`, `WaxView.tsx`) — ni `HeroView.tsx` ni
+ * `ProjectileView.tsx` emiten ya a este pool (playtest ronda 7), así que este
+ * componente se sigue montando (`session.effects.trail` sigue existiendo)
+ * pero de momento nunca recibe puntos.
  */
 
 import { useFrame } from '@react-three/fiber';

@@ -1,7 +1,7 @@
 /**
  * Render de la capa de cera persistente (`WaxPool`, wax.ts): UN InstancedMesh
- * de `capacity` discos aplastados a ras de suelo, montado SOLO en dark>=1
- * (GameRoot). A diferencia de `TrailView` (que recalcula sus ~24 instancias
+ * de `capacity` discos aplastados a ras de suelo, montado siempre desde
+ * GameRoot. A diferencia de `TrailView` (que recalcula sus ~24 instancias
  * cada frame porque la vida cambia sin parar), aquí los puntos NUNCA se
  * mueven ni se desvanecen una vez depositados — así que este componente NO
  * recorre las 2000 instancias cada frame: sube a la GPU ÚNICAMENTE las

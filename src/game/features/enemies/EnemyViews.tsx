@@ -107,8 +107,6 @@ import {
   unitCircle,
   unitSphere,
 } from '@/game/render/assets';
-import { useDarkStore } from '@/game/render/dark-store';
-import { useQualityStore } from '@/game/render/quality';
 import { ChaserMesh } from '@/game/features/enemies/chaser/Mesh';
 import { DummyMesh } from '@/game/features/enemies/dummy/Mesh';
 import { ShooterMesh } from '@/game/features/enemies/shooter/Mesh';
@@ -135,11 +133,11 @@ const ENEMY_MATERIAL: Record<EnemyKind, Material> = {
   boss: bossBodyMaterial,
 };
 
-// Luz MÓVIL de enemigo (rama `estilo-oscuro`, punto 1/2a de playtest): rig de
-// linterna de ojos + relleno (no-boss) y pointLight propia (boss), extraído a
-// `EnemyLights.tsx` (constantes, `applyLanternAim` y el componente de JSX
-// `EnemyLightsRig`) — este componente solo llama a ambos desde el useFrame/
-// JSX de más abajo, en el mismo punto exacto donde vivía el bloque antes.
+// Luz MÓVIL de enemigo (punto 1/2a de playtest): rig de linterna de ojos +
+// relleno (no-boss) y pointLight propia (boss), extraído a `EnemyLights.tsx`
+// (constantes, `applyLanternAim` y el componente de JSX `EnemyLightsRig`) —
+// este componente solo llama a ambos desde el useFrame/JSX de más abajo, en
+// el mismo punto exacto donde vivía el bloque antes.
 
 /**
  * Material "en reposo" del cuerpo (sin flash de golpe/fase/telegraph
@@ -168,18 +166,16 @@ function isQueenLarvaId(enemyId: string): boolean {
 const ENEMY_RADIUS_RENDER = 0.4;
 
 /**
- * Escala ESTÁTICA del cuerpo compartido por arquetipo (dark>=1, silueta del
- * concept art): "Vigía de hollín" ligeramente achatado, "Acechador del
- * Umbral" alto y fino. Fijada UNA vez al montar vía JSX (no en useFrame): el
- * único código que muta `bodyRef.scale` después del montaje es el bloque de
- * jefe/larva de más abajo (`kind==='boss' || isLarva`), que nunca se
- * cumple para dummy/chaser, así que este valor persiste sin pisarse. Radio
- * de colisión intacto (`enemy.radius`/`ENEMY_RADIUS_RENDER` no cambian, esto
- * es solo la escala visual del mesh). `dark=0`: siempre el escalar plano de
- * siempre (paridad exacta con `main`).
+ * Escala ESTÁTICA del cuerpo compartido por arquetipo (silueta del concept
+ * art): "Vigía de hollín" ligeramente achatado, "Acechador del Umbral" alto y
+ * fino. Fijada UNA vez al montar vía JSX (no en useFrame): el único código
+ * que muta `bodyRef.scale` después del montaje es el bloque de jefe/larva de
+ * más abajo (`kind==='boss' || isLarva`), que nunca se cumple para
+ * dummy/chaser, así que este valor persiste sin pisarse. Radio de colisión
+ * intacto (`enemy.radius`/`ENEMY_RADIUS_RENDER` no cambian, esto es solo la
+ * escala visual del mesh).
  */
-function bodyScaleForKind(kind: EnemyKind, silhouettes: boolean): number | [number, number, number] {
-  if (!silhouettes) return ENEMY_RADIUS_RENDER;
+function bodyScaleForKind(kind: EnemyKind): number | [number, number, number] {
   if (kind === 'dummy') {
     return [ENEMY_RADIUS_RENDER * 1.08, ENEMY_RADIUS_RENDER * 0.82, ENEMY_RADIUS_RENDER * 1.08];
   }
@@ -219,14 +215,6 @@ function EnemyMesh({
   kind: EnemyKind;
   bossId?: BossId;
 }) {
-  const silhouettes = useDarkStore((s) => s.dark >= 1);
-  // Perfil de calidad adaptativo (bug de pantalla negra en móvil,
-  // render/quality.ts): fijo desde el arranque (nunca cambia durante la
-  // sesión), controla el montaje de la linterna de ojos (EnemyLightsRig) y
-  // si esta/la vela pueden proyectar sombra.
-  const enemyLanternEnabled = useQualityStore((s) => s.budget.enemyLanternEnabled);
-  const enemyFillLightEnabled = useQualityStore((s) => s.budget.enemyFillLightEnabled);
-  const shadowsEnabled = useQualityStore((s) => s.budget.shadowsEnabled);
   const bodyRef = useRef<Mesh>(null);
   const shadowRef = useRef<Mesh>(null);
   const groupRef = useRef<Group>(null);
@@ -307,11 +295,8 @@ function EnemyMesh({
       lanternRef.current.intensity = alive ? ENEMY_LANTERN_INTENSITY : 0;
       // castShadow se apaga A LA VEZ que la intensidad (ver comentario de
       // ENEMY_LANTERN_SHADOW_MAP_SIZE arriba): nunca sombra activa con
-      // intensidad 0. Y nunca por encima de `shadowsEnabled` (perfil de
-      // calidad, render/quality.ts): en perfil bajo esta ref ni siquiera
-      // llega a existir (spotLight no montada), pero el guard es defensivo
-      // por si un perfil futuro monta la linterna sin sombra.
-      lanternRef.current.castShadow = alive && shadowsEnabled;
+      // intensidad 0.
+      lanternRef.current.castShadow = alive;
     }
     if (fillLightRef.current) fillLightRef.current.intensity = alive ? ENEMY_FILL_LIGHT_INTENSITY : 0;
     if (bossLightRef.current) bossLightRef.current.intensity = alive ? ENEMY_LIGHT_INTENSITY_BOSS : 0;
@@ -519,7 +504,7 @@ function EnemyMesh({
         ref={bodyRef}
         geometry={unitSphere}
         material={restingBodyMaterial(kind, bossId)}
-        scale={bodyScaleForKind(kind, silhouettes)}
+        scale={bodyScaleForKind(kind)}
       />
       <mesh
         ref={shadowRef}
@@ -573,18 +558,18 @@ function EnemyMesh({
       {kind === 'boss' && bossId === 'storm' && <StormBossExtras stormHaloRef={stormHaloRef} />}
     </group>
 
-    {/* Luces móviles (punto 1/2a de playtest, SOLO dark>=1): rig completo
-        (constantes + JSX) extraído a `EnemyLightsRig` (EnemyLights.tsx) —
-        group HERMANO de `groupRef`, NUNCA oculto (recuento de luces =
-        recompilación de shaders en three.js, ver comentario extenso junto a
-        `lightsGroupRef` allí), se apaga con intensity=0 al morir el enemigo
-        en vez de `visible=false`. */}
+    {/* Luces móviles (punto 1/2a de playtest): rig completo (constantes +
+        JSX) extraído a `EnemyLightsRig` (EnemyLights.tsx) — group HERMANO de
+        `groupRef`, NUNCA oculto (recuento de luces = recompilación de
+        shaders en three.js, ver comentario extenso junto a `lightsGroupRef`
+        allí), se apaga con intensity=0 al morir el enemigo en vez de
+        `visible=false`. */}
     <EnemyLightsRig
       kind={kind}
-      silhouettes={silhouettes}
-      enemyLanternEnabled={enemyLanternEnabled}
-      enemyFillLightEnabled={enemyFillLightEnabled}
-      shadowsEnabled={shadowsEnabled}
+      silhouettes
+      enemyLanternEnabled
+      enemyFillLightEnabled
+      shadowsEnabled
       lightsGroupRef={lightsGroupRef}
       lanternRef={lanternRef}
       lanternTargetRef={lanternTargetRef}

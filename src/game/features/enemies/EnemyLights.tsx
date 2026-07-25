@@ -100,9 +100,7 @@ export const ENEMY_LANTERN_DECAY = 2;
  * que NO se hace es dejar `castShadow=true` con intensidad 0: three.js
  * seguiría rellenando el shadow map de esa luz cada frame para un enemigo
  * muerto que no aporta nada, coste puro sin beneficio. Al (re)aparecer
- * enemigos con la sala (montaje), `castShadow` nace en `true` vía JSX (el
- * propio group de luces solo se monta cuando `silhouettes`, es decir
- * dark>=1).
+ * enemigos con la sala (montaje), `castShadow` nace en `true` vía JSX.
  */
 export const ENEMY_LANTERN_SHADOW_MAP_SIZE = 256;
 export const ENEMY_LANTERN_SHADOW_NEAR = 0.1;
@@ -203,16 +201,14 @@ export function applyLanternAim(params: {
  * una sala entera, ver ENEMY_LIGHT_DISTANCE_BOSS) — las velas de sala
  * (BossCandlesView) hacen el resto.
  *
- * Perfil de calidad adaptativo (bug de pantalla negra en móvil,
- * render/quality.ts): la linterna de ojos es, junto a la vela del héroe, una
- * de las DOS únicas fuentes de shadow map de la escena — con hasta ~5
- * enemigos vivos a la vez eso son ~5 shadow maps extra, la otra mitad del
- * diagnóstico (además de agotar el presupuesto de LUCES simultáneas, no solo
- * de sombras). `enemyLanternEnabled===false` (perfil bajo) ni siquiera monta
- * la spotLight/target — el enemigo se queda SOLO con el relleno (barato, sin
- * sombra, se conserva en los dos perfiles). Si algún día un perfil futuro
- * combinase linterna montada + sombras apagadas, `shadowsEnabled` cubre ese
- * caso también (`castShadow` más abajo).
+ * La linterna de ojos es, junto a la vela del héroe, una de las DOS únicas
+ * fuentes de shadow map de la escena — con hasta ~5 enemigos vivos a la vez
+ * eso son ~5 shadow maps extra. `silhouettes`/`enemyLanternEnabled`/
+ * `enemyFillLightEnabled`/`shadowsEnabled` llegan como props desde
+ * `EnemyViews.tsx` (hoy siempre `true`: el antiguo perfil de calidad
+ * adaptativo por GPU se retiró, ver debug-params.ts) — se mantienen
+ * parametrizadas porque un trabajo posterior (recorte de luces reales de
+ * enemigo) va a decidir su valor por otro criterio.
  */
 export function EnemyLightsRig({
   kind,
@@ -251,11 +247,9 @@ export function EnemyLightsRig({
             decay={ENEMY_LANTERN_DECAY}
             position={[0, ENEMY_LANTERN_HEIGHT, 0]}
             // Sombra (ver ENEMY_LANTERN_SHADOW_MAP_SIZE arriba): mapa de spot
-            // pequeño, 1 sola pasada extra por enemigo vivo — nace en
-            // `shadowsEnabled` porque este group de luces solo se monta con
-            // dark>=1 (dentro de eso, según el perfil de calidad); el
-            // useFrame de EnemyViews.tsx la apaga junto con la intensidad al
-            // morir, sin superar nunca `shadowsEnabled` de vuelta a `true`.
+            // pequeño, 1 sola pasada extra por enemigo vivo — el useFrame de
+            // EnemyViews.tsx la apaga junto con la intensidad al morir, sin
+            // superar nunca `shadowsEnabled` de vuelta a `true`.
             castShadow={shadowsEnabled}
             shadow-mapSize={[ENEMY_LANTERN_SHADOW_MAP_SIZE, ENEMY_LANTERN_SHADOW_MAP_SIZE]}
             shadow-camera-near={ENEMY_LANTERN_SHADOW_NEAR}

@@ -76,9 +76,10 @@ export interface GameSession {
   dungeonPool: RoomData[] | null;
   seed: number;
   /**
-   * Semilla forzada (?seed=N en la URL, para verificación/depuración): si no
-   * es null, los reinicios regeneran SIEMPRE el mismo mapa en vez de sortear
-   * una semilla nueva.
+   * Semilla forzada (parámetro `seed` de `createDungeonGameSession`, usado
+   * por los tests para determinismo — GameRoot.tsx ya no la lee de la URL):
+   * si no es null, los reinicios regeneran SIEMPRE el mismo mapa en vez de
+   * sortear una semilla nueva.
    */
   forcedSeed: number | null;
   /** Partículas/estela/trauma/hit-stop (fase 4, GDD §12): independiente del mundo, sobrevive a reinicios de run. */
@@ -184,8 +185,8 @@ function deriveBossSequence(pool: readonly RoomData[]): BossId[] {
 
 /**
  * Sesión de run completa (GDD §10): genera una mazmorra de ROOMS_PER_RUN
- * salas a partir del pool. `forcedSeed` (de ?seed=N) fija el mapa también en
- * reinicios; sin ella, cada run sortea una semilla nueva.
+ * salas a partir del pool. `forcedSeed` fija el mapa también en reinicios
+ * (usado por los tests); sin ella, cada run sortea una semilla nueva.
  *
  * Run multi-mazmorra: deriva `bossSequence` (todos los jefes de diseño del
  * pool, en el orden fijo de dificultad `BOSS_DIFFICULTY_ORDER`), y genera la

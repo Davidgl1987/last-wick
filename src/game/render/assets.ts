@@ -425,16 +425,8 @@ export const STORM_HALO_DIM_COLOR = new THREE.Color('#1b2530');
 // compartidos para micro-detalles por arquetipo, sin tocar la sim ni la
 // silueta/color de contrato del GDD. ──────────────────────────────────────
 
-/** Ojo simple (esclerótica): esfera pequeña blanca, compartida por Dummy/Chaser. */
-export const eyeWhiteMaterial = new THREE.MeshBasicMaterial({ color: '#f5f7ff' });
-/** Pupila/iris oscuro sobre el ojo. */
+/** Pupila/iris oscuro: ojos de la Lacrimera (trail). */
 export const eyePupilMaterial = new THREE.MeshBasicMaterial({ color: '#12131c' });
-/** Ceja agresiva del Chaser: cuña oscura sobre el ojo. */
-export const chaserBrowMaterial = new THREE.MeshBasicMaterial({ color: '#7a3a12' });
-/** Cañón/ojo del Shooter en reposo: gris metálico apagado. */
-export const shooterEyeMaterial = new THREE.MeshBasicMaterial({ color: '#4a5170' });
-/** Cañón/ojo del Shooter mientras carga: rojo brillante (coherente con su telegraph). */
-export const shooterEyeChargeMaterial = new THREE.MeshBasicMaterial({ color: '#ff5a5a' });
 /** Gota de baba del Trail: mismo verde que su cuerpo, algo más oscuro. */
 export const trailDripMaterial = new THREE.MeshBasicMaterial({
   color: '#2f9464',
@@ -445,8 +437,6 @@ export const trailDripMaterial = new THREE.MeshBasicMaterial({
 
 /** Esfera pequeña para ojos/pupilas/gotas (radio unitario, se escala en el componente). */
 export const smallDotGeometry = new THREE.SphereGeometry(1, 10, 8);
-/** Cuña de ceja/cañón: caja fina reutilizable. */
-export const smallWedgeGeometry = new THREE.BoxGeometry(1, 1, 1);
 
 // ── Proyectiles ────────────────────────────────────────────────────────────
 
@@ -510,12 +500,11 @@ export function enemyProjectileMaterialForTag(colorTag: string): THREE.MeshLambe
 }
 
 /**
- * Halo aditivo bajo cada proyectil enemigo (mismo mecanismo barato que
- * `coinGlowHaloMaterial`/`keyGlowHaloMaterial`/`potionGlowHaloMaterial` más
- * abajo: `glowHaloTexture` + `AdditiveBlending` + `depthWrite:false`), con el
- * mismo color que el tinte de cuerpo de arriba. Generalizado a TODO
- * proyectil enemigo (no solo los de La Tormenta): el shooter clásico (sin
- * `colorTag`) recibe el halo rojo por defecto.
+ * Halo aditivo bajo cada proyectil enemigo (mecanismo barato: `glowHaloTexture`
+ * + `AdditiveBlending` + `depthWrite:false`), con el mismo color que el tinte
+ * de cuerpo de arriba. Generalizado a TODO proyectil enemigo (no solo los de
+ * La Tormenta): el shooter clásico (sin `colorTag`) recibe el halo rojo por
+ * defecto.
  */
 const enemyProjectileGlowHaloMaterials: Record<string, THREE.MeshBasicMaterial> = {
   '': new THREE.MeshBasicMaterial({

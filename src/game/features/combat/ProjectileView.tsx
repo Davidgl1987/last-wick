@@ -40,38 +40,27 @@ import type { GameSession } from '@/game/session/session';
 import type { Projectile } from '@/game/world/types';
 import { getUpgradeLevel } from '@/game/session/upgrades';
 import { arrowMaterial, arrowShaftGeometry, arrowTipMaterial, enemyProjectileGlowHaloMaterialForTag, enemyProjectileMaterial, enemyProjectileMaterialForTag, spellBoltMaterial, spellBoltSegmentGeometry, spellSparkGeometry, spellSparkMaterial, unitCircle, unitCone, unitSphere, WEAPON_COLOR } from '@/game/render/assets';
-import { useDarkStore } from '@/game/render/dark-store';
-import { useQualityStore } from '@/game/render/quality';
 import { PROJECTILE_WAX_EMIT_DISTANCE } from '@/game/features/effects/wax';
 import { arrowWidthScaleForLevel } from './upgrade-visuals';
 
 /**
- * Luz de proyectil (rama `estilo-oscuro`, punto 3 de playtest: "los ataques
- * de flecha y hechizo deben emitir luz también", solo dark>=1) — REDISEÑO
- * (playtest: "cuando el boss lanza muchos proyectiles el rendimiento baja
- * un montón, sobre todo con el bullet hell"): antes cada SLOT del pool
- * (hasta `PROJECTILE_POOL_SIZE`=96) montaba su propia pointLight, apagada
- * con `group.visible=false` cuando el slot estaba inactivo. three.js
- * recompila TODOS los programas de shader cada vez que cambia el Nº de
- * luces VISIBLES en la escena — con un bullet hell (decenas de proyectiles
- * apareciendo/muriendo por segundo) eso era una recompilación constante.
- * Fix: POOL FIJO de `budget.projectileLightPoolSize` pointLights, montadas
- * UNA vez (mismo Nº de luces en escena SIEMPRE, cero recompilaciones) en
- * `ProjectileLightPool`, reasignadas cada frame por prioridad — (a)
- * proyectiles del héroe, (b) proyectiles enemigos más CERCANOS al héroe — a
- * los proyectiles activos; las sobrantes quedan con intensity=0 (nunca
- * `visible=false` ni desmontadas, para no volver a variar el recuento).
- * Color del arma activa (`WEAPON_COLOR`, arrow/spell); el proyectil del
- * shooter enemigo (`kind==='enemy'`) recibe una versión bastante más débil,
- * en su propio color. SIN sombra (coste).
- *
- * Tamaño del pool (perfil de calidad adaptativo, bug de pantalla negra en
- * móvil, render/quality.ts): antes fijo a 6, ahora leído de
- * `budget.projectileLightPoolSize` (6 en perfil alto —idéntico a hoy—, 2 en
- * perfil bajo) — sigue siendo FIJO durante toda la sesión (el perfil no
- * cambia tras `onCreated`, ver quality.ts), así que la invariante de "mismo
- * Nº de luces siempre" se mantiene intacta, solo con un valor de partida
- * distinto según GPU.
+ * Luz de proyectil (punto 3 de playtest: "los ataques de flecha y hechizo
+ * deben emitir luz también") — REDISEÑO (playtest: "cuando el boss lanza
+ * muchos proyectiles el rendimiento baja un montón, sobre todo con el bullet
+ * hell"): antes cada SLOT del pool (hasta `PROJECTILE_POOL_SIZE`=96) montaba
+ * su propia pointLight, apagada con `group.visible=false` cuando el slot
+ * estaba inactivo. three.js recompila TODOS los programas de shader cada vez
+ * que cambia el Nº de luces VISIBLES en la escena — con un bullet hell
+ * (decenas de proyectiles apareciendo/muriendo por segundo) eso era una
+ * recompilación constante. Fix: POOL FIJO de `PROJECTILE_LIGHT_POOL_SIZE`
+ * pointLights, montadas UNA vez (mismo Nº de luces en escena SIEMPRE, cero
+ * recompilaciones) en `ProjectileLightPool`, reasignadas cada frame por
+ * prioridad — (a) proyectiles del héroe, (b) proyectiles enemigos más
+ * CERCANOS al héroe — a los proyectiles activos; las sobrantes quedan con
+ * intensity=0 (nunca `visible=false` ni desmontadas, para no volver a variar
+ * el recuento). Color del arma activa (`WEAPON_COLOR`, arrow/spell); el
+ * proyectil del shooter enemigo (`kind==='enemy'`) recibe una versión bastante
+ * más débil, en su propio color. SIN sombra (coste).
  */
 const PROJECTILE_LIGHT_INTENSITY = 6;
 const PROJECTILE_LIGHT_DISTANCE = 3;
@@ -80,16 +69,17 @@ const PROJECTILE_LIGHT_INTENSITY_ENEMY = 3;
 const PROJECTILE_LIGHT_DISTANCE_ENEMY = 2.2;
 /** Altura Y del centro del proyectil (mismo valor que `group.position.set` en `ProjectileSlot`). */
 const PROJECTILE_LIGHT_HEIGHT = 0.3;
+/** Tamaño FIJO del pool de luces de proyectil (ver cabecera del fichero): antes leído de un presupuesto de calidad, ahora una constante única. */
+const PROJECTILE_LIGHT_POOL_SIZE = 6;
 
 /**
- * Halo aditivo bajo CADA proyectil enemigo (rama `estilo-oscuro`, feedback
- * playtest 2026-07-17: "me gustaría que cada bola tuviera su luz"), solo
- * dark>=1 — mismo truco barato ya validado con las monedas/llaves/pociones
- * (`ItemView.tsx`: sprite aditivo con `glowHaloTexture` pegado al suelo,
- * indistinguible de una luz real desde la cámara cenital y coste ~0). NO es
- * una pointLight nueva: el recuento de luces reales de la escena se queda
- * fijo (`ProjectileLightPool`, más abajo) — este halo es un mesh MÁS por
- * slot del pool de proyectiles, no una luz.
+ * Halo aditivo bajo CADA proyectil enemigo (feedback playtest 2026-07-17: "me
+ * gustaría que cada bola tuviera su luz") — mismo truco barato que un sprite
+ * aditivo con `glowHaloTexture` pegado al suelo, indistinguible de una luz
+ * real desde la cámara cenital y coste ~0. NO es una pointLight nueva: el
+ * recuento de luces reales de la escena se queda fijo (`ProjectileLightPool`,
+ * más abajo) — este halo es un mesh MÁS por slot del pool de proyectiles, no
+ * una luz.
  */
 const PROJECTILE_ENEMY_HALO_RADIUS = 0.6;
 /**
@@ -110,19 +100,17 @@ const PROJECTILE_VISUAL_SCALE = 0.8;
 
 /**
  * Estela de proyectiles del héroe (playtest 2026-07-20, David: "cuando
- * dispares con proyectiles, deja cera de ese color"), SOLO dark>=1 — REDISEÑO
- * (mismo playtest, punto de la cera persistente): ya NO usa
- * `session.effects.trail` (vida corta, se desvanece); flecha y hechizo
- * depositan en la capa de cera persistente (`session.effects.wax`,
- * `features/effects/wax.ts`, MISMO pool que usa `HeroView.tsx`), con color
- * del arma activa (`WEAPON_COLOR`, no el color de cera del héroe) y cadencia
- * por DISTANCIA recorrida (`PROJECTILE_WAX_EMIT_DISTANCE`, no por tiempo —
- * un proyectil rápido con cadencia por tiempo dejaría puntos muy espaciados
- * en el suelo, mientras que uno lento los apelmazaría). Emitido aquí (render,
- * useFrame de `ProjectileSlot`, mismo sitio donde ya se itera cada proyectil
- * por frame) y NUNCA en la sim (combat.ts stepea física/daño, no efectos).
- * Gateado a dark>=1: en clásico (dark=0) el look es EXACTAMENTE el de
- * siempre, sin ensuciarlo con chispas nuevas.
+ * dispares con proyectiles, deja cera de ese color") — REDISEÑO (mismo
+ * playtest, punto de la cera persistente): ya NO usa `session.effects.trail`
+ * (vida corta, se desvanece); flecha y hechizo depositan en la capa de cera
+ * persistente (`session.effects.wax`, `features/effects/wax.ts`, MISMO pool
+ * que usa `HeroView.tsx`), con color del arma activa (`WEAPON_COLOR`, no el
+ * color de cera del héroe) y cadencia por DISTANCIA recorrida
+ * (`PROJECTILE_WAX_EMIT_DISTANCE`, no por tiempo — un proyectil rápido con
+ * cadencia por tiempo dejaría puntos muy espaciados en el suelo, mientras que
+ * uno lento los apelmazaría). Emitido aquí (render, useFrame de
+ * `ProjectileSlot`, mismo sitio donde ya se itera cada proyectil por frame) y
+ * NUNCA en la sim (combat.ts stepea física/daño, no efectos).
  */
 const PROJECTILE_TRAIL_SIZE_FACTOR = 0.55;
 
@@ -261,7 +249,6 @@ function SpellShape({ session, slotIndex }: { session: GameSession; slotIndex: n
 }
 
 function ProjectileSlot({ session, index }: { session: GameSession; index: number }) {
-  const silhouettes = useDarkStore((s) => s.dark >= 1);
   const groupRef = useRef<Group>(null);
   const arrowGroupRef = useRef<Group>(null);
   const spellGroupRef = useRef<Group>(null);
@@ -296,11 +283,11 @@ function ProjectileSlot({ session, index }: { session: GameSession; index: numbe
 
     if (lastKind.current !== p.kind) lastKind.current = p.kind;
 
-    // Cera de color del arma (solo dark>=1, solo proyectiles del héroe): ver
-    // cabecera del fichero (PROJECTILE_TRAIL_SIZE_FACTOR). Cadencia por
-    // DISTANCIA recorrida (`speed * delta`, ya calculado arriba), no por
-    // tiempo — mismo criterio que la cera del héroe en HeroView.tsx.
-    if (silhouettes && p.owner === 'hero' && (p.kind === 'arrow' || p.kind === 'spell')) {
+    // Cera de color del arma (solo proyectiles del héroe): ver cabecera del
+    // fichero (PROJECTILE_TRAIL_SIZE_FACTOR). Cadencia por DISTANCIA recorrida
+    // (`speed * delta`, ya calculado arriba), no por tiempo — mismo criterio
+    // que la cera del héroe en HeroView.tsx.
+    if (p.owner === 'hero' && (p.kind === 'arrow' || p.kind === 'spell')) {
       trailAccumulator.current += speed * delta;
       while (trailAccumulator.current >= PROJECTILE_WAX_EMIT_DISTANCE) {
         trailAccumulator.current -= PROJECTILE_WAX_EMIT_DISTANCE;
@@ -349,7 +336,7 @@ function ProjectileSlot({ session, index }: { session: GameSession; index: numbe
     }
     const enemyHalo = enemyHaloRef.current;
     if (enemyHalo) {
-      const showHalo = p.kind === 'enemy' && silhouettes;
+      const showHalo = p.kind === 'enemy';
       enemyHalo.visible = showHalo;
       if (showHalo) enemyHalo.material = enemyProjectileGlowHaloMaterialForTag(p.colorTag);
     }
@@ -364,10 +351,9 @@ function ProjectileSlot({ session, index }: { session: GameSession; index: numbe
         <SpellShape session={session} slotIndex={index} />
       </group>
       <mesh ref={enemyBodyRef} geometry={unitSphere} material={enemyProjectileMaterial} />
-      {/* Halo de "luz por bala" (solo proyectiles enemigos, solo dark>=1):
-          disco aditivo pegado al suelo, mismo mecanismo que los halos de
-          moneda/llave/poción (ItemView.tsx) — indistinguible de una luz real
-          desde la cámara cenital y coste ~0 (sin pointLight nueva). */}
+      {/* Halo de "luz por bala" (solo proyectiles enemigos): disco aditivo
+          pegado al suelo — indistinguible de una luz real desde la cámara
+          cenital y coste ~0 (sin pointLight nueva). */}
       <mesh
         ref={enemyHaloRef}
         geometry={unitCircle}
@@ -383,22 +369,14 @@ function ProjectileSlot({ session, index }: { session: GameSession; index: numbe
 
 /**
  * Pool FIJO de luces de proyectil (ver cabecera del fichero): SIEMPRE monta
- * exactamente `poolSize` (`budget.projectileLightPoolSize`, perfil de
- * calidad adaptativo — render/quality.ts) pointLights cuando `dark>=1`
- * (nunca más, nunca menos — el propio componente entero no monta nada si
- * `silhouettes` es false, un único toggle global al cambiar de modo, no un
- * problema de recuento variable como el que arregla este pool). El perfil se
- * resuelve UNA vez al arrancar y no cambia durante la sesión (ver cabecera
- * de quality.ts), así que `poolSize` es efectivamente una constante para
- * toda la vida de este componente — se lee una vez por instancia y se
- * reutiliza en el useRef/useFrame/JSX de abajo, sin volver a variar el
- * recuento montado. Cada frame reasigna las luces a los proyectiles activos
- * por prioridad, sin asignar memoria nueva (arrays de scratch creados una
- * vez vía useRef).
+ * exactamente `PROJECTILE_LIGHT_POOL_SIZE` pointLights (nunca más, nunca
+ * menos — recuento constante durante toda la vida del componente, sin variar
+ * al montar/desmontar proyectiles). Cada frame reasigna las luces a los
+ * proyectiles activos por prioridad, sin asignar memoria nueva (arrays de
+ * scratch creados una vez vía useRef).
  */
 function ProjectileLightPool({ session }: { session: GameSession }) {
-  const silhouettes = useDarkStore((s) => s.dark >= 1);
-  const poolSize = useQualityStore((s) => s.budget.projectileLightPoolSize);
+  const poolSize = PROJECTILE_LIGHT_POOL_SIZE;
   const lightRefs = useRef<(PointLight | null)[]>([]);
   // Scratch reutilizado cada frame (cero `new`/allocs en useFrame):
   // `assignedSlot[k]` = índice en world.projectiles asignado a la luz k (-1
@@ -482,7 +460,6 @@ function ProjectileLightPool({ session }: { session: GameSession }) {
     }
   });
 
-  if (!silhouettes) return null;
   return (
     <>
       {Array.from({ length: poolSize }, (_, k) => (

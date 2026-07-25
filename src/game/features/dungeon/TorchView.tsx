@@ -36,7 +36,6 @@ import type { Mesh, Object3D, SpotLight } from 'three';
 import type { AABB } from '@/engine/geometry';
 import { unitCone } from '@/game/render/assets';
 import { bossCandleFlameMaterial, bossCandleWaxMaterial, wallTorchWaxGeometry } from '@/game/render/assets-dark';
-import { useQualityStore } from '@/game/render/quality';
 
 /**
  * Desplazamiento HACIA FUERA del interior jugable: la antorcha se planta
@@ -98,12 +97,6 @@ export function WallTorch({
   dirX: number;
   dirZ: number;
 }) {
-  // Perfil de calidad (render/quality.ts): en GPU limitada la antorcha
-  // conserva su geometría y su llama (Basic, se siguen viendo) pero pierde el
-  // resplandor — las antorchas de jefe y tienda se montan para toda la
-  // mazmorra, así que su luz se paga siempre, estés donde estés (8 spotLights
-  // permanentes medidas en preview).
-  const torchLightEnabled = useQualityStore((s) => s.budget.wallTorchLightEnabled);
   const lightRef = useRef<SpotLight>(null);
   const targetRef = useRef<Object3D>(null);
   const flameRef = useRef<Mesh>(null);
@@ -142,28 +135,21 @@ export function WallTorch({
         position={[0, FLAME_HEIGHT, 0]}
         scale={[FLAME_SCALE_XZ, FLAME_SCALE_Y, FLAME_SCALE_XZ]}
       />
-      {torchLightEnabled && (
-        <>
-          <spotLight
-            ref={lightRef}
-            color={LIGHT_COLOR}
-            intensity={LIGHT_INTENSITY}
-            distance={LIGHT_DISTANCE}
-            angle={LIGHT_ANGLE}
-            penumbra={LIGHT_PENUMBRA}
-            decay={LIGHT_DECAY}
-            position={[0, LIGHT_HEIGHT, 0]}
-          />
-          {/* Objetivo del cono: hacia dentro de la sala (dirX/dirZ) e inclinado
-              al suelo (altura local = -LIGHT_HEIGHT, cancela la altura de la luz
-              y deja el punto en el plano y=0 de mundo — mismo truco que el
-              target de la linterna de ojos en EnemyViews.tsx). */}
-          <object3D
-            ref={targetRef}
-            position={[dirX * LIGHT_TARGET_DISTANCE, -LIGHT_HEIGHT, dirZ * LIGHT_TARGET_DISTANCE]}
-          />
-        </>
-      )}
+      <spotLight
+        ref={lightRef}
+        color={LIGHT_COLOR}
+        intensity={LIGHT_INTENSITY}
+        distance={LIGHT_DISTANCE}
+        angle={LIGHT_ANGLE}
+        penumbra={LIGHT_PENUMBRA}
+        decay={LIGHT_DECAY}
+        position={[0, LIGHT_HEIGHT, 0]}
+      />
+      {/* Objetivo del cono: hacia dentro de la sala (dirX/dirZ) e inclinado
+          al suelo (altura local = -LIGHT_HEIGHT, cancela la altura de la luz
+          y deja el punto en el plano y=0 de mundo — mismo truco que el
+          target de la linterna de ojos en EnemyViews.tsx). */}
+      <object3D ref={targetRef} position={[dirX * LIGHT_TARGET_DISTANCE, -LIGHT_HEIGHT, dirZ * LIGHT_TARGET_DISTANCE]} />
     </group>
   );
 }
