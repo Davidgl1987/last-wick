@@ -153,26 +153,10 @@ export function GameRoot({
     <div className="game-root">
       <Canvas
         key={runSeq}
-        onCreated={(state) => {
-          // Solo dev: expone la escena para el puente de verificación
-          // (inspección de objetos huérfanos; complementa a __flingo).
-          if (import.meta.env.DEV) {
-            (window as unknown as { __flingoScene?: unknown }).__flingoScene = state.scene;
-            // Estado R3F completo para verificación headless (?rafshim): en
-            // páginas ocultas el ResizeObserver no dispara y el renderer se
-            // queda en 300x150 — el driver externo llama a state.setSize().
-            (window as unknown as { __flingoR3F?: unknown }).__flingoR3F = state;
-          }
-        }}
         dpr={[1, 2]}
         gl={{
           powerPreference: 'high-performance',
           antialias: true,
-          // Solo dev+?rafshim: conserva el framebuffer tras presentar para que
-          // la verificación headless pueda leer el frame con toDataURL (ver
-          // shim de rAF en src/app/main.tsx). Coste de memoria irrelevante en dev.
-          preserveDrawingBuffer:
-            import.meta.env.DEV && new URLSearchParams(window.location.search).has('rafshim'),
         }}
         camera={{ fov: 45, near: 0.5, far: 80, position: [0, 9.5, 11] }}
         // Sombras: rig de luces rehecho a 7 luces / 1 sola sombra en toda la

@@ -48,8 +48,8 @@ import { WEAPON_COLOR } from '@/game/render/assets';
 import { readCandleShadow } from '@/game/render/debug-params';
 
 // Flag TEMPORAL de comparación A/B (ver debug-params.ts): leído una sola vez
-// al cargar el módulo, mismo momento que el `?rafshim` de main.tsx — no
-// cambia a media partida, así que no hace falta releerlo por render/frame.
+// al cargar el módulo — no cambia a media partida, así que no hace falta
+// releerlo por render ni por frame.
 const CANDLE_SHADOW_ENABLED = readCandleShadow();
 
 /** Tono cálido base de la vela (blanco-naranja de llama), antes de mezclar con el color del arma activa. */
