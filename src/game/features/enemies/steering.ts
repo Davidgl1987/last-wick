@@ -92,9 +92,12 @@ const steerScratch: Vec2Out = { x: 0, y: 0 };
 /**
  * true si el punto (px,py) cae en un hazard que los enemigos deben esquivar
  * (foso, pinchos o barril sin explotar), con margen de piel. Los barriles
- * cuentan: la IA nunca debe inmolarse sola (GDD §7); que un enemigo detone un
- * barril solo puede provocarlo el jugador (knockback/cadena), y ese empuje es
- * físico, no un movimiento de IA, así que no pasa por aquí.
+ * cuentan: la IA nunca debe inmolarse sola (GDD §7) — esto es solo la capa de
+ * evitación "suave" (steering); el contacto de un enemigo con un barril YA NO
+ * detona en ningún caso (fix playtest de David: ver `stepBarrels`,
+ * hazards.ts), el barril es para él un sólido más (`stepEnemyCollisions`,
+ * physics.ts), así que esta función es puramente de navegación, no la última
+ * línea de defensa contra la autoinmolación.
  * Solo escalares: cero asignaciones.
  */
 function pointInAvoidHazard(

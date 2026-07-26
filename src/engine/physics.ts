@@ -12,7 +12,7 @@
 
 import { pushEvent, type EventQueue } from './events';
 import type { AABB, Vec2 } from './geometry';
-import type { World } from '@/game/world/types';
+import { barrelInAir, type World } from '@/game/world/types';
 
 // ── Física global (GDD, Apéndice; validada por playtesting) ───────────────
 
@@ -259,6 +259,20 @@ const BODY_RESTITUTION = 0.4;
  */
 const HERO_INV_MASS = 0.5;
 const ENEMY_INV_MASS = 1;
+/**
+ * Masa inversa nula: el objeto B de `collideCircleCircle` no se mueve nunca
+ * (toda la separación posicional recae en A). Usado para el barril frente al
+ * enemigo en `stepEnemyCollisions` (ver más abajo): el barril es inmóvil.
+ */
+const STATIC_INV_MASS = 0;
+/**
+ * Vector velocidad "del barril" reutilizado en cada llamada a
+ * `collideCircleCircle(enemy, barril)` (ver `stepEnemyCollisions`): con
+ * `STATIC_INV_MASS` el impulso que recibiría es `impulse * 0`, así que este
+ * scratch nunca cambia de verdad — solo evita asignar un objeto por barril
+ * y por tick (cero asignaciones, cabecera del fichero).
+ */
+const STATIC_BODY_VEL: Vec2 = { x: 0, y: 0 };
 
 /**
  * Colisión círculo-vs-círculo con separación posicional proporcional a la
@@ -358,16 +372,27 @@ export function stepBodySeparation(world: World): void {
 }
 
 /**
- * Resuelve la posición de los enemigos contra las paredes interiores y las
- * rocas: el steering de la IA ya evita la mayoría de acercamientos, esto es
- * un cinturón de seguridad de push-out (sin rebote elástico: los enemigos no
- * "rebotan", simplemente no atraviesan sólidos). Knockback (velocidad tras un
- * golpe) sí se ve amortiguado por el push-out, que es el comportamiento
- * deseado (un enemigo empujado contra una roca se frena ahí, no la atraviesa).
+ * Resuelve la posición de los enemigos contra las paredes interiores, las
+ * rocas y los barriles: el steering de la IA ya evita la mayoría de
+ * acercamientos, esto es un cinturón de seguridad de push-out (sin rebote
+ * elástico: los enemigos no "rebotan", simplemente no atraviesan sólidos).
+ * Knockback (velocidad tras un golpe) sí se ve amortiguado por el push-out,
+ * que es el comportamiento deseado (un enemigo empujado contra una roca se
+ * frena ahí, no la atraviesa).
+ *
+ * Barriles (fix playtest de David, "enemigos que mueren solos yendo hacia
+ * barriles explosivos"): antes, el ÚNICO contacto enemigo↔barril posible era
+ * la detonación en `stepBarrels` — si el steering fallaba (esquina, empuje
+ * por knockback, patrulla en línea recta) el enemigo se inmolaba sin que el
+ * jugador interviniera. Ahora el barril es, para el enemigo, un sólido más
+ * (círculo estático, `STATIC_INV_MASS`): lo empuja hacia fuera igual que una
+ * roca. `stepBarrels` ya NO detona por contacto de enemigo (ver ese fichero),
+ * así que este push-out es la única interacción enemigo↔barril posible.
  */
 export function stepEnemyCollisions(world: World): void {
   const bounds = world.bounds;
   const obstacles = world.obstacles;
+  const barrels = world.barrels;
   const enemies = world.enemies;
   for (let i = 0; i < enemies.length; i++) {
     const enemy = enemies[i];
@@ -381,6 +406,22 @@ export function stepEnemyCollisions(world: World): void {
     collideInnerBounds(enemy.position, enemy.velocity, enemy.radius, enemyBounds, null);
     for (let j = 0; j < obstacles.length; j++) {
       collideCircleAabb(enemy.position, enemy.velocity, enemy.radius, obstacles[j].aabb, null);
+    }
+    for (let j = 0; j < barrels.length; j++) {
+      const barrel = barrels[j];
+      // Ya explotado (cascarón inerte, sin colisión) o barril del Guardián
+      // aún cayendo del cielo (GDD §15.2): ninguno de los dos es sólido.
+      if (barrel.exploded || barrelInAir(barrel, world.time)) continue;
+      collideCircleCircle(
+        enemy.position,
+        enemy.velocity,
+        enemy.radius,
+        ENEMY_INV_MASS,
+        barrel.position,
+        STATIC_BODY_VEL,
+        barrel.radius,
+        STATIC_INV_MASS,
+      );
     }
     // Fricción suave del knockback (los enemigos no deslizan indefinidamente).
     enemy.velocity.x *= FRICTION_DECAY_PER_TICK;

@@ -3,16 +3,16 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { FIXED_DT, MAX_SPEED, RESTITUTION, collideCircleAabb, collideInnerBounds } from './physics';
+import { FIXED_DT, MAX_SPEED, RESTITUTION, collideCircleAabb, collideInnerBounds, stepEnemyCollisions } from './physics';
 import { HERO_RADIUS, LAUNCH_SPEED_MAX, LAUNCH_SPEED_MIN } from '@/game/features/hero/constants';
 import { WALL_THICKNESS } from '@/game/world/constants';
 import { createEventQueue, drainEvents, type GameEvent } from './events';
 import { stepWorld } from '@/game/world/step';
 import { createWorld } from '@/game/world/create';
-import type { HazardSpawn, RoomData, World } from '@/game/world/types';
+import type { EnemySpawn, HazardSpawn, RoomData, World } from '@/game/world/types';
 
 /** Sala sintética grande y vacía para tests (paredes lejos del área de prueba). */
-function makeRoom(hazards: HazardSpawn[] = [], width = 30, height = 30): RoomData {
+function makeRoom(hazards: HazardSpawn[] = [], width = 30, height = 30, enemies: EnemySpawn[] = []): RoomData {
   return {
     version: 1,
     id: 'test-room',
@@ -22,14 +22,14 @@ function makeRoom(hazards: HazardSpawn[] = [], width = 30, height = 30): RoomDat
     playerStart: { x: 0, y: 0 },
     tags: ['combate'],
     doorSlots: [],
-    enemies: [],
+    enemies,
     hazards,
     items: [],
   };
 }
 
-function makeWorld(hazards: HazardSpawn[] = []): World {
-  return createWorld(makeRoom(hazards));
+function makeWorld(hazards: HazardSpawn[] = [], enemies: EnemySpawn[] = []): World {
+  return createWorld(makeRoom(hazards, 30, 30, enemies));
 }
 
 describe('rebote círculo-vs-AABB', () => {
@@ -234,5 +234,30 @@ describe('fricción extra a baja velocidad (feedback de playtest, punto 8)', () 
     const events = createEventQueue(8);
     const { dist } = simulateSlide(world, events, MAX_SPEED);
     expect(dist).toBeGreaterThanOrEqual(8.5); // el cañonazo conserva su alcance largo
+  });
+});
+
+describe('stepEnemyCollisions vs barril (fix playtest de David: ya no detona por contacto de enemigo, ver hazards.ts::stepBarrels)', () => {
+  it('un enemigo empujado contra un barril sin explotar no lo atraviesa (mismo push-out que una roca)', () => {
+    const barrels: HazardSpawn[] = [{ id: 'b1', kind: 'barrel', position: { x: 0, y: 0 }, width: 0.8, height: 0.8 }];
+    const world = makeWorld(barrels, [{ id: 'e1', kind: 'chaser', position: { x: 0, y: 0 } }]);
+    const enemy = world.enemies[0];
+    // Centros coincidentes: solape máximo posible (radios 0.4 + 0.4 = 0.8 de separación esperada).
+    stepEnemyCollisions(world);
+
+    const dist = Math.hypot(enemy.position.x - world.barrels[0].position.x, enemy.position.y - world.barrels[0].position.y);
+    expect(dist).toBeGreaterThanOrEqual(enemy.radius + world.barrels[0].radius - 1e-6);
+    expect(world.barrels[0].exploded).toBe(false); // el push-out no lo detona
+    expect(world.barrels[0].position).toEqual({ x: 0, y: 0 }); // el barril es inmóvil
+  });
+
+  it('un barril ya explotado no colisiona (cascarón inerte, el enemigo pasa libre)', () => {
+    const barrels: HazardSpawn[] = [{ id: 'b1', kind: 'barrel', position: { x: 0, y: 0 }, width: 0.8, height: 0.8 }];
+    const world = makeWorld(barrels, [{ id: 'e1', kind: 'chaser', position: { x: 0, y: 0 } }]);
+    world.barrels[0].exploded = true;
+    const enemy = world.enemies[0];
+    stepEnemyCollisions(world);
+    // Sin colisión: la posición no se corrige (solo actúa la fricción sobre la velocidad, no la posición).
+    expect(enemy.position).toEqual({ x: 0, y: 0 });
   });
 });

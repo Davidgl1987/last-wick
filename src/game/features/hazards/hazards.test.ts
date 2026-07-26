@@ -411,4 +411,59 @@ describe('barriles: explosión en cadena', () => {
     expect(world.barrels[0].exploded).toBe(true);
     expect(p.active).toBe(false); // el proyectil se consume
   });
+
+  it('el contacto de un enemigo NO detona el barril (fix playtest de David: antes cualquier enemigo que lo tocara lo hacía estallar solo)', () => {
+    const barrels: HazardSpawn[] = [{ id: 'b1', kind: 'barrel', position: { x: 0, y: 0 }, width: 0.8, height: 0.8 }];
+    // Enemigo pegado al barril (centros coincidentes: solape máximo posible).
+    const world = makeWorld(barrels, [{ id: 'e1', kind: 'chaser', position: { x: 0, y: 0 } }]);
+    const events = createEventQueue(16);
+    const enemy = world.enemies[0];
+    const hp0 = enemy.hp;
+
+    // 60 ticks (1s) de contacto sostenido: ni el barril ni el enemigo deben
+    // inmutarse por la sola presencia del enemigo encima.
+    for (let i = 0; i < 60; i++) {
+      stepBarrels(world, events);
+    }
+
+    expect(world.barrels[0].exploded).toBe(false);
+    expect(enemy.hp).toBe(hp0);
+    expect(world.hero.hp).toBe(world.hero.maxHp); // el héroe, lejos, tampoco se ve afectado
+
+    const types: string[] = [];
+    drainEvents(events, (e: GameEvent) => types.push(e.type));
+    expect(types).not.toContain('barrel-explosion');
+  });
+
+  it('proyectil ENEMIGO no detona el barril (mismo criterio: solo héroe/cadena)', () => {
+    const barrels: HazardSpawn[] = [{ id: 'b1', kind: 'barrel', position: { x: 5, y: 5 }, width: 0.8, height: 0.8 }];
+    const world = makeWorld(barrels);
+    const events = createEventQueue(16);
+    const p = world.projectiles[0];
+    p.active = true;
+    p.kind = 'enemy';
+    p.owner = 'enemy';
+    p.position.x = 5;
+    p.position.y = 5;
+
+    stepBarrels(world, events);
+    expect(world.barrels[0].exploded).toBe(false);
+    expect(p.active).toBe(true); // atraviesa el barril, no se consume
+  });
+
+  it('la explosión de un barril daña a un enemigo en su radio (táctica legítima: atraerlo y detonarlo)', () => {
+    const barrels: HazardSpawn[] = [{ id: 'b1', kind: 'barrel', position: { x: 0, y: 0 }, width: 0.8, height: 0.8 }];
+    // Enemigo dentro del radio de explosión (2) pero sin tocar el barril: solo llega por la onda expansiva.
+    const world = makeWorld(barrels, [{ id: 'e1', kind: 'chaser', position: { x: 1.5, y: 0 } }]);
+    const events = createEventQueue(16);
+    const enemy = world.enemies[0];
+    const hp0 = enemy.hp;
+
+    world.hero.position.x = 0;
+    world.hero.position.y = 0;
+    stepBarrels(world, events); // contacto del héroe: detona
+
+    expect(world.barrels[0].exploded).toBe(true);
+    expect(enemy.hp).toBe(hp0 - BARREL_DAMAGE);
+  });
 });

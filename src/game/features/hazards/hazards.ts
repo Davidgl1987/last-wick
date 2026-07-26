@@ -294,7 +294,19 @@ function circleTouchesEntity(
   return dx * dx + dy * dy <= rr * rr;
 }
 
-/** Detona barriles al contacto de héroe, enemigo o proyectil (GDD §8). */
+/**
+ * Detona barriles SOLO por acción del jugador (o cadena, ver `explodeBarrel`):
+ * contacto del héroe o impacto de un proyectil DEL HÉROE. El contacto de un
+ * enemigo NUNCA detona (fix playtest de David, "enemigos que mueren solos
+ * yendo hacia barriles explosivos": antes cualquier enemigo que tocara un
+ * barril lo hacía estallar, trivializando el combate — el barril para un
+ * enemigo es ahora un sólido más, ver `stepEnemyCollisions` en physics.ts).
+ * Los proyectiles ENEMIGOS (Shooter/Prisma/Storm) tampoco detonan: antes
+ * cualquier proyectil, fuera de quien fuera, lo hacía — mismo criterio, solo
+ * el jugador (directo o por proyectil) dispara la mecha; simplemente
+ * atraviesan el barril sin interactuar con él, como ya hacían contra
+ * cualquier otro hazard.
+ */
 export function stepBarrels(world: World, events: EventQueue): void {
   const barrels = world.barrels;
   for (let i = 0; i < barrels.length; i++) {
@@ -309,28 +321,9 @@ export function stepBarrels(world: World, events: EventQueue): void {
       continue;
     }
 
-    for (let j = 0; j < world.enemies.length; j++) {
-      const enemy = world.enemies[j];
-      if (enemy.hp <= 0) continue;
-      if (
-        circleTouchesEntity(
-          enemy.position.x,
-          enemy.position.y,
-          enemy.radius,
-          barrel.position.x,
-          barrel.position.y,
-          barrel.radius,
-        )
-      ) {
-        explodeBarrel(world, barrel, events);
-        break;
-      }
-    }
-    if (barrel.exploded) continue;
-
     for (let j = 0; j < world.projectiles.length; j++) {
       const p = world.projectiles[j];
-      if (!p.active) continue;
+      if (!p.active || p.owner !== 'hero') continue;
       if (
         circleTouchesEntity(p.position.x, p.position.y, p.radius, barrel.position.x, barrel.position.y, barrel.radius)
       ) {
