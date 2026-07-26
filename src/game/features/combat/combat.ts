@@ -241,18 +241,15 @@ function stepHeroProjectileCollisions(world: World, p: Projectile, events: Event
     const rr = enemy.radius + p.radius;
     if (dx * dx + dy * dy > rr * rr) continue;
 
-    // Spike (GDD §7.3, mecánica invertida 2026-07-20): "solo se le podrá
-    // hacer daño por delante" también aplica a proyectiles — una flecha u
-    // hechizo que impacta su arco trasero (misma comprobación que el
-    // contacto cuerpo a cuerpo, ver `isSpikeContactDangerous`) no le hace
-    // daño, aunque el proyectil se consume igual (pierce/deactivate
-    // normales) para no complicar la física de vuelo.
-    const spikeImmune =
-      enemy.kind === 'spike' &&
-      isSpikeContactDangerous(p.position.x, p.position.y, enemy.position.x, enemy.position.y, enemy.facing.x, enemy.facing.y);
-    if (!spikeImmune) {
-      applyDamageToEnemy(world, enemy, p.damage, p.velocity.x, p.velocity.y, events, false, p.kind === 'arrow' ? 'arrow' : 'spell');
-    }
+    // Spike (GDD §7.3): las púas del Penitente protegen del CONTACTO CUERPO A
+    // CUERPO (embestir su arco trasero sigue dañando al héroe, ver
+    // `isSpikeContactDangerous` en `stepHeroEnemyContacts`), pero no detienen
+    // un proyectil. Playtest 2026-07-26 (David: "no le afectan los
+    // proyectiles por la espalda y debería") revierte la extensión del
+    // 2026-07-20 que también inmunizaba al spike frente a flecha/hechizo por
+    // detrás: un disparo por la espalda es un premio a la buena posición del
+    // jugador, no algo que castigar. Daño siempre, desde cualquier ángulo.
+    applyDamageToEnemy(world, enemy, p.damage, p.velocity.x, p.velocity.y, events, false, p.kind === 'arrow' ? 'arrow' : 'spell');
     p.hitEnemyIds.push(enemy.id);
 
     if (p.kind === 'arrow') {

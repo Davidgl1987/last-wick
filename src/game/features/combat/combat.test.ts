@@ -218,7 +218,7 @@ describe('Spike: púa direccional en contacto (mecánica invertida 2026-07-20: p
   });
 });
 
-describe('Spike: proyectiles solo dañan por delante (mecánica invertida 2026-07-20)', () => {
+describe('Spike: los proyectiles dañan desde cualquier ángulo (playtest 2026-07-26)', () => {
   it('una flecha que impacta por delante (lado de la púa/ojo) daña al Spike con normalidad', () => {
     const world = makeWorld([
       { id: 's1', kind: 'spike', position: { x: 0, y: -0.5 }, facing: { x: 0, y: 1 } },
@@ -237,7 +237,7 @@ describe('Spike: proyectiles solo dañan por delante (mecánica invertida 2026-0
     expect(spike.hp).toBe(hpBefore - ARROW_DAMAGE);
   });
 
-  it('una flecha que impacta por la espalda (arco trasero) NO daña al Spike (pero se consume igual)', () => {
+  it('una flecha que impacta por la espalda (arco trasero) SÍ daña al Spike (revierte la inmunidad de 2026-07-20: "no le afectan los proyectiles por la espalda y debería")', () => {
     const world = makeWorld([
       { id: 's1', kind: 'spike', position: { x: 0, y: 0.5 }, facing: { x: 0, y: 1 } },
     ]);
@@ -252,7 +252,22 @@ describe('Spike: proyectiles solo dañan por delante (mecánica invertida 2026-0
       stepProjectiles(world, FIXED_DT, events);
     }
 
-    expect(spike.hp).toBe(hpBefore); // inmune por la espalda
+    expect(spike.hp).toBe(hpBefore - ARROW_DAMAGE); // ya no es inmune por la espalda: el proyectil premia la buena posición
+  });
+
+  it('el contacto cuerpo a cuerpo por detrás SIGUE pinchando al héroe (esta parte de la mecánica no cambia)', () => {
+    const world = makeWorld([
+      { id: 's1', kind: 'spike', position: { x: 0, y: 0.5 }, facing: { x: 0, y: 1 } },
+    ]);
+    const events = createEventQueue(16);
+    const spike = world.enemies[0];
+    const hpBefore = spike.hp;
+    world.hero.velocity.y = 7.5; // llega desde el norte, contra el arco trasero (espalda)
+
+    stepHeroEnemyContacts(world, world.contactDamageCooldowns, events);
+
+    expect(world.hero.hp).toBe(4); // el héroe recibe 1 al pincharse por detrás
+    expect(spike.hp).toBe(hpBefore); // el contacto cuerpo a cuerpo sigue siendo inofensivo por la espalda
   });
 });
 
