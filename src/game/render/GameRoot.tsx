@@ -53,6 +53,7 @@ import { VictoryModal } from '@/game/ui/VictoryModal';
 import { AimIndicatorView } from '@/game/features/hero/AimIndicatorView';
 import { CameraRig } from './CameraRig';
 import './game-root.css';
+import { PostEffects } from './PostEffects';
 import { BarrelViews, HazardViews } from '@/game/features/hazards/HazardView';
 import { HeroView } from '@/game/features/hero/HeroView';
 import { ItemViews } from '@/game/features/items/ItemView';
@@ -207,6 +208,13 @@ export function GameRoot({
         <AimIndicatorView session={session} />
         <CameraRig session={session} />
         <AimInput session={session} />
+        {/* Post-procesado (Vignette/Noise/Bloom/ChromaticAberration, ver
+            PostEffects.tsx): va DESPUÉS de todas las vistas (necesita que la
+            escena ya exista para componer sobre ella) y ANTES de Preload,
+            cuyo comentario de abajo explica por qué la precompilación de
+            shaders debe ir al final del árbol. Recibe `session` para animar
+            el offset de ChromaticAberration por trauma de cámara. */}
+        <PostEffects session={session} />
         {/*
           Precompilación de shaders (diagnóstico: tirón de 55,8 ms al entrar
           en la sala de la tienda, con `renderer.info.programs.length` pasando

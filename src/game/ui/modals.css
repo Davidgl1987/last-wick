@@ -198,6 +198,32 @@ details.pause-accordion .pause-legend {
   accent-color: #54c7ff;
 }
 
+/* Sección "Efectos visuales" (fase 1 de post-procesado): lista de checkboxes,
+   mismo tono/tamaño que el resto de listas del modal de pausa. */
+.pause-effects-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pause-effect-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #d7dcf5;
+  cursor: pointer;
+}
+
+.pause-effect-toggle input[type='checkbox'] {
+  accent-color: #54c7ff;
+  width: 16px;
+  height: 16px;
+}
+
 .pause-empty {
   margin: 0;
   font-size: 13px;

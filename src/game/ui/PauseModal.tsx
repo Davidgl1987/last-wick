@@ -22,6 +22,7 @@ import {
   cameraSettings,
   setCameraDistanceScale,
 } from '@/game/render/cameraSettings';
+import { setPostEffectEnabled, usePostSettings, type PostSettings } from '@/game/render/postSettings';
 import { resumeGame, type GameSession } from '@/game/session/session';
 import { getUpgradeLevel, UPGRADE_POOL } from '@/game/session/upgrades';
 import { useUiStore } from '@/game/session/store';
@@ -44,6 +45,19 @@ const HAZARD_LEGEND: { label: string; color: string }[] = [
   { label: 'Acelerador — te impulsa', color: '#3fd0ff' },
 ];
 
+/**
+ * Los 4 toggles se crean YA en esta fase 1, aunque Bloom y ChromaticAberration
+ * todavía no monten ningún efecto real en PostEffects.tsx (llegan en fases 2 y
+ * 3) — así el checkbox y su persistencia en localStorage quedan listos de
+ * antemano y las fases siguientes solo añaden el `<Effect>` correspondiente.
+ */
+const POST_EFFECT_TOGGLES: { key: keyof PostSettings; label: string }[] = [
+  { key: 'bloom', label: 'Bloom (brillos)' },
+  { key: 'vignette', label: 'Viñeta' },
+  { key: 'noise', label: 'Grano de imagen' },
+  { key: 'chromaticAberration', label: 'Aberración cromática (impactos)' },
+];
+
 export function PauseModal({ session, onRestart }: { session: GameSession; onRestart: () => void }) {
   const phase = useUiStore((s) => s.phase);
   // Leídas directamente de la sim (no del store zustand): las mejoras no
@@ -55,6 +69,10 @@ export function PauseModal({ session, onRestart }: { session: GameSession; onRes
   // estado de juego, no pasa por zustand ni por la sim): el valor real que
   // lee CameraRig vive en `cameraSettings.distanceScale` (fuera de React).
   const [distanceScale, setDistanceScale] = useState(cameraSettings.distanceScale);
+  // Suscripción reactiva (ver postSettings.ts): a diferencia del slider de
+  // cámara de arriba, aquí SÍ queremos que cambiar un checkbox re-renderice
+  // (para reflejar el estado marcado) — usePostSettings ya se encarga de eso.
+  const postSettings = usePostSettings();
 
   if (phase !== 'paused') return null;
 
@@ -110,6 +128,24 @@ export function PauseModal({ session, onRestart }: { session: GameSession; onRes
               aria-label="Distancia de cámara"
             />
           </label>
+        </section>
+
+        <section className="pause-section">
+          <h3 className="pause-section-title">Efectos visuales</h3>
+          <ul className="pause-effects-list">
+            {POST_EFFECT_TOGGLES.map(({ key, label }) => (
+              <li key={key}>
+                <label className="pause-effect-toggle">
+                  <input
+                    type="checkbox"
+                    checked={postSettings[key]}
+                    onChange={(e) => setPostEffectEnabled(key, e.target.checked)}
+                  />
+                  {label}
+                </label>
+              </li>
+            ))}
+          </ul>
         </section>
 
         <section className="pause-section">
