@@ -174,15 +174,51 @@ const CANDLE_HALF_HEIGHT = 1.4;
  * vean" en vez de solo "se vean mal"). Fix: sacarlos justo fuera de la
  * superficie, al 102% del radio.
  */
-/** Separación entre CENTROS de ambos ojos, en × HERO_RADIUS (juntos, carita del concept; misma proporción que ronda 6 respecto al nuevo diámetro del cilindro, radio local 1 en vez de 0.85). */
-const CANDLE_EYE_SEPARATION = 0.33;
+/**
+ * Agrandados ×2 (playtest 2026-07-26, David: "agranda los ojos de todos,
+ * incluida la vela"): de los 5 personajes con ojos (4 arquetipos + vela),
+ * la vela partía siendo el MÁS PEQUEÑO de todos en términos absolutos (ancho
+ * 0.105·HERO_RADIUS = 0.105·0.24 ≈ 0.025u, frente a 0.045-0.19u de los
+ * arquetipos) — incluso más fino que el Acechador, el más ranurado de los
+ * 4. Mismo factor ×2 que Vigía/Acechador (los otros dos "pequeños" del
+ * criterio), NO más agresivo: la carita simple de la vela lleva muchas
+ * rondas de playtest afinándose (ver historial de esta sección) y un
+ * salto mayor la desproporcionaría respecto al resto de su diseño.
+ *
+ * Separación entre CENTROS de ambos ojos, en × HERO_RADIUS (juntos, carita
+ * del concept; misma proporción que ronda 6 respecto al nuevo diámetro del
+ * cilindro, radio local 1 en vez de 0.85). Sube también ×2 junto con el
+ * tamaño (0.33→0.66): si solo creciera el tamaño del ojo, los dos óvalos se
+ * solaparían en el centro (radio 0.21·HERO_RADIUS > separación media
+ * 0.165·HERO_RADIUS de antes) — al escalar tamaño Y separación por el MISMO
+ * factor, toda la carita crece como un "zoom" uniforme y conserva
+ * exactamente las mismas proporciones internas (mismo hueco relativo entre
+ * ojos) que ya estaban verificadas.
+ */
+const CANDLE_EYE_SEPARATION = 0.66;
 const CANDLE_EYE_X = (HERO_RADIUS * CANDLE_EYE_SEPARATION) / 2;
 const CANDLE_EYE_Y = HERO_RADIUS * 0.68;
-/** Radio local del cilindro (1, ronda 7) × visualRadius/HERO_RADIUS, al 102%: JUSTO fuera de la superficie real (100%), nunca embebidos dentro del sólido (ver BUG de arriba). */
-const CANDLE_EYE_Z = HERO_RADIUS * 1.02;
-/** Tamaño de cada ojo (sin cambios de proporción respecto a HERO_RADIUS: se achica junto con el resto de la vela al reducirse HERO_RADIUS en ronda 7). */
-/** Un punto más grandes (playtest ronda 9: "los ojos de la vela los haría un poco más grandes"). */
-const CANDLE_EYE_SCALE: [number, number, number] = [HERO_RADIUS * 0.105, HERO_RADIUS * 0.16, HERO_RADIUS * 0.06];
+/**
+ * Radio local del cilindro (1, ronda 7) × visualRadius/HERO_RADIUS: antes al
+ * 102% (JUSTO fuera de la superficie real, ver BUG de ronda 8 arriba). Al
+ * agrandar el ojo ×2 (ronda 2026-07-26) su semi-grosor en Z también se
+ * duplica (0.06·HERO_RADIUS → 0.12·HERO_RADIUS, +0.06·HERO_RADIUS): si se
+ * dejara el 102% intacto, el FRENTE del ojo (Z + semi-grosor) se adelantaría
+ * esos mismos 0.06·HERO_RADIUS de más, flotando más de lo que ya flotaba.
+ * Se retrasa el multiplicador esa misma cantidad (1.02−0.06=0.96) para que
+ * el frente del ojo quede en la MISMA profundidad absoluta que antes de
+ * agrandarlo — ni más hundido ni más flotando de lo que ya estaba (mismo
+ * criterio que `DUMMY_EYE_Z`/`CHASER_FACE_RADIUS` en los arquetipos).
+ */
+const CANDLE_EYE_Z = HERO_RADIUS * 0.96;
+/**
+ * Tamaño de cada ojo, en × HERO_RADIUS (se achica junto con el resto de la
+ * vela al reducirse HERO_RADIUS en ronda 7, y crece con ella si sube por
+ * Firmeza — ver `visualRadius` en useFrame). Historial: "un punto más
+ * grandes" en ronda 9 → ×2 en playtest 2026-07-26 (ver comentario de
+ * `CANDLE_EYE_SEPARATION` arriba).
+ */
+const CANDLE_EYE_SCALE: [number, number, number] = [HERO_RADIUS * 0.21, HERO_RADIUS * 0.32, HERO_RADIUS * 0.12];
 
 /**
  * Orientación de la mirada (playtest ronda 8, punto 3b: "deben mirar hacia
@@ -421,9 +457,16 @@ export function HeroView({ session }: { session: GameSession }) {
     // mismo objetivo para que apunten siempre al mismo lenguaje de color.
     // Héroe = vela: el cuerpo (cera) no lerpea (queda fijo, assets-dark.ts) y
     // el lerp se aplica a la llama en su lugar.
+    //
+    // Bloom (fase 4): `candleFlameMaterial` pasó de `MeshBasicMaterial` a
+    // `MeshLambertMaterial` con `color` negro + todo el brillo en `emissive`
+    // (ver assets-dark.ts) para poder cruzar el umbral de bloom — así que el
+    // lerp de arma ahora escribe en `.emissive`, NO en `.color` (que se queda
+    // fijo en negro). `aimDotMaterial` sigue siendo Basic sin cambios: su
+    // lerp sigue en `.color` como siempre.
     const targetColor = WEAPON_COLOR[hero.weaponMode];
     const colorK = 1 - Math.exp(-WEAPON_COLOR_LERP_STIFFNESS * delta);
-    candleFlameMaterial.color.lerp(targetColor, colorK);
+    candleFlameMaterial.emissive.lerp(targetColor, colorK);
     aimDotMaterial.color.lerp(targetColor, colorK);
 
     // Cambio de arma: burst de partículas del color NUEVO alrededor del

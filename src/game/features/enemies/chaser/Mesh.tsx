@@ -18,8 +18,35 @@ import { chaserEyeGlowMaterial } from '@/game/render/assets-dark';
  * ENEMY_RADIUS_RENDER para que los ojos queden asentados EN la superficie
  * visible, nunca flotando fuera de ella ni hundidos dentro.
  */
-const CHASER_FACE_RADIUS = 0.34;
+/**
+ * Recalibrado (playtest 2026-07-26, David: "agranda los ojos de todos... el
+ * Acechador son los más finos de todos, crece ×2"): agrandar el ojo
+ * ×2 (`CHASER_EYE_SCALE`, más abajo) hace crecer también su semi-grosor en Z
+ * (0.03→0.06). Manteniendo el radio del pivote fijo, el FRENTE del ojo
+ * (`CHASER_FACE_RADIUS + semi-grosor`) se adelantaría 0.03 más de lo que
+ * estaba, así que se retrasa el pivote esa misma cantidad para que el frente
+ * quede exactamente en la misma profundidad absoluta que antes de agrandar
+ * (ni más flotando ni más hundido de lo que ya estaba): 0.34−0.03=0.31.
+ */
+const CHASER_FACE_RADIUS = 0.31;
 const CHASER_FACE_HEIGHT = 0.1;
+/**
+ * Ojos rasgados agrandados ×2 UNIFORME (mismo factor en los 3 ejes, para
+ * "mantener la proporción alto/ancho" que pide el playtest — un ranurado que
+ * crece más en un eje que en otro dejaría de leerse "rasgado"): antes
+ * [0.045, 0.12, 0.03], el más fino de los 4 arquetipos (~3px en pantalla a la
+ * distancia de cámara del juego, incluso peor que el Vigía).
+ */
+const CHASER_EYE_SCALE: readonly [number, number, number] = [0.09, 0.24, 0.06];
+/**
+ * Separación horizontal de cada ojo respecto al pivote de la cara (antes
+ * 0.13): con el ojo al doble de ancho Y la inclinación `rotation-z=±0.35`
+ * (que mezcla el semieje Y, mucho más largo, hacia X), el hueco efectivo
+ * entre ambos ranurados se estrecha a solo ~0.024 si no se toca este valor
+ * — visualmente casi pegados. Sube a 0.19 para conservar el mismo hueco
+ * efectivo (~0.14) que había antes de agrandar los ojos.
+ */
+const CHASER_EYE_X = 0.19;
 
 export function ChaserMesh({
   session,
@@ -85,16 +112,16 @@ export function ChaserMesh({
       <mesh
         geometry={smallDotGeometry}
         material={chaserEyeGlowMaterial}
-        position={[-0.13, -0.02, 0]}
+        position={[-CHASER_EYE_X, -0.02, 0]}
         rotation-z={0.35}
-        scale={[0.045, 0.12, 0.03]}
+        scale={CHASER_EYE_SCALE}
       />
       <mesh
         geometry={smallDotGeometry}
         material={chaserEyeGlowMaterial}
-        position={[0.13, -0.02, 0]}
+        position={[CHASER_EYE_X, -0.02, 0]}
         rotation-z={-0.35}
-        scale={[0.045, 0.12, 0.03]}
+        scale={CHASER_EYE_SCALE}
       />
     </group>
   );

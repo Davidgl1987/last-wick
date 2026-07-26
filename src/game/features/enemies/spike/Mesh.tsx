@@ -34,8 +34,25 @@ const SPIKE_DECOR_RING_COUNT = 6;
  * arco trasero cae centrado en π (= -facing).
  */
 const SPIKE_DECOR_REAR_HALF_ARC = (120 * Math.PI) / 180;
-/** Tamaño del ojo grande del Penitente de Púas (punto 5: "el OJO grande centrado en facing"): único indicador visual del frente. */
-const SPIKE_EYE_SCALE: readonly [number, number, number] = [0.19, 0.22, 0.09];
+/**
+ * Tamaño del ojo grande del Penitente de Púas (punto 5: "el OJO grande
+ * centrado en facing"): único indicador visual del frente. Agrandado ×1.3
+ * (playtest 2026-07-26, David: "agranda los ojos de todos"): ya era el más
+ * grande de los 4 arquetipos, así que crece MENOS que el resto (Vigía/
+ * Acechador van a ×2) — el criterio es que todos acaben en un rango de
+ * tamaño parecido, no que cada uno duplique.
+ *
+ * Posición SIN TOCAR (ver `position` más abajo, `[0, 0.06, 0.42]`): este ojo
+ * ya sobresale deliberadamente de la esfera (radio 0.4) como un globo/orbe
+ * abultado, no como un punto plano al ras — con semi-grosor 0.09 (antes) el
+ * frente llega a z≈0.51, muy por delante de la superficie real (~0.4). El
+ * incremento de semi-grosor por el ×1.3 (0.09→0.117, solo +0.027) es pequeño
+ * frente a ese margen ya generoso, así que NO hace falta retrasar la
+ * posición para compensar (a diferencia del Vigía/Acechador, mucho más
+ * ajustados al ras de su superficie, donde el mismo tipo de crecimiento sí
+ * exigía retocar la Z).
+ */
+const SPIKE_EYE_SCALE: readonly [number, number, number] = [0.25, 0.29, 0.12];
 
 export function SpikeMesh({
   session,
