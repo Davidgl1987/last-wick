@@ -451,6 +451,52 @@ function tryMaterialize(
 
   if (origins.some((o) => o === null)) return null;
 
+  // Verifica que TODA arista de la topología sitúa a su vecino donde ya está
+  // colocado — no solo las usadas por el BFS de arriba. El bucle de 4 salas
+  // tiene un ciclo por construcción (LOOP_EDGES): el BFS lo recorre como
+  // árbol de expansión y una de sus 4 aristas siempre "cierra" el ciclo con
+  // los dos extremos ya visitados (`visited.has(neighbor)` la salta para
+  // colocar, ver arriba) — pero esa arista SÍ genera puerta/hueco de muro más
+  // abajo. Si las 4 salas del bucle tienen el mismo ancho/alto (pool
+  // histórico), el ciclo cierra solo y la arista sobrante coincide gratis;
+  // con salas de tamaños dispares (12 salas nuevas, f5c4e5a) puede no cerrar
+  // en el espacio continuo aunque cierre en la rejilla topológica — la sala
+  // vecina real (colocada por la OTRA arista del ciclo) queda a metros de
+  // donde esta arista cree que está. El portón de esta conexión (un único
+  // obstáculo, ver `doorGateAabb` en dungeon-world.ts) se planta en la
+  // posición que calcula ESTA arista, así que sí tapa el hueco de muro del
+  // lado A, pero el hueco de muro del lado B (recortado según la posición
+  // REAL de esa sala) se queda sin nada que lo tape: agujero de colisión
+  // atravesable (bug playtest 2026-07-25/26, "hueco entre salas").
+  // Recalcula aquí el origen que le tocaría al vecino de cada arista, con la
+  // misma fórmula del BFS, y lo compara contra el ya asignado: si no
+  // coinciden, esta combinación de salas no es materializable con este
+  // bucle — el llamador reintenta con otra selección/topología.
+  for (const edge of topology.edges) {
+    const roomAtA = rooms[edge.a];
+    const roomAtB = rooms[edge.b];
+    const originAtA = origins[edge.a]!;
+    const slotAtA = findDoorSlot(roomAtA, edge.side)!;
+    const slotAtB = findDoorSlot(roomAtB, OPPOSITE[edge.side])!;
+    const doorWorldAtA = {
+      x: originAtA.x + doorSlotLocalCenter(roomAtA, slotAtA).x,
+      y: originAtA.y + doorSlotLocalCenter(roomAtA, slotAtA).y,
+    };
+    const localDoorAtB = doorSlotLocalCenter(roomAtB, slotAtB);
+    const dir = DIR_OFFSET[edge.side];
+    const expectedOriginB = {
+      x: doorWorldAtA.x - localDoorAtB.x + dir.dx * ROOM_GAP,
+      y: doorWorldAtA.y - localDoorAtB.y + dir.dy * ROOM_GAP,
+    };
+    const actualOriginB = origins[edge.b]!;
+    if (
+      Math.abs(expectedOriginB.x - actualOriginB.x) > 1e-6 ||
+      Math.abs(expectedOriginB.y - actualOriginB.y) > 1e-6
+    ) {
+      return null;
+    }
+  }
+
   const placedRooms: PlacedRoom[] = rooms.map((room, i) => {
     const origin = origins[i]!;
     return {
@@ -636,7 +682,17 @@ function buildFallbackDungeon(seed: number, roomCount: number): DungeonMap {
 
 // ── Punto de entrada público ───────────────────────────────────────────────
 
-const MAX_GENERATION_ATTEMPTS = 24;
+/**
+ * Subida de 24 a 150 junto con la validación de cierre de ciclo en
+ * `tryMaterialize` (bug playtest 2026-07-25/26, "hueco entre salas"): rechazar
+ * combinaciones cuyo bucle de 4 salas no cierra en el espacio continuo (ver
+ * comentario en `tryMaterialize`) hace fallar mucho más a menudo la
+ * materialización con las 12 salas nuevas de tamaño dispar (f5c4e5a) — con
+ * 24 intentos, ~22% de las semillas caía al layout de emergencia (medido
+ * sobre 1000 semillas). 150 intentos cuesta ~0.15ms/mazmorra de media (una
+ * vez por carga, no por frame) y deja el fallback en 0/1000 semillas.
+ */
+const MAX_GENERATION_ATTEMPTS = 150;
 
 /**
  * Genera una mazmorra determinista de `roomCount` salas (por defecto

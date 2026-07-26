@@ -11,10 +11,10 @@ import { createDungeonWorld } from './dungeon-world';
 import { seriesRooms } from './rooms';
 import { createEventQueue, drainEvents, type GameEvent } from '@/engine/events';
 import { BOSS_VICTORY_PAUSE_DURATION, stepWorld } from '@/game/world/step';
-import { DOOR_CONTACT_MARGIN, DOOR_TOUCH_MARGIN, WALL_THICKNESS } from '@/game/world/constants';
+import { DOOR_CONTACT_MARGIN, DOOR_TOUCH_MARGIN, DOOR_WIDTH, WALL_THICKNESS } from '@/game/world/constants';
 import { HERO_RADIUS } from '@/game/features/hero/constants';
 import type { AABB, Vec2 } from '@/engine/geometry';
-import type { EnemySpawn, Obstacle, RoomData, RoomTag } from '@/game/world/types';
+import type { DoorSide, EnemySpawn, Obstacle, RoomData, RoomDoorRuntime, RoomTag } from '@/game/world/types';
 
 function makeRoom(
   id: string,
@@ -472,5 +472,116 @@ describe('cobertura de esquinas de sala (regresión playtest 2026-07-15)', () =>
         `${failures.length}/${SEED_COUNT} semillas con al menos una esquina de sala sin cubrir (muesca). Primeras:\n${sample}`,
       );
     }
+  });
+});
+
+// ── Perímetro estanco de toda sala (bug playtest 2026-07-25/26, "hueco entre
+// salas que se pueden atravesar") ──────────────────────────────────────────
+//
+// Reporte de David: mismo síntoma que el bug de 39e027e ("esquinas de muro
+// sin cubrir"), pero con las 12 salas nuevas de tamaño dispar (f5c4e5a) el
+// hueco ya NO está en las esquinas (esas siguen bien cubiertas, ver test de
+// arriba) sino en pleno lado recto de una sala del bucle de 4.
+//
+// Causa raíz: el bucle de 4 salas (`LOOP_EDGES` en dungeon.ts) tiene un
+// ciclo por construcción; `tryMaterialize` lo coloca con un BFS que usa 3 de
+// sus 4 aristas como árbol de expansión — la 4ª (la que "cierra" el ciclo)
+// nunca decide el origen de nadie (sus dos extremos ya están visitados) pero
+// SÍ generaba puerta/hueco de muro. Mientras las 4 salas del bucle midieran
+// lo mismo (pool histórico), el ciclo cerraba solo en el espacio continuo y
+// esa arista sobrante coincidía gratis con la posición real. Con salas de
+// ancho/alto dispar, el ciclo puede NO cerrar aunque cierre en la rejilla
+// topológica: la sala vecina real (colocada por la OTRA arista del ciclo)
+// queda a metros de donde la arista sobrante cree que está. Su portón (un
+// único obstáculo por conexión) se plantaba en esa posición equivocada, así
+// que el hueco de muro real — recortado en cada sala según SU propia
+// posición — se quedaba sin nada que lo tapara: colisión atravesable.
+//
+// Fix: `tryMaterialize` ahora recalcula, para CADA arista de la topología (no
+// solo las del árbol de expansión), el origen que le tocaría a su vecino y lo
+// compara contra el ya asignado; si no coinciden, esta combinación de salas
+// no es materializable con este bucle concreto y se descarta (el llamador
+// reintenta con otra selección/topología). `MAX_GENERATION_ATTEMPTS` sube de
+// 24 a 150 para compensar: con el pool de 12 salas nuevas, exigir cierre
+// geométrico hacía caer ~22% de las semillas al layout de emergencia con solo
+// 24 intentos (medido); con 150 el fallback baja a 0/1000 semillas medidas, a
+// un coste de ~0.15 ms/mazmorra (una vez por carga, no por frame).
+//
+// Test: en vez de mirar solo las esquinas, barre TODO el perímetro (paso
+// 0.1u) de CADA sala de mazmorras generadas con el pool real, para muchas
+// semillas — cualquier punto justo fuera del interior jugable debe estar
+// cubierto por un obstáculo (muro o portón) salvo que caiga en el tramo de
+// una puerta ya ABIERTA (ahí cruzar es el comportamiento correcto). Antes del
+// fix, este test fallaba ya en la semilla 1 (key-gallery, lado sur: el portón
+// de esa conexión vivía a >3 unidades de donde el hueco de muro real estaba).
+
+function isPointCoveredByObstacle(x: number, y: number, obstacles: readonly Obstacle[]): boolean {
+  return obstacles.some((o) => x >= o.aabb.minX && x <= o.aabb.maxX && y >= o.aabb.minY && y <= o.aabb.maxY);
+}
+
+/** Coordenada a lo largo del EJE del lado (perpendicular al grosor del muro). */
+function axisCoordOnSide(side: DoorSide, p: Vec2): number {
+  return side === 'north' || side === 'south' ? p.x : p.y;
+}
+
+/** ¿En qué lado de `bounds` cae `p` (con tolerancia), o `null` si no está pegado a ninguno? */
+function sideContainingPoint(bounds: AABB, p: Vec2, eps: number): DoorSide | null {
+  if (Math.abs(p.y - bounds.minY) < eps * 2) return 'north';
+  if (Math.abs(p.y - bounds.maxY) < eps * 2) return 'south';
+  if (Math.abs(p.x - bounds.minX) < eps * 2) return 'west';
+  if (Math.abs(p.x - bounds.maxX) < eps * 2) return 'east';
+  return null;
+}
+
+/** Puntos a paso `step` justo FUERA del interior jugable, a lo largo de los 4 lados. */
+function perimeterOutsidePoints(bounds: AABB, step: number): Vec2[] {
+  const eps = 0.03;
+  const pts: Vec2[] = [];
+  for (let x = bounds.minX; x <= bounds.maxX; x += step) {
+    pts.push({ x, y: bounds.minY - eps });
+    pts.push({ x, y: bounds.maxY + eps });
+  }
+  for (let y = bounds.minY; y <= bounds.maxY; y += step) {
+    pts.push({ x: bounds.minX - eps, y });
+    pts.push({ x: bounds.maxX + eps, y });
+  }
+  return pts;
+}
+
+describe('perímetro estanco de toda sala (regresión playtest 2026-07-25/26, "hueco entre salas")', () => {
+  it('todo punto justo fuera del interior jugable está cubierto, salvo en el tramo de una puerta ya ABIERTA (300 semillas, pool real)', () => {
+    const SEED_COUNT = 300;
+    const STEP = 0.1;
+    const failures: string[] = [];
+
+    for (let seed = 1; seed <= SEED_COUNT && failures.length < 10; seed++) {
+      const dungeon = generateDungeon(seed, seriesRooms);
+      const world = createDungeonWorld(dungeon, seed);
+
+      for (const placed of dungeon.rooms) {
+        const runtime = world.roomRuntimes.get(placed.room.id)!;
+        const halfDoor = DOOR_WIDTH / 2;
+
+        for (const p of perimeterOutsidePoints(placed.bounds, STEP)) {
+          const side = sideContainingPoint(placed.bounds, p, 0.05);
+          if (side) {
+            const inOpenDoorBand = runtime.doors.some((d: RoomDoorRuntime) => {
+              if (d.side !== side || !d.open) return false;
+              return Math.abs(axisCoordOnSide(side, p) - axisCoordOnSide(side, d.center)) <= halfDoor + WALL_THICKNESS;
+            });
+            if (inOpenDoorBand) continue;
+          }
+          if (!isPointCoveredByObstacle(p.x, p.y, world.obstacles)) {
+            failures.push(`seed=${seed} sala=${placed.room.id} punto=(${p.x.toFixed(2)},${p.y.toFixed(2)})`);
+            if (failures.length >= 10) break;
+          }
+        }
+      }
+    }
+
+    if (failures.length > 0) {
+      throw new Error(`${failures.length}+ huecos de perímetro sin cubrir. Primeros:\n${failures.join('\n')}`);
+    }
+    expect(failures.length).toBe(0);
   });
 });
