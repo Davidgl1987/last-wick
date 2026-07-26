@@ -121,11 +121,32 @@ function angularDelta(a: number, b: number): number {
 
 // ── Corridor lineal común: cada bala nace a r_min y no a bocajarro ──────────
 
+/**
+ * (c) ninguna bala supera la rapidez máxima y (d) ninguna nace por debajo del
+ * radio de emisión mínimo, para TODAS las balas de todas las olas.
+ *
+ * Busca CONTRAEJEMPLO y solo entonces afirma, en vez de gastar un `expect` por
+ * bala: es exactamente la misma propiedad universal (se recorren todas las
+ * balas, sin muestrear ni relajar umbrales), pero cada `expect` de vitest cuesta
+ * ~10 µs y estos barridos emiten decenas de miles de balas. Con dos `expect` por
+ * bala este fichero se iba a ~1.5 s (63 840 aserciones solo en el subtest del
+ * hueco apuntado) y bajo contención de CPU ese subtest rozaba el timeout de 5 s
+ * de vitest y flakeaba; la simulación en sí cuesta <10 ms. De paso el mensaje de
+ * fallo identifica la ola y la bala culpables, que el `expect` por bala no daba.
+ */
 function assertSpeedAndRadius(waves: Wave[]): void {
-  for (const wave of waves) {
-    for (const b of wave) {
-      expect(b.speed).toBeLessThanOrEqual(STORM_BULLET_SPEED + EPS); // (c)
-      expect(b.originDist).toBeGreaterThanOrEqual(STORM_MIN_EMISSION_RADIUS - EPS); // (d)
+  for (let w = 0; w < waves.length; w++) {
+    const wave = waves[w];
+    for (let i = 0; i < wave.length; i++) {
+      const b = wave[i];
+      const tooFast = !(b.speed <= STORM_BULLET_SPEED + EPS); // (c)
+      const tooClose = !(b.originDist >= STORM_MIN_EMISSION_RADIUS - EPS); // (d)
+      if (tooFast || tooClose) {
+        expect.fail(
+          `ola ${w}, bala ${i}: speed=${b.speed} (máx ${STORM_BULLET_SPEED}), ` +
+            `originDist=${b.originDist} (mín ${STORM_MIN_EMISSION_RADIUS})`,
+        );
+      }
     }
   }
 }
