@@ -1,5 +1,7 @@
 # Flingo
 
+https://davidgl1987.github.io/flingo/
+
 Roguelite de tirachinas por salas, **móvil primero** (navegador). Lanzas al héroe como una bola de billar: apuntas arrastrando, sueltas, rebotas por la sala y embistes enemigos con la propia velocidad. Limpia cada sala, elige una mejora, encuentra la llave, abre la puerta del jefe y termina la run.
 
 - **Diseño del juego:** [docs/GDD.md](docs/GDD.md)
