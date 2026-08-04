@@ -9,7 +9,7 @@
  * CameraRig, así que un cambio del slider nunca "salta" de golpe.
  */
 
-const STORAGE_KEY = 'flingo:camera-distance-scale';
+const STORAGE_KEY = 'last-wick:camera-distance-scale';
 
 /** Rango del slider: 0.75× (más cerca) a 1.5× (más lejos) de la distancia base. */
 export const CAMERA_DISTANCE_SCALE_MIN = 0.75;

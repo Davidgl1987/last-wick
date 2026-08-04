@@ -15,7 +15,7 @@ export function TitleScreen({ onPlay }: { onPlay: () => void }) {
     <div className="title-screen">
       <div className="title-screen-glow" aria-hidden="true" />
       <div className="title-screen-content">
-        <h1 className="title-screen-title">FLINGO</h1>
+        <h1 className="title-screen-title">LAST WICK</h1>
         <p className="title-screen-subtitle">Un roguelite de tirachinas</p>
         <button type="button" className="title-screen-play-btn" onClick={onPlay}>
           ▶ Jugar

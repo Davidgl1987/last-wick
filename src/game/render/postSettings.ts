@@ -20,7 +20,7 @@
 
 import { useSyncExternalStore } from 'react';
 
-const STORAGE_KEY = 'flingo:post-effects';
+const STORAGE_KEY = 'last-wick:post-effects';
 
 export interface PostSettings {
   bloom: boolean;

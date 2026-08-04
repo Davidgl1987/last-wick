@@ -28,7 +28,7 @@ interface DevResponse {
  */
 function editorRoomsEndpoint(): Plugin {
   return {
-    name: 'flingo-editor-rooms-endpoint',
+    name: 'last-wick-editor-rooms-endpoint',
     apply: 'serve',
     configureServer(server) {
       server.middlewares.use('/api/editor/rooms', (rawReq, rawRes) => {

@@ -1,4 +1,4 @@
-# Protocolo para agentes implementadores (Flingo v2)
+# Protocolo para agentes implementadores (Last Wick v2)
 
 *Todo sub-agente que implemente en este repo DEBE leer este fichero primero y cumplirlo. El prompt de cada tarea solo contiene el QUÉ; el CÓMO vive aquí.*
 
@@ -16,7 +16,7 @@
 - **NO ejecutes `npm install`** (y menos en background). Si crees imprescindible una dependencia nueva: párate y dilo en el informe.
 - **vitest SIEMPRE con `run`**: `npm test` o `npx vitest run <fichero>`. `npx vitest <fichero>` a secas entra en modo WATCH y no termina nunca → el watchdog de inactividad te mata a los 600 s (pasó tres veces seguidas el 2026-07-06). En general: ningún comando que pueda quedarse >5 min sin emitir salida.
 - **NO mires código de ramas antiguas** (main, rapier-rewrite) ni el historial git. Este juego se implementa solo desde los docs + el código actual de la rama.
-- Conserva funcionales los puentes dev-only `window.__flingo` (useGameLoop.ts) y `window.__flingoScene` (GameRoot.tsx).
+- Conserva funcionales los puentes dev-only `window.__lastwick` (useGameLoop.ts) y `window.__lastwickScene` (GameRoot.tsx).
 
 ## Trampas conocidas de este código (aprendidas a base de bugs)
 
@@ -46,4 +46,4 @@ npm run build       # limpio
 2. Salida resumida de typecheck/test/build (números literales).
 3. Decisiones que tomaste no cubiertas por el GDD, con su motivo.
 4. Causa raíz de cualquier bug que arreglaras (no "lo arreglé": el porqué).
-5. Qué debe verificar visualmente el orquestador, punto por punto, y cómo (el puente `__flingo.tick(s)` permite avanzar la sim aunque el tab esté oculto; `?seed=N` fija la mazmorra).
+5. Qué debe verificar visualmente el orquestador, punto por punto, y cómo (el puente `__lastwick.tick(s)` permite avanzar la sim aunque el tab esté oculto; `?seed=N` fija la mazmorra).

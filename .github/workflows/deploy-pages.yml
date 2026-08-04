@@ -1,4 +1,4 @@
-name: Deploy Flingo to GitHub Pages
+name: Deploy Last Wick to GitHub Pages
 
 on:
   push:

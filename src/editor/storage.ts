@@ -8,10 +8,10 @@
 import { parseRoomData } from '@/game/features/dungeon/room-format';
 import type { RoomData } from '@/game/world/types';
 
-const DRAFT_KEY = 'flingo-editor-draft';
-const PLAYTEST_KEY = 'flingo-editor-playtest';
+const DRAFT_KEY = 'last-wick-editor-draft';
+const PLAYTEST_KEY = 'last-wick-editor-playtest';
 /** DEBE coincidir con features/dungeon/rooms.ts (pool del generador). */
-const EXPORTED_ROOMS_KEY = 'flingo-editor-exported-rooms';
+const EXPORTED_ROOMS_KEY = 'last-wick-editor-exported-rooms';
 
 function safeRead(key: string): unknown {
   try {

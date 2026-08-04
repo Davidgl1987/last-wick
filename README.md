@@ -1,6 +1,8 @@
-# Flingo
+# Last Wick
 
-https://davidgl1987.github.io/flingo/
+*«La última mecha»*
+
+https://davidgl1987.github.io/last-wick/
 
 Roguelite de tirachinas por salas, **móvil primero** (navegador). Lanzas al héroe como una bola de billar: apuntas arrastrando, sueltas, rebotas por la sala y embistes enemigos con la propia velocidad. Limpia cada sala, elige una mejora, encuentra la llave, abre la puerta del jefe y termina la run.
 
@@ -65,7 +67,7 @@ Parámetros de URL, combinables entre sí (herramientas de playtest):
 - **`?phase=2|3`** (solo junto a `?boss=`) fuerza la fase inicial del jefe forzado, para probar su comportamiento de fase 2/3 sin tener que bajarle la vida a mano.
 - **`?godmode`** (presencia = activo, sin valor) activa el modo dios de playtest: el daño se aplica normal (hp baja, vignette, knockback) pero al llegar a 0 hp el héroe revive a vida máxima en vez de game-over — para ver cuánto quita cada ataque en una run completa (los 4 jefes seguidos). Un badge "GOD" junto a los corazones marca que la run es de testeo. Combina con `?seed=N` (run completa) y `?boss=<id>` (arena de jefe suelta).
 - **`?upgrades=id:nivel,...`** fuerza niveles de mejora al crear la sesión (ej. `?upgrades=cuerpo-dano:3,escudo:2`), para verificar su feedback visual sin tener que jugar hasta conseguirlas.
-- En dev, `window.__flingo` expone la sesión y helpers (`tick(segundos)`, `frame(dt)`) para avanzar la sim desde la consola, incluso con el tab oculto.
+- En dev, `window.__lastwick` expone la sesión y helpers (`tick(segundos)`, `frame(dt)`) para avanzar la sim desde la consola, incluso con el tab oculto.
 
 ## Arquitectura en una línea
 

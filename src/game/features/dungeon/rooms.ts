@@ -152,7 +152,7 @@ export function getRoomPool(): RoomData[] {
   return [...seriesRooms, ...loadEditorExportedRooms()];
 }
 
-const EDITOR_ROOMS_STORAGE_KEY = 'flingo-editor-exported-rooms';
+const EDITOR_ROOMS_STORAGE_KEY = 'last-wick-editor-exported-rooms';
 
 /** Salas que el editor ha exportado a localStorage (además de descargar el .json). */
 function loadEditorExportedRooms(): RoomData[] {

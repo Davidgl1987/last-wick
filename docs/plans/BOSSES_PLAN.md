@@ -1,13 +1,13 @@
 # Plan de implementación: jefes (GDD §15)
 
-*Plan de orquestación. Cada fase la ejecuta un sub-agente con el modelo indicado; el orquestador (modelo superior) escribe el prompt, verifica el resultado (git + tests + preview con `__flingo`) y commitea. Regla del repo: los sub-agentes NUNCA con un modelo superior a Sonnet.*
+*Plan de orquestación. Cada fase la ejecuta un sub-agente con el modelo indicado; el orquestador (modelo superior) escribe el prompt, verifica el resultado (git + tests + preview con `__lastwick`) y commitea. Regla del repo: los sub-agentes NUNCA con un modelo superior a Sonnet.*
 
 ## Principios de orquestación (ahorro de tokens)
 
 - Todo prompt de tarea empieza con: **"Lee AGENTS.md y cúmplelo"** + la sección del GDD que aplica + el pendiente concreto. Nada de repetir protocolo inline.
 - Fases **secuenciales y pequeñas** (un jefe por agente): los agentes largos mueren por límite de sesión a mitad. Si uno cae: reanudarlo por agentId con la lista de pendientes **verificada por git** (no relanzar de cero).
 - El framework (B0) se hace primero y se verifica a fondo: los 4 jefes dependen de sus contratos.
-- Verificación del orquestador por fase: `npm test` + preview con `?seed` fijo + `__flingo.tick()` para reproducir la pelea sin jugarla a mano.
+- Verificación del orquestador por fase: `npm test` + preview con `?seed` fijo + `__lastwick.tick()` para reproducir la pelea sin jugarla a mano.
 
 ## Fase B0 — Framework de jefes · **sonnet**
 
@@ -23,7 +23,7 @@ Contratos a implementar (sim pura + integración):
 - Pool de proyectiles: ampliar capacidad configurable (La Tormenta necesitará ~64-96 balas vivas; hoy el pool es menor). Instanciado, cero allocs.
 - Tests: fases por umbral, telegraph→ataque→ventana, sellado/apertura de puertas, generador con 1 jefe por run, techo de daño.
 
-**Verificación orquestador:** run con `?seed` que caiga en el jefe de pruebas; sellado, barra, fases y victoria vía `__flingo`.
+**Verificación orquestador:** run con `?seed` que caiga en el jefe de pruebas; sellado, barra, fases y victoria vía `__lastwick`.
 
 ## Fase B1 — Guardián de Canto (GDD §15.2) · **sonnet**
 
@@ -73,7 +73,7 @@ Contratos a implementar (sim pura + integración):
 
 ## Presupuesto orientativo
 
-6 fases × 1 agente sonnet (~150-300k tokens/fase visto el histórico) + verificaciones del orquestador. Mitigaciones ya en marcha: AGENTS.md (protocolo fuera de los prompts), reanudación por agentId tras límites de sesión, verificación por `__flingo` (barata) en vez de playtest manual del orquestador.
+6 fases × 1 agente sonnet (~150-300k tokens/fase visto el histórico) + verificaciones del orquestador. Mitigaciones ya en marcha: AGENTS.md (protocolo fuera de los prompts), reanudación por agentId tras límites de sesión, verificación por `__lastwick` (barata) en vez de playtest manual del orquestador.
 
 ## Estado (2026-07-15)
 

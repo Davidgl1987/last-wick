@@ -1,4 +1,4 @@
-# FLINGO — Game Design Document
+# LAST WICK — Game Design Document
 
 *Slingshot dungeon crawler para móvil (navegador). Este documento describe **cómo se juega**: es la única fuente de verdad de diseño para cualquier implementación. No contiene decisiones técnicas.*
 
