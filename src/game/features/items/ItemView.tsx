@@ -5,64 +5,111 @@
  * React: `ItemViews` necesita su propio trigger de re-render por `.length`
  * (ver comentario en `ItemViews` más abajo) o esos items nacen sin mesh.
  *
- * Formas (feedback de playtest):
- * - Moneda (punto 9): cilindro plano ("moneda de canto visible") que gira
+ * Formas (ART_KIT_PLAN.md F4 — antes geometría primitiva propia, ver historial
+ * de este fichero para la versión previa):
+ * - Moneda (punto 9 de playtest): pieza `coin` del kit, escalada a
+ *   `COIN_RADIUS` (no a `KIT_SCALE`: es un objeto de juego con tamaño propio
+ *   ya ajustado a recogida/legibilidad, ART_KIT_PLAN.md §2). Sigue girando
  *   sobre su eje vertical con el tiempo del mundo (determinista).
- * - Poción (punto 10): frasco compuesto (cuerpo bulboso + cuello + tapón),
- *   rosa/rojo, en vez de una esfera genérica.
- * - Llave: sin cambios (caja dorada, ya legible).
+ * - Poción (punto 10): `bottle_A_labeled_green` del kit en vez del frasco
+ *   compuesto (esfera+cuello+tapón) de antes; escalada para ocupar
+ *   exactamente la misma altura que el frasco que sustituye.
+ * - Llave: `key_gold` del kit en vez del cubo dorado; necesita una corrección
+ *   de geometría ÚNICA (ver `KeyShape`) porque nace pensada para colgar de
+ *   un gancho, no para verse desde la cámara cenital del juego.
  *
- * Todas las formas usan geometrías/materiales compartidos de assets.ts; el
+ * Las tres formas usan la GEOMETRÍA del kit pero materiales PLANOS propios,
+ * no el `kitMaterial` compartido: su color es información de juego y el atlas
+ * NightA lo borraría (ver el bloque de materiales más abajo, con el porqué
+ * completo). El tendero es F5 y sigue con sus materiales de `assets.ts`. El
  * grupo por item se muta en useFrame (posición de bob + rotación), cero
  * asignaciones.
  */
 
 import { useFrame } from '@react-three/fiber';
-import { useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
+import * as THREE from 'three';
 import type { Group } from 'three';
 import type { GameSession } from '@/game/session/session';
 import type { Item } from '@/game/world/types';
-import {
-  coinGeometry,
-  coinMaterial,
-  coinRimMaterial,
-  keyMaterial,
-  potionBodyGeometry,
-  potionCapGeometry,
-  potionCapMaterial,
-  potionMaterial,
-  potionNeckGeometry,
-  shopkeeperHeadMaterial,
-  shopkeeperRobeMaterial,
-  unitBox,
-  unitCone,
-  unitSphere,
-} from '@/game/render/assets';
+import { shopkeeperHeadMaterial, shopkeeperRobeMaterial, unitCone, unitSphere } from '@/game/render/assets';
+import { kitGeometry } from '@/game/render/kit';
+import { kitBoxSize, kitGroundOffset } from '@/game/render/kit-fit';
 
 const ITEM_HEIGHT: Record<Item['kind'], number> = { coin: 0.3, potion: 0.32, key: 0.3, shopkeeper: 0 };
-/** Radio visual de la moneda (diámetro del cilindro plano de assets.ts, escalado). */
+/** Radio visual de la moneda (antes diámetro del cilindro plano de assets.ts; se conserva igual con la pieza del kit). */
 const COIN_RADIUS = 0.24;
-const POTION_SCALE = 0.24;
+/**
+ * Altura total (u de juego) que ocupaba el frasco compuesto ANTERIOR a F4
+ * (esfera radio 1 de -1 a +1, cuello de 0.6 a 1.3, tapón de 1.22 a 1.62,
+ * todo bajo el antiguo `POTION_SCALE`=0.24): `(1.62 - (-1)) * 0.24 = 0.6288`.
+ * Se conserva como número — NO es una medida del kit (esas se leen del
+ * `boundingBox` real, ver `kitBoxSize` en `PotionShape`) — solo para que
+ * `bottle_A_labeled_green` ocupe en pantalla exactamente lo mismo que la
+ * forma que sustituye (encargo F4: "el objeto tiene que ocupar en pantalla
+ * lo MISMO que ocupa hoy").
+ */
+const POTION_VISUAL_HEIGHT = 0.6288;
+/**
+ * Altura (Y, relativa al ancla del grupo `ITEM_HEIGHT.potion`) a la que
+ * quedaba el punto más bajo de la esfera del cuerpo ANTES de F4: radio 1 sin
+ * desplazamiento propio, escalado por el antiguo `POTION_SCALE`=0.24 → -0.24.
+ * Igual que `POTION_VISUAL_HEIGHT`, es la huella de la forma ANTERIOR (para
+ * que la poción no aparezca flotando más alta o hundida respecto a donde
+ * estaba validada), no una medida de `bottle_A_labeled_green`.
+ */
+const POTION_BASE_OFFSET = -0.24;
+/** Tamaño visual objetivo de la llave (antes cubo `unitBox` a escala uniforme 0.22, ver `KeyShape`). */
+const KEY_SIZE = 0.22;
+
+/**
+ * Materiales PLANOS (sin el atlas del kit) de los objetos recogibles — la
+ * excepción al "un solo material para todo el kit" (`kitMaterial`), y por un
+ * motivo de LEGIBILIDAD, no estético.
+ *
+ * Al pasar los objetos al kit heredaron su atlas, que es la variante NightA:
+ * azul frío monocromo. Es justo lo que queremos para la arquitectura (piedra),
+ * pero sobre los objetos borra su código de color, que aquí es INFORMACIÓN DE
+ * JUEGO, no decoración — GDD §14: cada entidad se identifica por color/silueta
+ * a primera vista. En la verificación de F4 la moneda y la llave (doradas
+ * desde siempre) salían gris-azuladas contra un suelo gris-azulado, y la
+ * poción, cuyo rosa SIGNIFICA vida, salía verde-azulada.
+ *
+ * Y no vale con teñir un clon de `kitMaterial` (que es lo que hace el portón
+ * de llave en RoomView.tsx): `material.color` MULTIPLICA el mapa, así que
+ * puede oscurecer o desaturar lo que el atlas ya tiene, pero no puede añadir
+ * un color que la textura no lleva — rosa × turquesa da barro, no rosa. Por
+ * eso estos tres materiales renuncian al mapa y llevan el color plano.
+ *
+ * Lo que se pierde con ello es menos de lo que parece: el atlas del kit es una
+ * paleta de degradados planos (ART_KIT_PLAN §1), no una textura de detalle —
+ * el volumen de estas piezas lo dan su geometría y el sombreado Lambert, no el
+ * mapa. Un objeto pasa a leerse de UN color, que es exactamente como se leía
+ * antes del kit: lo que ganamos es la silueta buena (moneda con canto, frasco
+ * con cuello y etiqueta en relieve, llave con paletas y anilla).
+ *
+ * Los colores son EXACTAMENTE los de los materiales propios anteriores al kit
+ * (`coinMaterial`/`keyMaterial`/`potionMaterial` de assets.ts): el tono ya
+ * validado en playtest no cambia, solo la geometría que lo lleva.
+ */
+function flatItemMaterial(color: string): THREE.MeshLambertMaterial {
+  return new THREE.MeshLambertMaterial({ color });
+}
+const coinKitMaterial = flatItemMaterial('#ffd166');
+const keyKitMaterial = flatItemMaterial('#ffe082');
+const potionKitMaterial = flatItemMaterial('#ff6bcb');
 
 function CoinShape({ receiveShadow }: { receiveShadow: boolean }) {
-  return (
-    <>
-      {/* Cara de la moneda: cilindro plano, dorado. */}
-      <mesh
-        geometry={coinGeometry}
-        material={coinMaterial}
-        scale={[COIN_RADIUS * 2, 1, COIN_RADIUS * 2]}
-        receiveShadow={receiveShadow}
-      />
-      {/* Canto más oscuro (mismo cilindro, radio ligeramente menor y opaco por dentro): da volumen al girar. */}
-      <mesh
-        geometry={coinGeometry}
-        material={coinRimMaterial}
-        scale={[COIN_RADIUS * 1.94, 1.02, COIN_RADIUS * 1.94]}
-        receiveShadow={receiveShadow}
-      />
-    </>
-  );
+  const geometry = kitGeometry('coin');
+  const nativeSize = useMemo(() => kitBoxSize(geometry), [geometry]);
+  // La moneda del kit YA nace con el mismo eje fino que el cilindro que
+  // sustituye: verificado contra el .gltf, el boundingBox mide ±0.0625 en Y
+  // (el eje vertical) frente a ±0.18 en X/Z — un disco tumbado sobre el
+  // plano XZ, igual que el CylinderGeometry de antes. El giro de vuelco
+  // sobre Z que aplica ItemMesh (canto visible al voltear) sigue
+  // funcionando sin corregir nada en la geometría.
+  const scale = (COIN_RADIUS * 2) / nativeSize.x;
+  return <mesh geometry={geometry} material={coinKitMaterial} scale={scale} receiveShadow={receiveShadow} />;
 }
 
 /** Tendero placeholder (docs/plans/ECONOMY_PLAN.md F4): túnica cónica + cabeza esférica, estático (sin bob/giro). */
@@ -88,33 +135,65 @@ function ShopkeeperShape({ receiveShadow }: { receiveShadow: boolean }) {
 }
 
 function PotionShape({ receiveShadow }: { receiveShadow: boolean }) {
+  const geometry = kitGeometry('bottle_A_labeled_green');
+  const nativeSize = useMemo(() => kitBoxSize(geometry), [geometry]);
+  const groundY = useMemo(() => kitGroundOffset(geometry), [geometry]);
+  // Escala UNIFORME (mismo criterio que barrel_small/torch_mounted en
+  // HazardView.tsx/TorchView.tsx: no romper la proporción del frasco
+  // modelada) elegida para que la ALTURA total iguale la de la forma
+  // anterior (`POTION_VISUAL_HEIGHT`), no `KIT_SCALE` — es un objeto de
+  // juego con tamaño propio, ART_KIT_PLAN.md §2.
+  const scale = POTION_VISUAL_HEIGHT / nativeSize.y;
   return (
-    <group scale={POTION_SCALE}>
-      {/* Cuerpo bulboso. */}
-      <mesh
-        geometry={potionBodyGeometry}
-        material={potionMaterial}
-        scale={[0.85, 1, 0.85]}
-        receiveShadow={receiveShadow}
-      />
-      {/* Cuello fino sobre el cuerpo. */}
-      <mesh
-        geometry={potionNeckGeometry}
-        material={potionMaterial}
-        position={[0, 0.95, 0]}
-        scale={[1, 0.7, 1]}
-        receiveShadow={receiveShadow}
-      />
-      {/* Tapón/corcho en la boca. */}
-      <mesh
-        geometry={potionCapGeometry}
-        material={potionCapMaterial}
-        position={[0, 1.42, 0]}
-        scale={[1, 0.4, 1]}
-        receiveShadow={receiveShadow}
-      />
-    </group>
+    <mesh
+      geometry={geometry}
+      material={potionKitMaterial}
+      // `groundY` alinea la base REAL del frasco (su boundingBox, casi 0: el
+      // modelo ya apoya en su propio min.y) con el ancla del grupo; sumar
+      // `POTION_BASE_OFFSET` reproduce dónde caía esa base con la forma
+      // anterior, sin tener que tocar `ITEM_HEIGHT.potion` ni el useFrame de
+      // `ItemMesh`.
+      position={[0, POTION_BASE_OFFSET + groundY * scale, 0]}
+      scale={scale}
+      receiveShadow={receiveShadow}
+    />
   );
+}
+
+/**
+ * Llave (ART_KIT_PLAN.md F4): `key_gold` necesita DOS correcciones de
+ * geometría, aplicadas UNA sola vez sobre una copia (nunca se muta la
+ * `BufferGeometry` cacheada de `kitGeometry`, que comparte cualquier otro uso
+ * futuro del kit — mismo patrón que `floor_tile_grate` en RoomView.tsx):
+ *
+ * 1. Recentrado en X: el pivote de fábrica NO está en el centro de su
+ *    boundingBox (verificado contra el .gltf: min.x=-0.265, max.x=+0.667 —
+ *    a diferencia del resto de props del kit, que sí centran en X/Z). Sin
+ *    recentrar, el giro por frame de `ItemMesh` (`rotation.y`) haría que la
+ *    llave orbitara alrededor de un punto fuera de sí misma en vez de girar
+ *    sobre su propio eje.
+ * 2. Giro de 90° en X: el modelo nace con su perfil reconocible (paletas +
+ *    anilla) en el plano XY y el eje FINO en Z (0.14 de profundidad frente a
+ *    0.93×0.53 de perfil) — pensado para colgar de un gancho de cara al
+ *    espectador, no para tumbarse en el suelo. Con la cámara cenital del
+ *    juego (mira hacia -Y) ese perfil se vería de canto, casi invisible; se
+ *    tumba sobre el plano XZ para que se lea igual que el resto de items.
+ */
+function KeyShape({ receiveShadow }: { receiveShadow: boolean }) {
+  const geometry = useMemo(() => {
+    const base = kitGeometry('key_gold');
+    const box = base.boundingBox;
+    const centerX = box ? (box.max.x + box.min.x) / 2 : 0;
+    const corrected = base.clone().translate(-centerX, 0, 0).rotateX(Math.PI / 2);
+    corrected.computeBoundingBox();
+    return corrected;
+  }, []);
+  const nativeSize = useMemo(() => kitBoxSize(geometry), [geometry]);
+  // Tamaño por el eje dominante (X, el más largo con diferencia): mismo
+  // criterio que COIN_RADIUS (diámetro) o TORCH_WAX_HEIGHT (altura) — la
+  // dimensión que de verdad se lee en pantalla para esta pieza.
+  const scale = KEY_SIZE / nativeSize.x;
+  return <mesh geometry={geometry} material={keyKitMaterial} scale={scale} receiveShadow={receiveShadow} />;
 }
 
 function ItemMesh({ session, itemId }: { session: GameSession; itemId: string }) {
@@ -162,7 +241,7 @@ function ItemMesh({ session, itemId }: { session: GameSession; itemId: string })
     <group ref={groupRef}>
       {kind === 'coin' && <CoinShape receiveShadow />}
       {kind === 'potion' && <PotionShape receiveShadow />}
-      {kind === 'key' && <mesh geometry={unitBox} material={keyMaterial} scale={0.22} receiveShadow />}
+      {kind === 'key' && <KeyShape receiveShadow />}
       {kind === 'shopkeeper' && <ShopkeeperShape receiveShadow />}
     </group>
   );

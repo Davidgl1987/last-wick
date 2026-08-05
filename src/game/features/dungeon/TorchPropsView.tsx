@@ -87,7 +87,7 @@ export function TorchPropsView({ session }: { session: GameSession }) {
         e.kind === 'shopkeeper' ? (
           <ShopkeeperGlow key={i} x={e.x} z={e.z} />
         ) : (
-          <WallTorch key={i} x={e.x} z={e.z} index={i} />
+          <WallTorch key={i} x={e.x} z={e.z} dirX={e.dirX} dirZ={e.dirZ} index={i} />
         ),
       )}
     </>

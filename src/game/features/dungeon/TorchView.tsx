@@ -21,11 +21,15 @@
  * — para que la antorcha no se quede visualmente "muerta" cuando el pool no
  * la tiene entre sus 3 elegidas.
  *
- * Ya no monta su propio cono dirigido (`dirX`/`dirZ`, antes usados para
- * apuntar el spotLight hacia dentro de la sala): esa orientación la lee ahora
- * directamente `TorchLightPool` desde `collectTorchEmitters`, así que
- * `WallTorch` ya no necesita conocerla — solo posición e índice (para
- * desincronizar el parpadeo de la llama entre antorchas).
+ * Ya no monta su propio cono dirigido para la LUZ (esa orientación la lee
+ * `TorchLightPool` directamente de `collectTorchEmitters`), pero SÍ vuelve a
+ * necesitar `dirX`/`dirZ` desde F4 (ART_KIT_PLAN.md): la cera ahora es
+ * `torch_mounted`, una pieza de muro con un lado plano de anclaje, y hay que
+ * girarla para que ese lado quede contra el muro del que cuelga en vez de
+ * mirando siempre hacia el mismo sitio. Mismo par (`dirX`, `dirZ`) que ya
+ * calcula `wallTorchLayout` (apunta de la antorcha HACIA el centro de la
+ * sala) y que `collectTorchEmitters` ya exponía sin que nadie aquí lo
+ * consumiera todavía.
  *
  * Layout (`wallTorchLayout`): vivía DUPLICADO aquí y en
  * `torch-placements.ts` (la copia de `torch-placements.ts` existe porque
@@ -56,14 +60,23 @@
  */
 
 import { useFrame } from '@react-three/fiber';
-import { useRef } from 'react';
+import { useMemo, useRef } from 'react';
 import type { Mesh } from 'three';
 import { unitCone } from '@/game/render/assets';
-import { bossCandleFlameMaterial, bossCandleWaxMaterial, wallTorchWaxGeometry } from '@/game/render/assets-dark';
+import { bossCandleFlameMaterial } from '@/game/render/assets-dark';
 import { TORCH_LIGHT_COLOR } from '@/game/features/dungeon/torch-placements';
 import { GlowPuddle } from '@/game/render/GlowPuddle';
+import { kitGeometry, kitMaterial } from '@/game/render/kit';
+import { kitBoxSize, kitGroundOffset } from '@/game/render/kit-fit';
 
-/** Alto de la cera — igual que `wallTorchWaxGeometry` (render/assets.ts). */
+/**
+ * Alto objetivo de la cera (ART_KIT_PLAN.md F4): antes era la altura literal
+ * del cilindro `wallTorchWaxGeometry` (render/assets-dark.ts, ya sin uso aquí
+ * — se deja intacto para la limpieza de F6); ahora es la altura A LA QUE SE
+ * ESCALA `torch_mounted` (ver `WallTorch`), para que el conjunto cera+llama
+ * ocupe en pantalla lo mismo que antes y `FLAME_HEIGHT` (que no se toca) siga
+ * cayendo justo encima del brasero del modelo del kit.
+ */
 const TORCH_WAX_HEIGHT = 0.7;
 /** Base de la antorcha a la altura del muro (WALL_HEIGHT=0.9 en RoomView.tsx): aplique colgado, no clavado en el suelo. */
 const TORCH_BASE_Y = 0.9;
@@ -91,9 +104,38 @@ const TORCH_GLOW_PUDDLE_RADIUS = 1.4;
 /** Opacidad del charco: mismo valor que el resto de halos aditivos del juego (proyectiles/enemigos, ver `assets.ts`/`EnemyLights.tsx`). */
 const TORCH_GLOW_PUDDLE_OPACITY = 0.16;
 
-export function WallTorch({ x, z, index }: { x: number; z: number; index: number }) {
+export function WallTorch({ x, z, dirX, dirZ, index }: { x: number; z: number; dirX: number; dirZ: number; index: number }) {
   const flameRef = useRef<Mesh>(null);
   const glowRef = useRef<Mesh>(null);
+
+  // Pieza del kit (ART_KIT_PLAN.md F4): geometría cacheada por `kit.ts`, ya
+  // centrada en X/Z. `WallTorch` solo se monta con el kit precargado (su
+  // único consumidor, `TorchPropsView.tsx`, cuelga de `GameRoot`, que a su
+  // vez `App.tsx` gatea con `useKitReady()`), así que llamar a `kitGeometry`
+  // aquí mismo es seguro — mismo patrón que `BarrelMesh`/`SpikesField` en
+  // `HazardView.tsx`.
+  const geometry = kitGeometry('torch_mounted');
+  const naturalSize = useMemo(() => kitBoxSize(geometry), [geometry]);
+  const groundY = useMemo(() => kitGroundOffset(geometry), [geometry]);
+  // Escala UNIFORME (mismo criterio que `barrel_small`/`barrel_large` en
+  // HazardView.tsx: la pieza ya trae su propia proporción ancho/alto/fondo
+  // modelada) elegida para que la ALTURA del modelo iguale
+  // `TORCH_WAX_HEIGHT` — el mismo tamaño que ocupaba el cilindro que
+  // sustituye, así `FLAME_HEIGHT` (sin tocar) sigue asentando la llama justo
+  // encima del brasero en vez de flotando sobre una cera más alta o hundida
+  // en una más baja.
+  const scale = TORCH_WAX_HEIGHT / naturalSize.y;
+  // Orientación (encargo F4: "orientarla según de qué muro cuelga"):
+  // verificado contra el `.gltf` (bounding box), `torch_mounted` nace con su
+  // cara plana de anclaje en Z≈0 y el brasero sobresaliendo hacia Z+ — el eje
+  // "hacia delante" que el resto del juego ya usa para orientar según una
+  // dirección de mundo (mismo patrón `rotation.y = atan2(dirX, dirZ)` que
+  // `EnemyViews.tsx`/`ProjectileView.tsx`/`QueenColumnsView.tsx`). `dirX`/`dirZ`
+  // apunta desde la antorcha HACIA el centro de la sala (`wallTorchLayout` en
+  // `torch-placements.ts`), así que esta rotación deja el brasero mirando
+  // dentro de la sala y el dorso plano contra el muro exterior, sea cual sea
+  // el lado de la sala del que cuelgue esta antorcha en concreto.
+  const rotationY = Math.atan2(dirX, dirZ);
 
   useFrame((state) => {
     const flame = flameRef.current;
@@ -106,11 +148,18 @@ export function WallTorch({ x, z, index }: { x: number; z: number; index: number
   });
 
   return (
-    <group position={[x, 0, z]}>
+    <group position={[x, 0, z]} rotation={[0, rotationY, 0]}>
+      {/* Rotar este grupo padre no perturba ni la llama ni el GlowPuddle: los
+          dos viven sobre el propio eje Y local (x=0, z=0), que la rotación
+          en Y deja fijo; y ambos son de revolución (cono/disco), así que su
+          silueta no cambia con el giro aunque lo heredaran. */}
       <mesh
-        geometry={wallTorchWaxGeometry}
-        material={bossCandleWaxMaterial}
-        position={[0, TORCH_BASE_Y + TORCH_WAX_HEIGHT / 2, 0]}
+        geometry={geometry}
+        material={kitMaterial}
+        position={[0, TORCH_BASE_Y + groundY * scale, 0]}
+        scale={scale}
+        castShadow
+        receiveShadow
       />
       <mesh
         ref={flameRef}
