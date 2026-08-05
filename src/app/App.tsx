@@ -19,6 +19,7 @@ import { useEffect, useState } from 'react';
 import { EditorPage } from '@/editor/EditorPage';
 import { loadPlaytestRoom } from '@/editor/storage';
 import { GameRoot } from '@/game/render/GameRoot';
+import { preloadKit, useKitReady } from '@/game/render/kit';
 import { useUiStore } from '@/game/session/store';
 import { TitleScreen } from '@/game/ui/TitleScreen';
 
@@ -36,17 +37,58 @@ function hasForcedBossParam(): boolean {
   return new URLSearchParams(window.location.search).has('boss');
 }
 
+/**
+ * Estado de carga mínimo mientras `preloadKit()` termina (docs/plans/
+ * ART_KIT_PLAN.md, F1). Solo hace falta en las vías que saltan DIRECTAS al
+ * juego sin pasar por el título (`#/playtest`, `?boss=`): la pantalla de
+ * título absorbe la carga gratis mientras el jugador la mira, pero esas dos
+ * herramientas de dev no le dan tiempo. Deliberadamente austero — no es un
+ * sistema de loading nuevo, solo evita montar `GameRoot` (y con él, vistas
+ * que en fases futuras pedirán geometría del kit) antes de que esté listo.
+ */
+function KitLoadingScreen() {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        width: '100%',
+        height: '100dvh',
+        background: 'var(--ui-bg)',
+        color: 'var(--ui-text-dim)',
+        fontFamily: 'var(--font-body)',
+        fontSize: 17,
+        letterSpacing: '0.02em',
+      }}
+    >
+      Cargando…
+    </div>
+  );
+}
+
 export function App() {
   const [route, setRoute] = useState<Route>(currentRoute);
   // Pantalla de título: arranca ya "jugando" si `?boss=` fuerza una arena de
   // jefe (herramienta de dev, no debe interponerse el título).
   const [started, setStarted] = useState(hasForcedBossParam);
+  const kitReady = useKitReady();
 
   useEffect(() => {
     const onHashChange = () => setRoute(currentRoute());
     window.addEventListener('hashchange', onHashChange);
     return () => window.removeEventListener('hashchange', onHashChange);
   }, []);
+
+  // Precarga del kit KayKit en cuanto la ruta actual va a necesitar el juego
+  // (todas menos `#/editor`, que es un canvas 2D puro y no debe esperar ni
+  // disparar la carga). `preloadKit()` es idempotente, así que da igual
+  // repetir el efecto en cada cambio de ruta: la carga real solo ocurre una
+  // vez. Si el jugador pasa por el título, sale gratis mientras lo mira;
+  // `#/playtest` y `?boss=` la disparan igual aunque salten el título.
+  useEffect(() => {
+    if (route !== 'editor') void preloadKit();
+  }, [route]);
 
   if (route === 'editor') {
     return <EditorPage />;
@@ -58,6 +100,7 @@ export function App() {
       window.location.hash = '#/editor';
       return null;
     }
+    if (!kitReady) return <KitLoadingScreen />;
     // key: remonta el juego si se prueba otra sala distinta.
     return <GameRoot key={`playtest-${room.id}`} playtestRoom={room} />;
   }
@@ -65,6 +108,8 @@ export function App() {
   if (!started) {
     return <TitleScreen onPlay={() => setStarted(true)} />;
   }
+
+  if (!kitReady) return <KitLoadingScreen />;
 
   const handleExitToTitle = () => {
     // Evita arrastrar HUD (hp/monedas/mejoras) de la run anterior al volver al
