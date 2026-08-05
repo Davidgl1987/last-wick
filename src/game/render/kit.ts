@@ -43,9 +43,9 @@ export const KIT_SCALE = WALL_THICKNESS / 0.5;
  */
 THREE.Cache.enabled = true;
 
-const kitTexture = new THREE.TextureLoader().load(`${import.meta.env.BASE_URL}${KIT_DIR}dungeon_texture.png`);
-kitTexture.colorSpace = THREE.SRGBColorSpace;
 /**
+ * Carga un atlas del kit con la convención de UV correcta.
+ *
  * CRÍTICO: el atlas del kit es una paleta de celdas (ART_KIT_PLAN.md §1), así
  * que un flip vertical hace que cada modelo muestree el color de la celda
  * equivocada (no un simple "efecto espejo" inofensivo). `flipY = false` es la
@@ -54,7 +54,14 @@ kitTexture.colorSpace = THREE.SRGBColorSpace;
  * textura A MANO con `TextureLoader` en vez de dejar que cada `GLTFLoader` la
  * resuelva, hay que replicar esa convención nosotros mismos.
  */
-kitTexture.flipY = false;
+function loadKitAtlas(file: string): THREE.Texture {
+  const texture = new THREE.TextureLoader().load(`${import.meta.env.BASE_URL}${KIT_DIR}${file}`);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.flipY = false;
+  return texture;
+}
+
+const kitTexture = loadKitAtlas('dungeon_texture.png');
 
 /**
  * Tinte multiplicador del kit entero (playtest de David, 2026-08-05: "la sala
@@ -71,8 +78,32 @@ kitTexture.flipY = false;
  */
 const KIT_TINT = '#9a9a9a';
 
-/** Único material del kit entero: 1 material + 1 textura para las 46 piezas, política de `assets.ts` (nada de PBR, presupuesto de luces del render). */
+/** Material por defecto del kit: la piedra de la mazmorra. Lo comparten casi todas las piezas — 1 material + 1 textura, política de `assets.ts` (nada de PBR, presupuesto de luces del render). */
 export const kitMaterial = new THREE.MeshLambertMaterial({ map: kitTexture, color: KIT_TINT });
+
+/**
+ * Segundo material del kit, con el atlas ORIGINAL del pack (madera marrón,
+ * metal, dorados) en vez de la variante nocturna azul.
+ *
+ * Existe por un problema de legibilidad que se vio en playtest (David,
+ * 2026-08-05: "los barriles apenas se ven... los prefiero de tono madera como
+ * salen en el preview del kit"). NightA es la paleta correcta para la
+ * ARQUITECTURA — piedra fría, mazmorra oscura —, pero aplicada a un objeto de
+ * madera lo vuelve del mismo azul que el muro que tiene detrás. Y un barril
+ * explosivo no es decoración: es munición del jugador (GDD §15.1.5, "el jefe
+ * usa la sala como arma"), así que tiene que distinguirse a primera vista.
+ *
+ * Por qué un atlas entero y no teñir `kitMaterial`: `material.color`
+ * MULTIPLICA el mapa, así que puede oscurecer lo que la textura ya tiene pero
+ * no puede añadir un marrón que la paleta azul no lleva. Y por qué no un
+ * material plano como el de los objetos recogibles (ItemView.tsx): el barril
+ * SÍ aprovecha tener más de un color — duelas de madera y aros metálicos
+ * salen de celdas distintas del atlas, y en plano se perdería esa lectura.
+ *
+ * Sin tinte a propósito (a diferencia de `kitMaterial`): estas piezas tienen
+ * que destacar sobre la piedra, no fundirse con ella.
+ */
+export const kitWarmMaterial = new THREE.MeshLambertMaterial({ map: loadKitAtlas('dungeon_texture_original.png') });
 
 // ── Carga y caché de geometría ─────────────────────────────────────────
 

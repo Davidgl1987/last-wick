@@ -37,7 +37,7 @@ import type { GameSession } from '@/game/session/session';
 import { pushEvent } from '@/engine/events';
 import { barrelInAir, type HazardSpawn } from '@/game/world/types';
 import { blobShadowMaterial, boostMaterial, mudMaterial, pitMaterial, scorchMaterial, unitCircle, unitPlane } from '@/game/render/assets';
-import { kitGeometry, kitMaterial } from '@/game/render/kit';
+import { kitGeometry, kitMaterial, kitWarmMaterial } from '@/game/render/kit';
 import { kitBoxSize, kitGroundOffset } from '@/game/render/kit-fit';
 import { wallModuleLayout } from '@/game/render/wall-modules';
 
@@ -432,8 +432,14 @@ function BarrelMesh({ session, barrelId }: { session: GameSession; barrelId: str
   return (
     <>
       <group ref={groupRef}>
-        {/* Cuerpo: pieza del kit KayKit (ART_KIT_PLAN F3), elegida por tamaño y escalada uniformemente al diámetro real. */}
-        <mesh geometry={geometry} material={kitMaterial} position={[0, groundY * scale, 0]} scale={scale} castShadow receiveShadow />
+        {/* Cuerpo: pieza del kit KayKit (ART_KIT_PLAN F3), elegida por tamaño y
+            escalada uniformemente al diámetro real. Usa `kitWarmMaterial` (atlas
+            ORIGINAL del pack, madera y metal) y no el `kitMaterial` azul del
+            resto del kit: con la paleta nocturna el barril salía del mismo tono
+            que el muro de detrás y desaparecía (playtest de David 2026-08-05).
+            Un barril es munición del jugador, no decoración — ver el porqué
+            completo en `kitWarmMaterial` (render/kit.ts). */}
+        <mesh geometry={geometry} material={kitWarmMaterial} position={[0, groundY * scale, 0]} scale={scale} castShadow receiveShadow />
       </group>
       {/* Sombra de aviso mientras cae del cielo (GDD §15.2): crece de 0 al tamaño final. */}
       <mesh

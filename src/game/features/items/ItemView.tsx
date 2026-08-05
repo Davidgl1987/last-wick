@@ -59,8 +59,20 @@ const POTION_VISUAL_HEIGHT = 0.6288;
  * estaba validada), no una medida de `bottle_A_labeled_green`.
  */
 const POTION_BASE_OFFSET = -0.24;
-/** Tamaño visual objetivo de la llave (antes cubo `unitBox` a escala uniforme 0.22, ver `KeyShape`). */
-const KEY_SIZE = 0.22;
+/**
+ * Tamaño visual objetivo de la llave, medido sobre su eje LARGO (X).
+ *
+ * Subido de 0.22 a 0.40 tras playtest (David, 2026-08-05: "la llave se ve
+ * minúscula"). El 0.22 venía del cubo macizo anterior al kit, y al conservarlo
+ * tal cual para `key_gold` se comparaban peras con manzanas: un cubo ocupa las
+ * tres dimensiones enteras, mientras que la llave es una silueta larga y fina
+ * (0.93 × 0.53 × 0.14 de fábrica) que a ese tamaño deja una traza de apenas
+ * unos píxeles vista desde arriba. Con 0.40 en su eje largo, su masa visible
+ * es comparable a la de la moneda y la poción — que es lo que importa, porque
+ * la llave es el objeto MÁS crítico de la mazmorra (sin ella no se abre la
+ * puerta del jefe).
+ */
+const KEY_SIZE = 0.4;
 
 /**
  * Materiales PLANOS (sin el atlas del kit) de los objetos recogibles — la
@@ -92,8 +104,34 @@ const KEY_SIZE = 0.22;
  * (`coinMaterial`/`keyMaterial`/`potionMaterial` de assets.ts): el tono ya
  * validado en playtest no cambia, solo la geometría que lo lleva.
  */
+/**
+ * Cuánto brilla un objeto por sí mismo, sin luz que lo alumbre (playtest de
+ * David, 2026-08-05: "quizá los objetos deberían tener un poco de luz o ser
+ * emissive"). Es AUTOILUMINACIÓN, no una luz: no ilumina el suelo ni proyecta
+ * nada, así que el presupuesto de 7 luces + 1 sombra del render sigue intacto
+ * — mismo criterio que los halos aditivos y `GlowPuddle`, que existen
+ * precisamente para dar sensación de luz sin gastar una.
+ *
+ * Resuelve un problema concreto de esta mazmorra: la única luz real que
+ * acompaña al jugador es su vela, así que un objeto a media sala quedaba casi
+ * negro y solo aparecía cuando ya estabas encima. Con el emisivo, cada objeto
+ * anuncia su propio color desde lejos.
+ *
+ * 0.45 y no 1: a tope el objeto se aplana (el emisivo es constante, no depende
+ * de la normal, así que mata el sombreado que le da volumen a la geometría del
+ * kit). A 0.45 sigue leyéndose el relieve y el objeto no se pierde en la
+ * oscuridad.
+ */
+const ITEM_EMISSIVE_INTENSITY = 0.45;
+
 function flatItemMaterial(color: string): THREE.MeshLambertMaterial {
-  return new THREE.MeshLambertMaterial({ color });
+  return new THREE.MeshLambertMaterial({
+    color,
+    // El emisivo lleva el MISMO color que el material: el objeto brilla de su
+    // propio color en la oscuridad, no de un blanco que lo desaturaría.
+    emissive: new THREE.Color(color),
+    emissiveIntensity: ITEM_EMISSIVE_INTENSITY,
+  });
 }
 const coinKitMaterial = flatItemMaterial('#ffd166');
 const keyKitMaterial = flatItemMaterial('#ffe082');
