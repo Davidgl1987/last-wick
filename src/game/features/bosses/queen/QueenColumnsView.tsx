@@ -1,6 +1,7 @@
 /**
  * Columnas de la Reina del Enjambre + sus cuerdas (T2 render, rediseño
- * 2026-07-10, GDD §15.3, docs/plans/QUEEN_REDESIGN_PLAN.md).
+ * 2026-07-10, GDD §15.3, docs/plans/QUEEN_REDESIGN_PLAN.md; piezas del kit
+ * KayKit desde F3, docs/plans/ART_KIT_PLAN.md §5).
  *
  * `queenState(world).columns` (sim, `queen/columns.ts`, leído del slot opaco
  * `world.bossState`) es la fuente de verdad de su vida: cada columna vale
@@ -24,6 +25,18 @@
  * degradan progresivamente inclinación + oscurecimiento + grieta, para que
  * se lea de un vistazo cuántos golpes le quedan a cada columna.
  *
+ * F3 (ART_KIT_PLAN §5): intacta/leve/grave pintan la MISMA geometría
+ * `column` del kit (footprint escalado al AABB real de la columna, altura
+ * natural del kit) con un clon de `kitMaterial` teñido más oscuro por
+ * estado — mismo patrón que `doorKeyGateMaterial` en RoomView.tsx (JAMÁS se
+ * muta `kitMaterial`, que comparte todo el kit). El requisito de playtest
+ * ("debe leerse de un golpe cuántos golpes le quedan") ya estaba resuelto en
+ * los 3 tonos de gris de las materiales antiguas — se REUTILIZAN esos mismos
+ * tonos exactos como tinte sobre la geometría real del kit, así que el
+ * contraste ya validado no cambia, solo gana el detalle de la piedra del
+ * atlas. Los restos usan `rubble_half` aplastada contra el suelo (con su
+ * propio tinte, el más oscuro de los cuatro).
+ *
  * `QueenTethersView` pinta la "cuerda" (GDD §15.3, feedback de playtest
  * 2026-07-10) que une a la Reina con cada columna AÚN EN PIE (intacta o
  * agrietada): un cilindro fino que se recalcula cada frame desde la
@@ -33,26 +46,22 @@
  */
 
 import { useFrame } from '@react-three/fiber';
-import { useRef } from 'react';
+import { useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import type { GameSession } from '@/game/session/session';
+import { kitGeometry, kitMaterial } from '@/game/render/kit';
+import { kitBoxSize, kitGroundOffset } from '@/game/render/kit-fit';
 import {
-  queenColumnCrackedLightMaterial,
-  queenColumnCrackedMaterial,
   queenColumnCrackStripeMaterial,
-  queenColumnDebrisMaterial,
   queenTetherGeometry,
   queenTetherMaterial,
-  rockMaterial,
   unitBox,
 } from '@/game/render/assets';
 import { queenState } from './columns';
 import { QUEEN_COLUMN_HP } from './constants';
 
-/** Altura vertical de una columna en pie — igual que ROCK_HEIGHT de RoomView.tsx (misma silueta que cualquier roca). */
-const COLUMN_HEIGHT = 0.8;
-/** Altura de los restos/escombros: mucho más bajo, aplastado contra el suelo (marca, no obstáculo). */
-const DEBRIS_HEIGHT = 0.18;
+/** Restos/escombros: mucho más bajo que una columna en pie, aplastado contra el suelo (marca, no obstáculo). */
+const DEBRIS_HEIGHT = 0.35;
 /** Los escombros se extienden un poco más allá de la huella original de la columna (efecto "se desparramó"). */
 const DEBRIS_FOOTPRINT_SCALE = 1.2;
 /** Inclinación de una columna hp=1 (grave, feedback de director 2026-07-10: "debe leerse que le queda un golpe"). Alterna de lado por índice para que no se vean clonadas. */
@@ -68,6 +77,24 @@ const TETHER_HEIGHT = 0.55;
 /** Duración del latigazo de retracción al romper una columna: la cuerda encoge rápido hacia la Reina en vez de cortarse en seco. */
 const TETHER_RETRACT_DURATION = 0.18;
 
+/**
+ * Tintes de columna agrietada (leve/grave), clones de `kitMaterial` — mismo
+ * patrón que `doorKeyGateMaterial` de RoomView.tsx: se clona UNA vez a nivel
+ * de módulo y se le cambia solo el color, nunca se muta `kitMaterial` en sí.
+ * Los tonos son EXACTAMENTE los de las materiales planas que sustituyen
+ * (`queenColumnCrackedLightMaterial`/`queenColumnCrackedMaterial` de
+ * assets.ts, ya validadas en el playtest de 2026-07-10 que exige distinguir
+ * los 3 niveles de daño de un vistazo): el contraste no cambia, solo se
+ * aplica ahora sobre la piedra texturizada del kit en vez de una caja lisa.
+ */
+const queenColumnLightCrackMaterial = kitMaterial.clone();
+queenColumnLightCrackMaterial.color = new THREE.Color('#63667f');
+const queenColumnGraveCrackMaterial = kitMaterial.clone();
+queenColumnGraveCrackMaterial.color = new THREE.Color('#4a4a56');
+/** Tinte de los restos/escombros: el más oscuro de los cuatro (mismo tono que la antigua `queenColumnDebrisMaterial`). */
+const queenColumnDebrisTintMaterial = kitMaterial.clone();
+queenColumnDebrisTintMaterial.color = new THREE.Color('#2e2e38');
+
 const scratch = new THREE.Object3D();
 
 /** Oculta la instancia `i` de `mesh` escalándola a 0 (mismo truco que los charcos inactivos de PuddleView). */
@@ -79,6 +106,22 @@ function hideInstance(mesh: THREE.InstancedMesh, i: number): void {
   mesh.setMatrixAt(i, scratch.matrix);
 }
 
+/**
+ * `rubble_half` NO tiene el pivote centrado en XZ como el resto de piezas del
+ * kit que usa este fichero (verificado contra su `.gltf`: su X real va de 0 a
+ * 4, no de -2 a 2 — es una pieza de escombros pensada para encajar por un
+ * borde, no para plantarse por su centro). Sin corregir este desfase, cada
+ * resto de columna aparecería desplazado respecto al centro real de la
+ * columna que representa. Se calcula sobre el `boundingBox` REAL (mismo
+ * espíritu que `kitBoxSize`/`kitGroundOffset` de `kit-fit.ts`: nunca un
+ * número a mano) y se resta, ya escalado, a la posición de cada instancia.
+ */
+function kitXZCenterOffset(geometry: THREE.BufferGeometry): { x: number; z: number } {
+  const box = geometry.boundingBox;
+  if (!box) throw new Error('geometría del kit sin boundingBox calculado');
+  return { x: -(box.min.x + box.max.x) / 2, z: -(box.min.z + box.max.z) / 2 };
+}
+
 export function QueenColumnsView({ session }: { session: GameSession }) {
   const intactRef = useRef<THREE.InstancedMesh>(null);
   const crackedLightRef = useRef<THREE.InstancedMesh>(null);
@@ -86,6 +129,17 @@ export function QueenColumnsView({ session }: { session: GameSession }) {
   const crackStripeRef = useRef<THREE.InstancedMesh>(null);
   const debrisRef = useRef<THREE.InstancedMesh>(null);
   const count = queenState(session.world).columns.length;
+
+  // Geometría/medidas del kit: se leen UNA vez (el boundingBox ya calculado
+  // por kit.ts no cambia), nunca hardcodeadas — mismo criterio que
+  // RoomView.tsx (ver comentario de cabecera de kit-fit.ts).
+  const columnGeometry = kitGeometry('column');
+  const columnSize = useMemo(() => kitBoxSize(columnGeometry), [columnGeometry]);
+  const columnGroundY = useMemo(() => kitGroundOffset(columnGeometry), [columnGeometry]);
+  const rubbleGeometry = kitGeometry('rubble_half');
+  const rubbleSize = useMemo(() => kitBoxSize(rubbleGeometry), [rubbleGeometry]);
+  const rubbleGroundY = useMemo(() => kitGroundOffset(rubbleGeometry), [rubbleGeometry]);
+  const rubbleXZCenter = useMemo(() => kitXZCenterOffset(rubbleGeometry), [rubbleGeometry]);
 
   useFrame(() => {
     const intact = intactRef.current;
@@ -100,15 +154,23 @@ export function QueenColumnsView({ session }: { session: GameSession }) {
       const col = columns[i];
       const width = col.halfW * 2;
       const depth = col.halfH * 2;
+      // Footprint de `column` escalado al AABB real de la columna (igual que
+      // RockVariantInstances en RoomView.tsx): mismo footprint en los 3
+      // estados en pie, solo cambia la altura (más abajo).
+      const scaleX = width / columnSize.x;
+      const scaleZ = depth / columnSize.z;
 
       if (col.broken) {
         hideInstance(intact, i);
         hideInstance(crackedLight, i);
         hideInstance(cracked, i);
         hideInstance(crackStripe, i);
-        scratch.position.set(col.position.x, DEBRIS_HEIGHT / 2, col.position.y);
+        const sx = (width * DEBRIS_FOOTPRINT_SCALE) / rubbleSize.x;
+        const sy = DEBRIS_HEIGHT / rubbleSize.y;
+        const sz = (depth * DEBRIS_FOOTPRINT_SCALE) / rubbleSize.z;
+        scratch.position.set(col.position.x + rubbleXZCenter.x * sx, rubbleGroundY * sy, col.position.y + rubbleXZCenter.z * sz);
         scratch.rotation.set(0, 0, 0);
-        scratch.scale.set(width * DEBRIS_FOOTPRINT_SCALE, DEBRIS_HEIGHT, depth * DEBRIS_FOOTPRINT_SCALE);
+        scratch.scale.set(sx, sy, sz);
         scratch.updateMatrix();
         debris.setMatrixAt(i, scratch.matrix);
         continue;
@@ -121,10 +183,14 @@ export function QueenColumnsView({ session }: { session: GameSession }) {
         hideInstance(crackedLight, i);
         hideInstance(debris, i);
         const tilt = (i % 2 === 0 ? 1 : -1) * CRACKED_TILT;
-        const height = COLUMN_HEIGHT * CRACKED_HEIGHT_SCALE;
-        scratch.position.set(col.position.x, height / 2, col.position.y);
+        const height = columnSize.y * CRACKED_HEIGHT_SCALE;
+        // Pivote de `column` en su BASE (no centrado como el antiguo
+        // unitBox): la inclinación gira sobre el pie de la columna, un
+        // "apoyo que cede" más creíble que el balanceo alrededor del centro
+        // que tenía la caja plana.
+        scratch.position.set(col.position.x, columnGroundY * CRACKED_HEIGHT_SCALE, col.position.y);
         scratch.rotation.set(0, 0, tilt);
-        scratch.scale.set(width, height, depth);
+        scratch.scale.set(scaleX, CRACKED_HEIGHT_SCALE, scaleZ);
         scratch.updateMatrix();
         cracked.setMatrixAt(i, scratch.matrix);
         // Grieta: franja fina y oscura cruzando la cara sur (+Z, la que mira
@@ -144,10 +210,10 @@ export function QueenColumnsView({ session }: { session: GameSession }) {
         hideInstance(cracked, i);
         hideInstance(debris, i);
         const tilt = (i % 2 === 0 ? 1 : -1) * CRACKED_LIGHT_TILT;
-        const height = COLUMN_HEIGHT * CRACKED_LIGHT_HEIGHT_SCALE;
-        scratch.position.set(col.position.x, height / 2, col.position.y);
+        const height = columnSize.y * CRACKED_LIGHT_HEIGHT_SCALE;
+        scratch.position.set(col.position.x, columnGroundY * CRACKED_LIGHT_HEIGHT_SCALE, col.position.y);
         scratch.rotation.set(0, 0, tilt);
-        scratch.scale.set(width, height, depth);
+        scratch.scale.set(scaleX, CRACKED_LIGHT_HEIGHT_SCALE, scaleZ);
         scratch.updateMatrix();
         crackedLight.setMatrixAt(i, scratch.matrix);
         // Grieta más corta/fina que la de hp=1: daño incipiente, aún se lee
@@ -160,14 +226,14 @@ export function QueenColumnsView({ session }: { session: GameSession }) {
         continue;
       }
 
-      // Intacta (col.hp >= QUEEN_COLUMN_HP, único nivel sin agrietar): sin daño visible, misma silueta que cualquier roca.
+      // Intacta (col.hp >= QUEEN_COLUMN_HP, único nivel sin agrietar): sin daño visible, misma silueta que cualquier columna del kit.
       hideInstance(crackedLight, i);
       hideInstance(cracked, i);
       hideInstance(crackStripe, i);
       hideInstance(debris, i);
-      scratch.position.set(col.position.x, COLUMN_HEIGHT / 2, col.position.y);
+      scratch.position.set(col.position.x, columnGroundY, col.position.y);
       scratch.rotation.set(0, 0, 0);
-      scratch.scale.set(width, COLUMN_HEIGHT, depth);
+      scratch.scale.set(scaleX, 1, scaleZ);
       scratch.updateMatrix();
       intact.setMatrixAt(i, scratch.matrix);
     }
@@ -182,19 +248,33 @@ export function QueenColumnsView({ session }: { session: GameSession }) {
 
   return (
     <>
-      <instancedMesh ref={intactRef} args={[unitBox, rockMaterial, count]} frustumCulled={false} />
+      <instancedMesh ref={intactRef} args={[columnGeometry, kitMaterial, count]} frustumCulled={false} castShadow receiveShadow />
       <instancedMesh
         ref={crackedLightRef}
-        args={[unitBox, queenColumnCrackedLightMaterial, count]}
+        args={[columnGeometry, queenColumnLightCrackMaterial, count]}
         frustumCulled={false}
+        castShadow
+        receiveShadow
       />
-      <instancedMesh ref={crackedRef} args={[unitBox, queenColumnCrackedMaterial, count]} frustumCulled={false} />
+      <instancedMesh
+        ref={crackedRef}
+        args={[columnGeometry, queenColumnGraveCrackMaterial, count]}
+        frustumCulled={false}
+        castShadow
+        receiveShadow
+      />
       <instancedMesh
         ref={crackStripeRef}
         args={[unitBox, queenColumnCrackStripeMaterial, count]}
         frustumCulled={false}
       />
-      <instancedMesh ref={debrisRef} args={[unitBox, queenColumnDebrisMaterial, count]} frustumCulled={false} />
+      <instancedMesh
+        ref={debrisRef}
+        args={[rubbleGeometry, queenColumnDebrisTintMaterial, count]}
+        frustumCulled={false}
+        castShadow
+        receiveShadow
+      />
     </>
   );
 }

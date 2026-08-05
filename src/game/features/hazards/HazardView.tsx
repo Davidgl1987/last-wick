@@ -1,22 +1,27 @@
 /**
  * Hazards estáticos de la sala (GDD §8): foso, pinchos, barro, acelerador
- * como quads planos (no cambian de tamaño/posición durante la sala, se
- * construyen una vez). Los barriles son vivos (pueden explotar) y se
- * gestionan aparte con BarrelViews, que sí lee la sim cada frame.
+ * (no cambian de tamaño/posición durante la sala, se construyen una vez).
+ * Los barriles son vivos (pueden explotar) y se gestionan aparte con
+ * BarrelViews, que sí lee la sim cada frame.
+ *
+ * Piezas del kit KayKit desde F3 (docs/plans/ART_KIT_PLAN.md §4/§5): el
+ * barril y el campo de pinchos pasan a geometría real del kit; el foso
+ * conserva su quad negro (legibilidad, ver más abajo) y gana un reborde de
+ * piezas de fundación alrededor. Barro/acelerador se QUEDAN como quads
+ * emisivos (no hay pieza equivalente en el kit, fuera de alcance de F3).
  *
  * Legibilidad (feedback de playtest):
  * - El foso (ronda 3, punto 6: "quita el borde al foso") es un único quad
- *   negro casi absoluto sobre el suelo claro, SIN reborde: el contraste
- *   suelo/agujero ya es inconfundible por sí solo, el marco de piedra clara
- *   de rondas anteriores sobraba.
- * - El barril es un CILINDRO con aros claros (silueta de barril); al explotar
- *   desaparece y deja una mancha chamuscada en el suelo.
- * - Los pinchos (punto 1 de playtest: "los pinchos no lo parecen") son una
- *   base + un InstancedMesh de agujas cónicas afiladas apuntando hacia arriba
- *   sobre una rejilla determinista (sin Math.random: jitter por índice, mismo
- *   layout siempre para la misma sala), color hueso claro que contrasta con
- *   el suelo. Estático, se construye una vez por hazard (useMemo), igual que
- *   el resto de hazards no vivos.
+ *   negro casi absoluto sobre el suelo claro: el contraste suelo/agujero ya
+ *   es inconfundible por sí solo. El reborde que añade F3 (`PitRim`) se
+ *   coloca POR FUERA del rectángulo exacto del hazard — jamás invade el quad
+ *   negro — precisamente para no reabrir ese problema.
+ * - El barril usa `barrel_small`/`barrel_large` del kit (elegido por el radio
+ *   declarado del hazard); al explotar desaparece y deja una mancha
+ *   chamuscada en el suelo, igual que antes.
+ * - Los pinchos (punto 1 de playtest: "los pinchos no lo parecen") usan
+ *   `floor_tile_big_spikes` TILEADA para cubrir EXACTAMENTE el área que hace
+ *   daño (ver `SpikesField`): ni un pincho fuera de esa área.
  */
 
 import { useFrame } from '@react-three/fiber';
@@ -31,95 +36,101 @@ import {
 import type { GameSession } from '@/game/session/session';
 import { pushEvent } from '@/engine/events';
 import { barrelInAir, type HazardSpawn } from '@/game/world/types';
-import { barrelHoopMaterial, barrelMaterial, blobShadowMaterial, boostMaterial, mudMaterial, pitMaterial, scorchMaterial, spikesMaterial, spikesNeedleMaterial, unitCircle, unitCylinder, unitPlane, unitSpikeNeedle } from '@/game/render/assets';
+import { blobShadowMaterial, boostMaterial, mudMaterial, pitMaterial, scorchMaterial, unitCircle, unitPlane } from '@/game/render/assets';
+import { kitGeometry, kitMaterial } from '@/game/render/kit';
+import { kitBoxSize, kitGroundOffset } from '@/game/render/kit-fit';
+import { wallModuleLayout } from '@/game/render/wall-modules';
 
 const HAZARD_QUAD_Y = 0.03;
-const BARREL_HEIGHT = 0.7;
 /** Rebote visual del barril al aterrizar (GDD §15.2): altura y duración del pequeño arco tras tocar suelo. Puramente de render. */
 const BARREL_BOUNCE_HEIGHT = 0.28;
 const BARREL_BOUNCE_DURATION = 0.22;
-/** Separación aproximada entre agujas del campo de pinchos (u de mundo). */
-const SPIKE_NEEDLE_SPACING = 0.32;
-/** Altura de la aguja instanciada (debe coincidir con la geometría unitSpikeNeedle). */
-const SPIKE_NEEDLE_HEIGHT = 0.32;
+/**
+ * Umbral de radio (u) para elegir `barrel_large` en vez de `barrel_small`
+ * (ART_KIT_PLAN §4). Hoy TODOS los barriles del juego declaran radio 0.4 —
+ * los de hazard (combat-barrels.json, boss-den.json, combat-arena.json) y los
+ * que lanza el Guardián (`GUARDIAN_BARREL_RADIUS`) — así que este umbral no
+ * cambia nada del juego actual; solo entra en juego si algún nivel futuro
+ * declarase un barril claramente más grande. Corte a medio camino entre el
+ * radio estándar (0.4) y uno "claramente grande" (el doble, 0.8).
+ */
+const BARREL_LARGE_RADIUS_THRESHOLD = 0.6;
+/**
+ * Fracción del tamaño natural de `floor_tile_big_spikes` usada como "celda"
+ * de la rejilla que cubre el hazard — mismo criterio que `FLOOR_TILE_SCALE`
+ * de RoomView.tsx, valor más pequeño a propósito: los campos de pinchos son
+ * mucho más estrechos que una sala (hay uno de 1×2.6 u en
+ * combat-gauntlet.json) y una celda grande forzaría una única baldosa muy
+ * estirada en el eje corto — con 0.4 la celda natural (3.36 u) se reduce a
+ * ~1.34 u, lo bastante pequeña para que ambos ejes queden razonablemente
+ * parejos incluso en hazards estrechos (verificado a mano contra los tamaños
+ * reales de los niveles).
+ */
+const SPIKES_TILE_SCALE = 0.4;
 
-/** Hash determinista barato [0,1) por índice entero (sin Math.random: mismo layout siempre para la misma sala). */
-function hash01(i: number): number {
-  const s = Math.sin(i * 12.9898) * 43758.5453;
-  return s - Math.floor(s);
-}
-
-/** Rejilla de posiciones locales (centradas en 0,0) con jitter determinista, para un campo denso de agujas. */
-function buildNeedleLayout(width: number, height: number): { x: number; z: number; scale: number; rot: number }[] {
-  const cols = Math.max(1, Math.round(width / SPIKE_NEEDLE_SPACING));
-  const rows = Math.max(1, Math.round(height / SPIKE_NEEDLE_SPACING));
-  const cellW = width / cols;
-  const cellH = height / rows;
-  const layout: { x: number; z: number; scale: number; rot: number }[] = [];
-  let i = 0;
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      const jitterX = (hash01(i * 2) - 0.5) * cellW * 0.4;
-      const jitterZ = (hash01(i * 2 + 1) - 0.5) * cellH * 0.4;
-      const x = -width / 2 + cellW * (c + 0.5) + jitterX;
-      const z = -height / 2 + cellH * (r + 0.5) + jitterZ;
-      const scale = 0.75 + hash01(i * 3 + 5) * 0.5;
-      const rot = hash01(i * 5 + 7) * Math.PI * 2;
-      layout.push({ x, z, scale, rot });
-      i++;
-    }
-  }
-  return layout;
-}
-
-/** Instancias de agujas del campo de pinchos: matrices escritas UNA vez al montar (hazard estático, mismo patrón que InstancedBoxes de RoomView). */
-function NeedleInstances({ layout }: { layout: { x: number; z: number; scale: number; rot: number }[] }) {
+/**
+ * Campo de pinchos (ART_KIT_PLAN §4/F3): `floor_tile_big_spikes` tileada para
+ * cubrir el rectángulo EXACTO del hazard (`hazard.width × hazard.height`),
+ * mismo patrón que `FloorGrid` de RoomView.tsx (rejilla `nx × nz` con `ceil`,
+ * cada baldosa estirada para que `nx` baldosas cubran `width` exactamente) —
+ * a diferencia de `wallModuleLayout` (que redondea y tolera un pequeño
+ * desajuste en un sillar puntual), aquí NO se puede tolerar ni un pincho
+ * colgando fuera del área que hace daño (requisito CRÍTICO del encargo: la
+ * superficie visible tiene que coincidir con el área de daño). Como la
+ * rejilla cubre el rectángulo EXACTO y cada baldosa se estira para encajar
+ * dentro de su celda, ningún pincho puede sobresalir del borde declarado del
+ * hazard.
+ */
+function SpikesField({ hazard }: { hazard: HazardSpawn }) {
+  const geometry = kitGeometry('floor_tile_big_spikes');
+  const tileSize = useMemo(() => kitBoxSize(geometry), [geometry]);
+  // `floor_tile_big_spikes` SÍ apoya en su min.y (a diferencia de
+  // floor_tile_large/floor_tile_small, ver comentario de kitTopAlignOffset en
+  // kit-fit.ts): verificado contra su .gltf, las agujas nacen en y=0 y la
+  // base de la losa va de y=-0.1 a y=+0.1 alrededor de ese mismo plano — así
+  // que el offset correcto es kitGroundOffset (alinear el mínimo a 0), NO
+  // kitTopAlignOffset (que hundiría toda la pieza bajo tierra, porque el
+  // máximo del boundingBox aquí es la PUNTA de la aguja, no la superficie
+  // caminable).
+  const groundY = useMemo(() => kitGroundOffset(geometry), [geometry]);
+  const targetSize = tileSize.x * SPIKES_TILE_SCALE; // pieza cuadrada de fábrica (4×4): mismo objetivo en X y en Z
+  const nx = Math.max(1, Math.ceil(hazard.width / targetSize));
+  const nz = Math.max(1, Math.ceil(hazard.height / targetSize));
+  const count = nx * nz;
   const meshRef = useRef<THREE.InstancedMesh>(null);
 
   useLayoutEffect(() => {
     const mesh = meshRef.current;
     if (!mesh) return;
     const scratch = new THREE.Object3D();
-    for (let i = 0; i < layout.length; i++) {
-      const n = layout[i];
-      scratch.position.set(n.x, (SPIKE_NEEDLE_HEIGHT * n.scale) / 2, n.z);
-      scratch.rotation.set(0, n.rot, 0);
-      scratch.scale.setScalar(n.scale);
-      scratch.updateMatrix();
-      mesh.setMatrixAt(i, scratch.matrix);
+    const tileW = hazard.width / nx;
+    const tileH = hazard.height / nz;
+    const scaleX = tileW / tileSize.x;
+    const scaleZ = tileH / tileSize.z;
+    let index = 0;
+    for (let ix = 0; ix < nx; ix++) {
+      for (let iz = 0; iz < nz; iz++) {
+        const localX = -hazard.width / 2 + (ix + 0.5) * tileW;
+        const localZ = -hazard.height / 2 + (iz + 0.5) * tileH;
+        scratch.position.set(hazard.position.x + localX, groundY, hazard.position.y + localZ);
+        scratch.scale.set(scaleX, 1, scaleZ);
+        scratch.updateMatrix();
+        mesh.setMatrixAt(index++, scratch.matrix);
+      }
     }
+    mesh.count = count;
     mesh.instanceMatrix.needsUpdate = true;
-  }, [layout]);
+  }, [hazard.width, hazard.height, hazard.position.x, hazard.position.y, nx, nz, count, tileSize, groundY]);
 
-  if (layout.length === 0) return null;
-  return (
-    <instancedMesh ref={meshRef} args={[unitSpikeNeedle, spikesNeedleMaterial, layout.length]} frustumCulled={false} />
-  );
-}
-
-/** Campo de pinchos: base plana + InstancedMesh de agujas afiladas apuntando hacia arriba. */
-function SpikesField({ hazard }: { hazard: HazardSpawn }) {
-  const layout = useMemo(() => buildNeedleLayout(hazard.width, hazard.height), [hazard.width, hazard.height]);
-
-  return (
-    <group position={[hazard.position.x, HAZARD_QUAD_Y, hazard.position.y]}>
-      <mesh
-        geometry={unitPlane}
-        material={spikesMaterial}
-        rotation-x={-Math.PI / 2}
-        scale={[hazard.width, hazard.height, 1]}
-      />
-      <NeedleInstances layout={layout} />
-    </group>
-  );
+  return <instancedMesh ref={meshRef} args={[geometry, kitMaterial, count]} castShadow receiveShadow />;
 }
 
 /**
  * Foso (punto 6 de playtest ronda 3: "quita el borde al foso"): un único quad
- * negro casi absoluto sobre el suelo claro, sin reborde. El contraste
- * suelo-claro/agujero-negro ya es inconfundible por sí solo; el reborde de
- * piedra clara de rondas anteriores quedaba redundante y añadía un marco que
- * el usuario percibía como ruido visual.
+ * negro casi absoluto sobre el suelo claro, sin reborde que INVADA el quad.
+ * El contraste suelo-claro/agujero-negro ya es inconfundible por sí solo; el
+ * reborde de piedra que añade `PitRim` (F3) queda por fuera del rectángulo,
+ * así que no reabre el problema de ruido visual que motivó quitarlo.
  */
 function PitQuad({ hazard }: { hazard: HazardSpawn }) {
   const x = hazard.position.x;
@@ -135,9 +146,159 @@ function PitQuad({ hazard }: { hazard: HazardSpawn }) {
   );
 }
 
+// ── Reborde del foso: fundación de piedra alrededor del agujero ──────────
+
+/** Tramo recto a cubrir con módulos de `floor_foundation_front` (mismo contrato que WallSpan de RoomView.tsx, redefinido aquí para no acoplar este fichero a esa vista). */
+interface RimSpan {
+  length: number;
+  cx: number;
+  cz: number;
+  horizontal: boolean;
+}
+
+/** Altura del reborde del foso: un simple bordillo bajo, muy por debajo del parapeto (WALL_HEIGHT≈0.9) para no competir con el negro del agujero — es un remate, no una pared. */
+const PIT_RIM_HEIGHT = 0.14;
+/** Cuánto sobresale el reborde hacia FUERA del borde del foso (perpendicular al filo): un bordillo visible pero modesto, no una plataforma. */
+const PIT_RIM_DEPTH = 0.35;
+
+/**
+ * Reborde de piedra alrededor del foso (ART_KIT_PLAN §4/F3): se coloca POR
+ * FUERA del rectángulo exacto del hazard (nunca invade el quad negro de
+ * `PitQuad`) — 4 tramos rectos de `floor_foundation_front`, subdivididos con
+ * el MISMO helper `wallModuleLayout` que usan los muros de RoomView.tsx (para
+ * que cada tramo quede cubierto exacto sin huecos ni piezas colgando), más 4
+ * esquinas de `floor_foundation_corner`. Mismo patrón de agrupación que
+ * `BarrierModules`/`CornerColumns`: los tramos norte/sur sellan las esquinas
+ * (`width + 2·PIT_RIM_DEPTH`) y este/oeste solo cubren el hueco entre ellos
+ * (`height`), igual que los 4 tramos fijos de `SingleRoomView`.
+ *
+ * Aplastado a `PIT_RIM_HEIGHT` y recortado a `PIT_RIM_DEPTH` en el eje
+ * perpendicular: la pieza nativa del kit es mucho más alta y profunda (está
+ * pensada para verse desde dentro de un hueco 3D real), y este hazard NO
+ * tiene un agujero de verdad (solo el quad negro) — aquí se usa como un
+ * simple remate decorativo, no como una pared.
+ */
+function PitRim({ hazard }: { hazard: HazardSpawn }) {
+  const frontGeometry = kitGeometry('floor_foundation_front');
+  const frontSize = useMemo(() => kitBoxSize(frontGeometry), [frontGeometry]);
+  const frontGroundY = useMemo(() => kitGroundOffset(frontGeometry), [frontGeometry]);
+  const cornerGeometry = kitGeometry('floor_foundation_corner');
+  const cornerSize = useMemo(() => kitBoxSize(cornerGeometry), [cornerGeometry]);
+  const cornerGroundY = useMemo(() => kitGroundOffset(cornerGeometry), [cornerGeometry]);
+
+  const heightScale = PIT_RIM_HEIGHT / frontSize.y;
+  const depthScale = PIT_RIM_DEPTH / frontSize.z;
+  const cornerHeightScale = PIT_RIM_HEIGHT / cornerSize.y;
+  // La esquina es aproximadamente cuadrada de fábrica (footprint ≈ frontSize.z
+  // en ambos ejes): se escala UNIFORMEMENTE en XZ al mismo `PIT_RIM_DEPTH` que
+  // los tramos rectos, para que el remate luzca de grosor constante en toda
+  // la vuelta.
+  const cornerFootprintScale = PIT_RIM_DEPTH / cornerSize.z;
+
+  const spans = useMemo<RimSpan[]>(
+    () => [
+      {
+        length: hazard.width + 2 * PIT_RIM_DEPTH,
+        cx: hazard.position.x,
+        cz: hazard.position.y - hazard.height / 2 - PIT_RIM_DEPTH / 2,
+        horizontal: true,
+      },
+      {
+        length: hazard.width + 2 * PIT_RIM_DEPTH,
+        cx: hazard.position.x,
+        cz: hazard.position.y + hazard.height / 2 + PIT_RIM_DEPTH / 2,
+        horizontal: true,
+      },
+      {
+        length: hazard.height,
+        cx: hazard.position.x - hazard.width / 2 - PIT_RIM_DEPTH / 2,
+        cz: hazard.position.y,
+        horizontal: false,
+      },
+      {
+        length: hazard.height,
+        cx: hazard.position.x + hazard.width / 2 + PIT_RIM_DEPTH / 2,
+        cz: hazard.position.y,
+        horizontal: false,
+      },
+    ],
+    [hazard.width, hazard.height, hazard.position.x, hazard.position.y],
+  );
+
+  const frontMeshRef = useRef<THREE.InstancedMesh>(null);
+  const totalCount = useMemo(
+    () => spans.reduce((sum, span) => sum + wallModuleLayout(span.length, frontSize.x).count, 0),
+    [spans, frontSize.x],
+  );
+
+  useLayoutEffect(() => {
+    const mesh = frontMeshRef.current;
+    if (!mesh) return;
+    const scratch = new THREE.Object3D();
+    let index = 0;
+    for (const span of spans) {
+      const { count, scale } = wallModuleLayout(span.length, frontSize.x);
+      const segmentLength = span.length / count;
+      for (let i = 0; i < count; i++) {
+        const offset = -span.length / 2 + (i + 0.5) * segmentLength;
+        if (span.horizontal) {
+          scratch.position.set(span.cx + offset, frontGroundY * heightScale, span.cz);
+          scratch.rotation.set(0, 0, 0);
+        } else {
+          scratch.position.set(span.cx, frontGroundY * heightScale, span.cz + offset);
+          scratch.rotation.set(0, Math.PI / 2, 0);
+        }
+        scratch.scale.set(scale, heightScale, depthScale);
+        scratch.updateMatrix();
+        mesh.setMatrixAt(index++, scratch.matrix);
+      }
+    }
+    mesh.count = totalCount;
+    mesh.instanceMatrix.needsUpdate = true;
+  }, [spans, frontSize.x, frontGroundY, heightScale, depthScale, totalCount]);
+
+  const cornerMeshRef = useRef<THREE.InstancedMesh>(null);
+  const corners = useMemo(
+    () => [
+      { dx: hazard.width / 2 + PIT_RIM_DEPTH / 2, dz: hazard.height / 2 + PIT_RIM_DEPTH / 2, rot: 0 },
+      { dx: -(hazard.width / 2 + PIT_RIM_DEPTH / 2), dz: hazard.height / 2 + PIT_RIM_DEPTH / 2, rot: Math.PI / 2 },
+      { dx: -(hazard.width / 2 + PIT_RIM_DEPTH / 2), dz: -(hazard.height / 2 + PIT_RIM_DEPTH / 2), rot: Math.PI },
+      { dx: hazard.width / 2 + PIT_RIM_DEPTH / 2, dz: -(hazard.height / 2 + PIT_RIM_DEPTH / 2), rot: -Math.PI / 2 },
+    ],
+    [hazard.width, hazard.height],
+  );
+
+  useLayoutEffect(() => {
+    const mesh = cornerMeshRef.current;
+    if (!mesh) return;
+    const scratch = new THREE.Object3D();
+    corners.forEach((c, i) => {
+      scratch.position.set(hazard.position.x + c.dx, cornerGroundY * cornerHeightScale, hazard.position.y + c.dz);
+      scratch.rotation.set(0, c.rot, 0);
+      scratch.scale.set(cornerFootprintScale, cornerHeightScale, cornerFootprintScale);
+      scratch.updateMatrix();
+      mesh.setMatrixAt(i, scratch.matrix);
+    });
+    mesh.count = corners.length;
+    mesh.instanceMatrix.needsUpdate = true;
+  }, [corners, hazard.position.x, hazard.position.y, cornerGroundY, cornerHeightScale, cornerFootprintScale]);
+
+  return (
+    <>
+      <instancedMesh ref={frontMeshRef} args={[frontGeometry, kitMaterial, totalCount]} castShadow receiveShadow />
+      <instancedMesh ref={cornerMeshRef} args={[cornerGeometry, kitMaterial, corners.length]} castShadow receiveShadow />
+    </>
+  );
+}
+
 function StaticHazardQuad({ hazard }: { hazard: HazardSpawn }) {
   if (hazard.kind === 'pit') {
-    return <PitQuad hazard={hazard} />;
+    return (
+      <>
+        <PitQuad hazard={hazard} />
+        <PitRim hazard={hazard} />
+      </>
+    );
   }
   if (hazard.kind === 'spikes') {
     return <SpikesField hazard={hazard} />;
@@ -249,30 +410,30 @@ function BarrelMesh({ session, barrelId }: { session: GameSession; barrelId: str
   const barrel = session.world.barrels.find((b) => b.id === barrelId);
   const radius = barrel ? barrel.radius : 0.4;
   const diameter = radius * 2;
+  // Variante del kit según el radio declarado del hazard (ART_KIT_PLAN §4):
+  // hoy TODOS los niveles (combat-barrels.json, boss-den.json,
+  // combat-arena.json) y los barriles que lanza el Guardián
+  // (GUARDIAN_BARREL_RADIUS) usan radio 0.4, así que el resultado actual es
+  // siempre 'barrel_small' — el umbral solo entraría en juego si algún nivel
+  // futuro declarase un barril claramente más grande. Corte a medio camino
+  // entre el radio estándar (0.4) y el doble (0.8), sin más ceremonia que la
+  // de un umbral redondo.
+  const variant = radius >= BARREL_LARGE_RADIUS_THRESHOLD ? 'barrel_large' : 'barrel_small';
+  const geometry = kitGeometry(variant);
+  const naturalSize = useMemo(() => kitBoxSize(geometry), [geometry]);
+  const groundY = useMemo(() => kitGroundOffset(geometry), [geometry]);
+  // Escala UNIFORME (no independiente por eje) al diámetro real del hazard:
+  // barrel_small/barrel_large ya tienen su propia proporción diámetro/altura
+  // modelada (ART_KIT_PLAN §2, "props con tamaño de juego propio... se
+  // escalan a su AABB/radio actual") — estirar solo el ancho o solo el alto
+  // rompería esa proporción y el barril se vería "de pega".
+  const scale = diameter / naturalSize.x;
 
   return (
     <>
       <group ref={groupRef}>
-        {/* Cuerpo: cilindro rojo barril. */}
-        <mesh
-          geometry={unitCylinder}
-          material={barrelMaterial}
-          position={[0, BARREL_HEIGHT / 2, 0]}
-          scale={[diameter, BARREL_HEIGHT, diameter]}
-        />
-        {/* Aros metálicos claros (arriba y abajo): silueta de barril. */}
-        <mesh
-          geometry={unitCylinder}
-          material={barrelHoopMaterial}
-          position={[0, BARREL_HEIGHT * 0.22, 0]}
-          scale={[diameter * 1.06, BARREL_HEIGHT * 0.08, diameter * 1.06]}
-        />
-        <mesh
-          geometry={unitCylinder}
-          material={barrelHoopMaterial}
-          position={[0, BARREL_HEIGHT * 0.78, 0]}
-          scale={[diameter * 1.06, BARREL_HEIGHT * 0.08, diameter * 1.06]}
-        />
+        {/* Cuerpo: pieza del kit KayKit (ART_KIT_PLAN F3), elegida por tamaño y escalada uniformemente al diámetro real. */}
+        <mesh geometry={geometry} material={kitMaterial} position={[0, groundY * scale, 0]} scale={scale} castShadow receiveShadow />
       </group>
       {/* Sombra de aviso mientras cae del cielo (GDD §15.2): crece de 0 al tamaño final. */}
       <mesh
