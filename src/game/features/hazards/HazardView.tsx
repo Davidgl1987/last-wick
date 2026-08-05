@@ -19,9 +19,14 @@
  * - El barril usa `barrel_small`/`barrel_large` del kit (elegido por el radio
  *   declarado del hazard); al explotar desaparece y deja una mancha
  *   chamuscada en el suelo, igual que antes.
- * - Los pinchos (punto 1 de playtest: "los pinchos no lo parecen") usan
- *   `floor_tile_big_spikes` TILEADA para cubrir EXACTAMENTE el área que hace
- *   daño (ver `SpikesField`): ni un pincho fuera de esa área.
+ * - Los pinchos (playtest 2026-08-05: "se ven enormes. Además, deberían
+ *   estar escondidos... y cuando pases por encima que salgan y te pinchen")
+ *   separan `floor_tile_big_spikes` en sus DOS nodos (`kitGeometryPart`,
+ *   render/kit.ts): la losa con agujeros (`SpikesFloorSlab`) se queda fija y
+ *   siempre visible como pista de la trampa; las púas (`SpikesNeedles`) se
+ *   esconden bajo ella y solo asoman mientras algo pisa el área del hazard
+ *   (ver cabecera de `SpikesField` para el detalle). Sigue tileado para
+ *   cubrir EXACTAMENTE el área que hace daño: ni una púa fuera de esa área.
  */
 
 import { useFrame } from '@react-three/fiber';
@@ -35,9 +40,9 @@ import {
 } from '@/game/features/bosses/guardian/constants';
 import type { GameSession } from '@/game/session/session';
 import { pushEvent } from '@/engine/events';
-import { barrelInAir, type HazardSpawn } from '@/game/world/types';
+import { barrelInAir, type HazardSpawn, type World } from '@/game/world/types';
 import { blobShadowMaterial, boostMaterial, mudMaterial, pitMaterial, scorchMaterial, unitCircle, unitPlane } from '@/game/render/assets';
-import { kitGeometry, kitMaterial, kitWarmMaterial } from '@/game/render/kit';
+import { kitGeometry, kitGeometryPart, kitMaterial, kitWarmMaterial } from '@/game/render/kit';
 import { kitBoxSize, kitGroundOffset } from '@/game/render/kit-fit';
 import { wallModuleLayout } from '@/game/render/wall-modules';
 
@@ -69,29 +74,129 @@ const BARREL_LARGE_RADIUS_THRESHOLD = 0.6;
 const SPIKES_TILE_SCALE = 0.4;
 
 /**
- * Campo de pinchos (ART_KIT_PLAN §4/F3): `floor_tile_big_spikes` tileada para
- * cubrir el rectángulo EXACTO del hazard (`hazard.width × hazard.height`),
+ * Altura asomada de las púas cuando están completamente fuera (u) — playtest
+ * de David 2026-08-05: "los pinchos se ven enormes". Con la geometría íntegra
+ * del nodo `spikes` (altura natural ≈1.68 u tras `KIT_SCALE`, más alta que el
+ * propio héroe) la trampa se leía como un bosque de lanzas, no como pinchos de
+ * suelo. Elegida 0.34 u, dentro del rango pedido (0.3-0.4): claramente por
+ * debajo del diámetro del héroe (`HERO_RADIUS`×2 = 0.48 u, la referencia que
+ * dio David en el encargo), con cuerpo suficiente para leerse como una púa
+ * real y no un simple bulto.
+ */
+const SPIKE_EXPOSED_HEIGHT = 0.34;
+
+/**
+ * Cuánto se hunden las púas bajo el suelo (y=0) cuando están totalmente
+ * escondidas (u). No basta con bajarlas justo hasta y=0 (la punta quedaría a
+ * ras de la losa, aún visible por los agujeros): este margen adicional las
+ * deja claramente por debajo de la cara inferior de la losa, invisibles del
+ * todo mientras están retraídas.
+ */
+const SPIKE_HIDE_DEPTH = 0.15;
+
+/**
+ * Duración (s) del disparo hacia arriba al detectar algo sobre el hazard —
+ * pedido de playtest: "salen RÁPIDO... es la reacción a pisar". Bastante más
+ * corta que `SPIKE_RETRACT_DURATION` para que se lea como una trampa
+ * reactiva y no como decoración que sube sola.
+ */
+const SPIKE_RISE_DURATION = 0.1;
+
+/**
+ * Duración (s) de la retracción al dejar de detectar nada sobre el hazard —
+ * pedido de playtest: "se retraen más despacio". 3× `SPIKE_RISE_DURATION`: la
+ * amenaza se retira de forma perceptible, no de golpe.
+ */
+const SPIKE_RETRACT_DURATION = 0.3;
+
+/**
+ * Tamaño de celda objetivo (u) para la rejilla PROPIA de las púas —
+ * deliberadamente MÁS densa que `SPIKES_TILE_SCALE` (la de la losa, que sigue
+ * igual). Al encoger cada púa uniformemente hasta `SPIKE_EXPOSED_HEIGHT` (ver
+ * `SpikesNeedles`), su diámetro se encoge en la misma proporción — de ≈1.85 u
+ * (natural) a ≈0.37 u —, así que una sola púa diminuta por celda de losa
+ * (1.34 u) dejaría huecos de suelo desnudo entre matojos sueltos en vez de
+ * leerse como un campo continuo. Con 0.55 u de celda y colocación centrada
+ * (sin estirar la geometría, a diferencia de la losa) las púas quedan
+ * bastante juntas sin llegar a solaparse.
+ */
+const SPIKE_CELL_SIZE = 0.55;
+
+/**
+ * Igual que el criterio de daño de la sim (`circleOverlapsHazardRect`,
+ * features/hazards/hazards.ts — no exportada) pero duplicada aquí a
+ * propósito: es geometría pura de 6 líneas (círculo contra rectángulo, punto
+ * más cercano) y así el render de la trampa no depende de un símbolo interno
+ * de la sim. Usada por `isHazardTriggered` para decidir cuándo asoman las
+ * púas — MISMO criterio con el que la sim decide cuándo hace daño, para que
+ * "escondidas mientras algo se desangra encima" (el bug que el encargo pide
+ * evitar explícitamente) no pueda ocurrir.
+ */
+function circleOverlapsRect(
+  centerX: number,
+  centerY: number,
+  radius: number,
+  rectX: number,
+  rectY: number,
+  rectW: number,
+  rectH: number,
+): boolean {
+  const minX = rectX - rectW / 2;
+  const maxX = rectX + rectW / 2;
+  const minY = rectY - rectH / 2;
+  const maxY = rectY + rectH / 2;
+  const nearestX = centerX < minX ? minX : centerX > maxX ? maxX : centerX;
+  const nearestY = centerY < minY ? minY : centerY > maxY ? maxY : centerY;
+  const dx = centerX - nearestX;
+  const dy = centerY - nearestY;
+  return dx * dx + dy * dy <= radius * radius;
+}
+
+/**
+ * true si el héroe o algún enemigo vivo invade el rectángulo del hazard
+ * ahora mismo (héroe y enemigos, punto 3 del encargo: la sim ya hace daño
+ * periódico a un enemigo sobre pinchos, así que unas púas escondidas
+ * mientras eso pasa se leerían como un bug). Lee `world.hero`/`world.enemies`
+ * directamente, sin acumular estado propio — se llama una vez por frame
+ * desde `SpikesNeedles`.
+ */
+function isHazardTriggered(hazard: HazardSpawn, world: Pick<World, 'hero' | 'enemies'>): boolean {
+  const hero = world.hero;
+  if (hero.hp > 0 && circleOverlapsRect(hero.position.x, hero.position.y, hero.radius, hazard.position.x, hazard.position.y, hazard.width, hazard.height)) {
+    return true;
+  }
+  const enemies = world.enemies;
+  for (let i = 0; i < enemies.length; i++) {
+    const enemy = enemies[i];
+    if (enemy.hp <= 0) continue;
+    if (circleOverlapsRect(enemy.position.x, enemy.position.y, enemy.radius, hazard.position.x, hazard.position.y, hazard.width, hazard.height)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Losa con agujeros del campo de pinchos (nodo `floor_tile_big_spikes` del
+ * `.gltf`, SIN sus púas — ver `kitGeometryPart` en render/kit.ts): tileada
+ * para cubrir el rectángulo EXACTO del hazard (`hazard.width × hazard.height`),
  * mismo patrón que `FloorGrid` de RoomView.tsx (rejilla `nx × nz` con `ceil`,
  * cada baldosa estirada para que `nx` baldosas cubran `width` exactamente) —
  * a diferencia de `wallModuleLayout` (que redondea y tolera un pequeño
- * desajuste en un sillar puntual), aquí NO se puede tolerar ni un pincho
+ * desajuste en un sillar puntual), aquí NO se puede tolerar ni un hueco
  * colgando fuera del área que hace daño (requisito CRÍTICO del encargo: la
- * superficie visible tiene que coincidir con el área de daño). Como la
- * rejilla cubre el rectángulo EXACTO y cada baldosa se estira para encajar
- * dentro de su celda, ningún pincho puede sobresalir del borde declarado del
- * hazard.
+ * superficie visible tiene que coincidir con el área de daño). Siempre
+ * visible y fija: es la ÚNICA pista de que ahí hay una trampa (punto 1 del
+ * encargo), así que el jugador puede aprender a leerla.
  */
-function SpikesField({ hazard }: { hazard: HazardSpawn }) {
-  const geometry = kitGeometry('floor_tile_big_spikes');
+function SpikesFloorSlab({ hazard }: { hazard: HazardSpawn }) {
+  const geometry = kitGeometryPart('floor_tile_big_spikes', 'floor_tile_big_spikes');
   const tileSize = useMemo(() => kitBoxSize(geometry), [geometry]);
-  // `floor_tile_big_spikes` SÍ apoya en su min.y (a diferencia de
-  // floor_tile_large/floor_tile_small, ver comentario de kitTopAlignOffset en
-  // kit-fit.ts): verificado contra su .gltf, las agujas nacen en y=0 y la
-  // base de la losa va de y=-0.1 a y=+0.1 alrededor de ese mismo plano — así
-  // que el offset correcto es kitGroundOffset (alinear el mínimo a 0), NO
-  // kitTopAlignOffset (que hundiría toda la pieza bajo tierra, porque el
-  // máximo del boundingBox aquí es la PUNTA de la aguja, no la superficie
-  // caminable).
+  // La losa SÍ apoya en su min.y (a diferencia de floor_tile_large/floor_tile_small,
+  // ver comentario de kitTopAlignOffset en kit-fit.ts): verificado contra su
+  // .gltf, la base de la losa va de y=-0.1 a y=+0.1 (unidades Blender, antes
+  // de KIT_SCALE) — así que el offset correcto es kitGroundOffset (alinear
+  // el mínimo a 0), igual que el resto de piezas que apoyan por su base.
   const groundY = useMemo(() => kitGroundOffset(geometry), [geometry]);
   const targetSize = tileSize.x * SPIKES_TILE_SCALE; // pieza cuadrada de fábrica (4×4): mismo objetivo en X y en Z
   const nx = Math.max(1, Math.ceil(hazard.width / targetSize));
@@ -123,6 +228,116 @@ function SpikesField({ hazard }: { hazard: HazardSpawn }) {
   }, [hazard.width, hazard.height, hazard.position.x, hazard.position.y, nx, nz, count, tileSize, groundY]);
 
   return <instancedMesh ref={meshRef} args={[geometry, kitMaterial, count]} castShadow receiveShadow />;
+}
+
+/**
+ * Púas retráctiles del campo de pinchos (nodo `spikes` del `.gltf`, SIN la
+ * losa — ver `kitGeometryPart`): escondidas bajo el suelo por defecto, solo
+ * asoman mientras `isHazardTriggered` es true (héroe o enemigo vivo sobre el
+ * área del hazard), con disparo rápido (`SPIKE_RISE_DURATION`) y retracción
+ * más lenta (`SPIKE_RETRACT_DURATION`).
+ *
+ * Posiciones/escala de cada instancia se fijan UNA vez (`useLayoutEffect`,
+ * igual que `SpikesFloorSlab`): la rejilla de púas es su PROPIA rejilla, más
+ * densa que la de la losa (`SPIKE_CELL_SIZE`, ver comentario de la
+ * constante) y SIN estirar la geometría a la celda (a diferencia de la losa)
+ * — cada púa conserva su proporción natural de aguja, solo encogida
+ * uniformemente. `nx`/`nz` se calculan con `floor` (no `ceil`, al revés que
+ * la losa): así la celda real (`hazard.width / nx`) nunca es MENOR que
+ * `SPIKE_CELL_SIZE`, que a su vez se eligió con margen sobre el diámetro ya
+ * encogido de la púa (≈0.37 u) — garantiza que ninguna púa, centrada en su
+ * celda, pueda sobresalir del rectángulo exacto del hazard (requisito
+ * CRÍTICO, punto 5 del encargo).
+ *
+ * El disparo/retracción NO mueve cada instancia por separado: las `count`
+ * instancias se fijan con Y local 0 al construir la rejilla, y CADA FRAME se
+ * escribe un único `mesh.position.y` (el transform del InstancedMesh
+ * entero) — una asignación de escalar, cero objetos nuevos, en vez de un
+ * bucle de `count` escrituras de matriz por frame.
+ */
+function SpikesNeedles({ hazard, world }: { hazard: HazardSpawn; world: Pick<World, 'hero' | 'enemies'> }) {
+  const geometry = kitGeometryPart('floor_tile_big_spikes', 'spikes');
+  const naturalSize = useMemo(() => kitBoxSize(geometry), [geometry]);
+  // Escala UNIFORME (no por eje): encoge la púa entera (altura Y y diámetro
+  // XZ a la vez) hasta que su altura natural (≈1.68 u) coincide con el
+  // objetivo del encargo. Igual criterio que BarrelMesh (mismo fichero):
+  // estirar solo un eje rompería la silueta de aguja del modelo.
+  const scale = useMemo(() => SPIKE_EXPOSED_HEIGHT / naturalSize.y, [naturalSize]);
+
+  const nx = Math.max(1, Math.floor(hazard.width / SPIKE_CELL_SIZE));
+  const nz = Math.max(1, Math.floor(hazard.height / SPIKE_CELL_SIZE));
+  const count = nx * nz;
+  const meshRef = useRef<THREE.InstancedMesh>(null);
+  // Fracción [0,1] de "asomado": 0 = completamente escondida bajo la losa, 1
+  // = plenamente afuera. Vive en un ref, no en estado de React: `useFrame`
+  // la muta cada frame, y un `setState` aquí forzaría un re-render de React
+  // a 60 Hz — justo lo que el encargo prohíbe explícitamente.
+  const raisedRef = useRef(0);
+
+  useLayoutEffect(() => {
+    const mesh = meshRef.current;
+    if (!mesh) return;
+    const scratch = new THREE.Object3D();
+    // Celda EXACTA sin estirar (a diferencia de la losa): width/nx y
+    // height/nz son siempre >= SPIKE_CELL_SIZE (nx/nz se calcularon con
+    // `floor`), así que el margen entre el centro de cada celda y su borde
+    // nunca es menor que el que ya deja `SPIKE_CELL_SIZE` sobre el diámetro
+    // encogido de la púa (ver comentario de la constante) — ninguna púa se
+    // sale de su celda ni, por tanto, del rectángulo exacto del hazard.
+    const cellW = hazard.width / nx;
+    const cellH = hazard.height / nz;
+    let index = 0;
+    for (let ix = 0; ix < nx; ix++) {
+      for (let iz = 0; iz < nz; iz++) {
+        const localX = -hazard.width / 2 + (ix + 0.5) * cellW;
+        const localZ = -hazard.height / 2 + (iz + 0.5) * cellH;
+        // Y local siempre 0: el disparo/escondite lo controla el useFrame de
+        // abajo escribiendo `mesh.position.y` (transform del InstancedMesh
+        // entero), no la matriz de cada instancia.
+        scratch.position.set(hazard.position.x + localX, 0, hazard.position.y + localZ);
+        scratch.scale.setScalar(scale);
+        scratch.updateMatrix();
+        mesh.setMatrixAt(index++, scratch.matrix);
+      }
+    }
+    mesh.count = count;
+    mesh.instanceMatrix.needsUpdate = true;
+  }, [hazard.width, hazard.height, hazard.position.x, hazard.position.y, nx, nz, count, scale]);
+
+  useFrame((_, delta) => {
+    const mesh = meshRef.current;
+    if (!mesh) return;
+    const occupied = isHazardTriggered(hazard, world);
+    const target = occupied ? 1 : 0;
+    const rate = occupied ? 1 / SPIKE_RISE_DURATION : 1 / SPIKE_RETRACT_DURATION;
+    const current = raisedRef.current;
+    const next = target > current ? Math.min(target, current + rate * delta) : Math.max(target, current - rate * delta);
+    raisedRef.current = next;
+    // next=0 (escondida del todo): el conjunto se hunde
+    // `SPIKE_EXPOSED_HEIGHT + SPIKE_HIDE_DEPTH` bajo el suelo, dejando la
+    // punta muy por debajo de la cara inferior de la losa (invisible por los
+    // agujeros). next=1 (afuera del todo): offset 0, la base queda a ras de
+    // suelo y la punta asoma exactamente `SPIKE_EXPOSED_HEIGHT` (ya fijado
+    // al construir las instancias, arriba).
+    mesh.position.y = -(SPIKE_EXPOSED_HEIGHT + SPIKE_HIDE_DEPTH) * (1 - next);
+  });
+
+  return <instancedMesh ref={meshRef} args={[geometry, kitMaterial, count]} castShadow receiveShadow />;
+}
+
+/**
+ * Campo de pinchos completo (playtest 2026-08-05): la losa fija de
+ * `SpikesFloorSlab` como pista visual permanente + las púas retráctiles de
+ * `SpikesNeedles` que solo asoman con algo encima. Ver cabecera de cada una
+ * para el detalle de rejilla/animación.
+ */
+function SpikesField({ hazard, world }: { hazard: HazardSpawn; world: Pick<World, 'hero' | 'enemies'> }) {
+  return (
+    <>
+      <SpikesFloorSlab hazard={hazard} />
+      <SpikesNeedles hazard={hazard} world={world} />
+    </>
+  );
 }
 
 /**
@@ -291,7 +506,7 @@ function PitRim({ hazard }: { hazard: HazardSpawn }) {
   );
 }
 
-function StaticHazardQuad({ hazard }: { hazard: HazardSpawn }) {
+function StaticHazardQuad({ hazard, world }: { hazard: HazardSpawn; world: Pick<World, 'hero' | 'enemies'> }) {
   if (hazard.kind === 'pit') {
     return (
       <>
@@ -301,7 +516,7 @@ function StaticHazardQuad({ hazard }: { hazard: HazardSpawn }) {
     );
   }
   if (hazard.kind === 'spikes') {
-    return <SpikesField hazard={hazard} />;
+    return <SpikesField hazard={hazard} world={world} />;
   }
   const material = hazard.kind === 'slow' ? mudMaterial : boostMaterial;
   return (
@@ -315,11 +530,19 @@ function StaticHazardQuad({ hazard }: { hazard: HazardSpawn }) {
   );
 }
 
-export function HazardViews({ world }: { world: { hazards: HazardSpawn[] } }) {
+/**
+ * `world` amplía su tipo mínimo previo (`{ hazards }`) a `hazards` + `hero` +
+ * `enemies`: las púas retráctiles (`SpikesNeedles`) necesitan leer la
+ * posición del héroe y de los enemigos cada frame para decidir si asoman.
+ * `GameRoot.tsx` ya llama a este componente con `world={session.world}` (el
+ * `World` completo), así que ampliar lo que este componente EXIGE no le pide
+ * ningún cambio a ese llamador — sigue pasando lo mismo.
+ */
+export function HazardViews({ world }: { world: Pick<World, 'hazards' | 'hero' | 'enemies'> }) {
   return (
     <>
       {world.hazards.map((hazard) => (
-        <StaticHazardQuad key={hazard.id} hazard={hazard} />
+        <StaticHazardQuad key={hazard.id} hazard={hazard} world={world} />
       ))}
     </>
   );

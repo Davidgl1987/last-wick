@@ -174,6 +174,63 @@ function extractModelGeometry(gltf: GLTF): THREE.BufferGeometry {
   return merged;
 }
 
+// ── Geometría de un nodo individual (pinchos retráctiles y similares) ──
+
+/**
+ * Caché de geometrías de UN nodo concreto de un modelo, indexada por
+ * `"${modelo}::${nodo}"`. `kitGeometry` fusiona TODOS los nodos de un
+ * `.gltf` en una única `BufferGeometry` (ver cabecera de
+ * `extractModelGeometry`) — la inmensa mayoría de piezas del kit no
+ * necesitan más, pero algunas (aquí, `floor_tile_big_spikes`: la losa con
+ * agujeros y las púas son dos nodos separados en el `.gltf`, la segunda hija
+ * de la primera) sí necesitan dibujarse por separado: la trampa de pinchos
+ * retráctiles anima las púas de forma independiente de la losa (que se
+ * queda siempre visible, es la pista de que ahí hay una trampa), y con solo
+ * `kitGeometry` no hay forma de pedir "este nodo sin los demás". De ahí
+ * `kitGeometryPart`.
+ */
+const partGeometryCache = new Map<string, THREE.BufferGeometry>();
+
+function partCacheKey(name: KitModelName, node: string): string {
+  return `${name}::${node}`;
+}
+
+/**
+ * Extrae, para CADA nodo con malla de un `.gltf` ya cargado, su propia
+ * geometría horneada (`applyMatrix4(mesh.matrixWorld)`, igual que
+ * `extractModelGeometry`) y escalada a `KIT_SCALE` — pero SIN fusionar: una
+ * entrada de `partGeometryCache` por nodo, indexada por su nombre.
+ *
+ * Recorre la escena POR SU CUENTA, en vez de reutilizar el recorrido de
+ * `extractModelGeometry`: para cuando esto se llama, esa función ya ha
+ * desechado los materiales de cada malla (`disposeGltfMaterials`, dentro de
+ * su propio recorrido) — pero eso no afecta ni a la geometría ni a la
+ * matriz de mundo del nodo, que es todo lo que hace falta aquí, así que un
+ * segundo recorrido independiente sigue siendo válido. Es trabajo doble de
+ * coste bajo (recorre 46 modelos de baja poligonización una vez más, UNA
+ * sola vez en toda la vida de la app, al arrancar) a cambio de CERO riesgo
+ * sobre `extractModelGeometry`, que no se toca ni un carácter: `kitGeometry`
+ * no cambia de comportamiento.
+ */
+function cacheModelParts(name: KitModelName, gltf: GLTF): void {
+  gltf.scene.updateWorldMatrix(true, true);
+  gltf.scene.traverse((object) => {
+    if (!(object as THREE.Mesh).isMesh) return;
+    const mesh = object as THREE.Mesh;
+
+    const baked = mesh.geometry.clone().applyMatrix4(mesh.matrixWorld);
+    const stripped = new THREE.BufferGeometry();
+    stripped.setAttribute('position', baked.getAttribute('position'));
+    stripped.setAttribute('normal', baked.getAttribute('normal'));
+    stripped.setAttribute('uv', baked.getAttribute('uv'));
+    if (baked.index) stripped.setIndex(baked.index);
+    stripped.scale(KIT_SCALE, KIT_SCALE, KIT_SCALE);
+    stripped.computeBoundingBox();
+    stripped.computeBoundingSphere();
+    partGeometryCache.set(partCacheKey(name, mesh.name), stripped);
+  });
+}
+
 /**
  * Carga los 46 modelos del kit en paralelo, idempotente: llamarla dos veces
  * (p. ej. desde varias rutas de `App.tsx` que todas necesitan el juego) NO
@@ -186,6 +243,7 @@ export function preloadKit(): Promise<void> {
       KIT_MODELS.map((name) =>
         gltfLoader.loadAsync(kitModelUrl(name, import.meta.env.BASE_URL)).then((gltf) => {
           geometryCache.set(name, extractModelGeometry(gltf));
+          cacheModelParts(name, gltf);
         }),
       ),
     ).then(() => {
@@ -201,6 +259,24 @@ export function kitGeometry(name: KitModelName): THREE.BufferGeometry {
   const geometry = geometryCache.get(name);
   if (!geometry) {
     throw new Error(`kitGeometry('${name}') llamado antes de que preloadKit() termine — falta esperar/gatear el montaje.`);
+  }
+  return geometry;
+}
+
+/**
+ * Geometría de UN nodo concreto dentro de un modelo del kit (p. ej. la losa
+ * de `floor_tile_big_spikes` sin sus púas, nodo homónimo, o las púas solas,
+ * nodo `spikes` — ver `HazardView.tsx::SpikesField`). Mismo contrato que
+ * `kitGeometry`: síncrona, cacheada, lanza si se llama antes de que
+ * `preloadKit()` termine. `node` es el nombre del nodo tal cual aparece en
+ * el `.gltf` de origen.
+ */
+export function kitGeometryPart(name: KitModelName, node: string): THREE.BufferGeometry {
+  const geometry = partGeometryCache.get(partCacheKey(name, node));
+  if (!geometry) {
+    throw new Error(
+      `kitGeometryPart('${name}', '${node}') llamado antes de que preloadKit() termine, o ese nodo no existe en ese modelo.`,
+    );
   }
   return geometry;
 }
