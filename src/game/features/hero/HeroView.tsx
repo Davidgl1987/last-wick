@@ -21,9 +21,10 @@
  */
 
 import { useFrame } from '@react-three/fiber';
-import { useEffect, useRef } from 'react';
-import { Color, Quaternion, Vector3, type Group, type Mesh } from 'three';
+import { useEffect, useMemo, useRef } from 'react';
+import { Color, Quaternion, Vector3, type BufferGeometry, type Group, type Mesh } from 'three';
 import { dampAngleTowards } from '@/engine/geometry';
+import { kitGeometry } from '@/game/render/kit';
 import { HERO_RADIUS } from './constants';
 import { PIT_FALL_DURATION } from '@/game/features/hazards/constants';
 import { HERO_WAX_EMIT_DISTANCE } from '@/game/features/effects/wax';
@@ -47,7 +48,6 @@ import {
   candleEyeMaterial,
   candleFlameMaterial,
   HERO_WAX_COLOR,
-  heroCandleGeometry,
 } from '@/game/render/assets-dark';
 import { boulderScaleFactor, cometStretchFactor, shieldBubbleOpacity, spikeCountForLevel } from './upgrade-visuals';
 
@@ -139,8 +139,48 @@ const CANDLE_VERTICAL_STRETCH_PER_SPEED = STRETCH_PER_SPEED * 0.5;
  * proporción de la vela, no solo la chata de antes.
  */
 const CANDLE_PIVOT_HEIGHT_FRACTION = 0;
-/** Mitad del alto local de `heroCandleGeometry` (radio 1, alto 2.8): mantiene la base pinchada al pivote pase lo que pase con el escalado vertical (squash o estiramiento). */
-const CANDLE_HALF_HEIGHT = 1.4;
+/**
+ * Nombre de la pieza del kit que hace de CUERPO del héroe (prueba pedida por
+ * David, 2026-08-05: "probar a utilizar la vela más ancha que hay en el kit
+ * como personaje, incluyendo los ojos"). De las velas sueltas del pack todas
+ * miden lo mismo de ancho (0.33) y lo que cambia es el alto, así que "la más
+ * ancha" en PROPORCIÓN es la derretida (0.33 × 0.70). Cambiar esta constante
+ * a `'candle'` (0.33 × 0.87, más estilizada) es todo lo que hace falta para
+ * probar la otra: el resto del fichero deriva sus medidas de la geometría, no
+ * de números fijos. `candle_lit` NO sirve: trae su propia llama modelada y el
+ * héroe ya pone la suya, animada.
+ */
+const HERO_CANDLE_MODEL = 'candle_melted';
+
+/**
+ * Mitad del alto de la vela EN SU ESPACIO LOCAL, donde el radio vale 1 (misma
+ * convención que tenía `heroCandleGeometry`, el cilindro de ronda 7: radio 1,
+ * alto 2.8 ⇒ mitad 1.4). Mantiene la base pinchada al pivote pase lo que pase
+ * con el escalado vertical (squash o estiramiento).
+ *
+ * Ya NO es un 1.4 fijo: se calcula a partir de la proporción real del modelo
+ * del kit (`normalizeHeroCandle` más abajo), porque la vela del pack es más
+ * esbelta que el cilindro que sustituye y ese número manda sobre otras tres
+ * medidas ya afinadas en playtest — dónde va la llama, dónde los ojos y dónde
+ * se clavan los pinchos del Erizo de Acero. Derivarlas todas de aquí es lo que
+ * permite cambiar `HERO_CANDLE_MODEL` sin volver a tunear nada a ojo.
+ *
+ * La silueta se normaliza por el RADIO (no por el alto) a propósito: en la
+ * ronda 7 David corrigió justo esto — "has cambiado el modelo y no la hitbox,
+ * te pedí lo contrario" —, así que el ancho visible tiene que seguir siendo
+ * exactamente el de la hitbox (`HERO_RADIUS`), ni generoso ni tacaño, y el
+ * alto es el que le toque al modelo.
+ *
+ * El número: `candle_melted` mide 0.33 de ancho por 0.70 de alto, así que
+ * normalizada a radio 1 (ancho 2) su alto es 2·0.70/0.33 = 4.24 y su mitad,
+ * 2.12. Va escrito como constante en vez de leerse del `boundingBox` porque
+ * este módulo se importa ANTES de que el kit esté precargado (App.tsx monta el
+ * juego después, pero el import es estático) y `kitGeometry` lanzaría. A cambio
+ * `normalizeHeroCandleGeometry` comprueba en tiempo de ejecución que el modelo
+ * real coincide con este número y avisa por consola si algún día deja de
+ * hacerlo.
+ */
+const CANDLE_HALF_HEIGHT = 2.12;
 
 /**
  * Ojos de la vela, reajustados a la vela fina y alta de ronda 7 (radio local
@@ -197,7 +237,15 @@ const CANDLE_HALF_HEIGHT = 1.4;
  */
 const CANDLE_EYE_SEPARATION = 0.66;
 const CANDLE_EYE_X = (HERO_RADIUS * CANDLE_EYE_SEPARATION) / 2;
-const CANDLE_EYE_Y = HERO_RADIUS * 0.68;
+/**
+ * 60% de la altura del cuerpo, que es la proporción validada en rondas
+ * anteriores (antes salía de un 0.68 fijo sobre el cilindro de alto local
+ * 2.8: (1.00+0.68)/2.8 = 60%). Derivado ahora de `CANDLE_HALF_HEIGHT` para que
+ * la carita no se descuelgue si cambia el modelo de vela: absoluto =
+ * 0.6·(2·semialto), y este offset es local a `candleGroup`, que vive en
+ * 1.00·visualRadius.
+ */
+const CANDLE_EYE_Y = HERO_RADIUS * (0.6 * (2 * CANDLE_HALF_HEIGHT) - 1);
 /**
  * Radio local del cilindro (1, ronda 7) × visualRadius/HERO_RADIUS: antes al
  * 102% (JUSTO fuera de la superficie real, ver BUG de ronda 8 arriba). Al
@@ -305,8 +353,17 @@ const FLAME_PULSE_FREQ_B = 5.7;
  * dentro de la vela): semi-alto = 0.7 · 1.8 / 2 = 0.63·visualRadius ⇒ centro
  * deseado = 2.8 + 0.63 = 3.43 ⇒ offset local = 3.43 − 1.00 = 2.43.
  */
-const FLAME_HEIGHT_FACTOR = 2.43;
 const FLAME_BASE_SCALE = 0.7;
+/**
+ * Centro de la llama, en × visualRadius y LOCAL a `candleGroup` (que vive en
+ * 1.00·visualRadius absoluto). Se calcula, no se tunea: boca de la vela
+ * (2·semialto) + el semialto de la propia llama (`FLAME_BASE_SCALE · 1.8 / 2`)
+ * − el 1.00 del grupo padre. Así la BASE de la llama queda asentada justo en
+ * la boca sea cual sea el modelo de vela, que es lo que se afinó a mano en la
+ * ronda 8 ("la llama hazla un poco más grande") y lo que se rompería al
+ * cambiar de pieza si el número siguiera siendo fijo.
+ */
+const FLAME_HEIGHT_FACTOR = 2 * CANDLE_HALF_HEIGHT + (FLAME_BASE_SCALE * 1.8) / 2 - 1;
 /** Amplitud del pulso de tamaño de la llama: ±15%, pedido explícito de playtest. */
 const FLAME_PULSE_AMPLITUDE = 0.15;
 
@@ -363,9 +420,48 @@ const SPIKE_DIRECTIONS = buildSpikeDirections();
  * escalar, así los pinchos siguen apuntando hacia fuera).
  */
 const CANDLE_SPIKE_SURFACE_XZ = 1;
-const CANDLE_SPIKE_SURFACE_Y = 1.4;
+/** Semialto real del cuerpo: se deriva de `CANDLE_HALF_HEIGHT` para que los pinchos sigan clavados en la superficie si cambia el modelo de vela. */
+const CANDLE_SPIKE_SURFACE_Y = CANDLE_HALF_HEIGHT;
+
+/**
+ * Adapta la vela del kit a la convención local que ya usaba el cilindro al que
+ * sustituye: RADIO 1 y CENTRADA en el origen (el modelo del pack nace apoyado
+ * en su base, con el ancho que le tocó al artista). Se hace una sola vez sobre
+ * una copia — nunca se muta la geometría cacheada de `kitGeometry`, que
+ * comparte cualquier otro uso del kit.
+ *
+ * Escala UNIFORME por el radio (no independiente por eje): estirar solo el alto
+ * deformaría el goterón de cera, que es justo lo que da personalidad a esta
+ * pieza. El alto resultante es el que dicte el modelo, y `CANDLE_HALF_HEIGHT`
+ * ya está calculado para él.
+ */
+function normalizeHeroCandleGeometry(): BufferGeometry {
+  const source = kitGeometry(HERO_CANDLE_MODEL);
+  const box = source.boundingBox;
+  if (!box) throw new Error('la vela del kit no trae boundingBox calculado');
+  const radius = Math.max(box.max.x - box.min.x, box.max.z - box.min.z) / 2;
+  const scale = 1 / radius;
+  const centerY = (box.max.y + box.min.y) / 2;
+  const normalized = source.clone().translate(0, -centerY, 0).scale(scale, scale, scale);
+  normalized.computeBoundingBox();
+
+  // Comprobación de que `CANDLE_HALF_HEIGHT` (constante, porque este módulo se
+  // importa antes de que el kit esté cargado) sigue describiendo al modelo
+  // real. Si algún día se cambia `HERO_CANDLE_MODEL` y se olvida el número,
+  // esto lo dice en vez de dejar la llama flotando y los ojos descolgados.
+  const realHalfHeight = (normalized.boundingBox?.max.y ?? 0);
+  if (Math.abs(realHalfHeight - CANDLE_HALF_HEIGHT) > 0.02) {
+    console.warn(
+      `[HeroView] CANDLE_HALF_HEIGHT=${CANDLE_HALF_HEIGHT} no cuadra con '${HERO_CANDLE_MODEL}' (real ${realHalfHeight.toFixed(2)}): actualízalo o la llama, los ojos y los pinchos quedarán fuera de sitio.`,
+    );
+  }
+  return normalized;
+}
 
 export function HeroView({ session }: { session: GameSession }) {
+  // La vela del kit, normalizada una vez por montaje (el kit ya está precargado
+  // cuando GameRoot monta, ver App.tsx).
+  const heroCandleGeometry = useMemo(() => normalizeHeroCandleGeometry(), []);
   const candleTiltGroupRef = useRef<Group>(null);
   const bodyRef = useRef<Mesh>(null);
   const shadowRef = useRef<Mesh>(null);
