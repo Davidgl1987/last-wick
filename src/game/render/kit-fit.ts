@@ -47,3 +47,24 @@ export function kitGroundOffset(geometry: THREE.BufferGeometry): number {
 export function kitTopAlignOffset(geometry: THREE.BufferGeometry): number {
   return -(geometry.boundingBox?.max.y ?? 0);
 }
+
+/**
+ * Desplazamiento en X/Z para que el CENTRO del `boundingBox` de una pieza
+ * caiga en (0,0) — necesario para piezas del kit que NO nacen centradas en su
+ * plano horizontal, a diferencia de la mayoría (que sí pivotan sobre su
+ * centro X/Z): `rubble_half`, por ejemplo, tiene su X real de 0 a 4 (pensada
+ * para encajar por un borde, no para plantarse por su centro — ya verificado
+ * contra su `.gltf` en `QueenColumnsView.tsx::kitXZCenterOffset`, que
+ * necesitaba exactamente este mismo cálculo); `bartop_A_medium` y
+ * `shelves_decorated` (F5, atrezzo de tienda) tienen el mismo problema en Z
+ * (pensadas para montarse contra una pared, con su cara de anclaje cerca de
+ * Z=0 y el volumen entero sobresaliendo hacia un lado). Mismo espíritu que
+ * `kitGroundOffset`/`kitTopAlignOffset`: se lee siempre del `boundingBox`
+ * real, nunca un desfase hardcodeado — así si el modelo cambiara, el código
+ * lo sigue centrando bien sin tocarlo.
+ */
+export function kitXZCenterOffset(geometry: THREE.BufferGeometry): { x: number; z: number } {
+  const box = geometry.boundingBox;
+  if (!box) throw new Error('geometría del kit sin boundingBox calculado (¿kit.ts no llamó a computeBoundingBox?)');
+  return { x: -(box.min.x + box.max.x) / 2, z: -(box.min.z + box.max.z) / 2 };
+}

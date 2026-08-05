@@ -4,10 +4,19 @@
  * se puede tocar disco con `node:fs`/`node:path` — es justo lo que hace único
  * a este test frente al resto de la suite (que corre sobre la sim pura).
  *
- * Objetivo: que `KIT_MODELS` (mantenida a mano en `kit-models.ts`) y el
- * contenido real de `public/models/kaykit/` nunca diverjan en silencio — ni
- * un modelo listado que falte en disco, ni un `.gltf` añadido a mano a la
- * carpeta que se quede fuera del catálogo (y por tanto sin precargar).
+ * Objetivo: que ningún nombre de `KIT_MODELS` (mantenida a mano en
+ * `kit-models.ts`) apunte a un fichero que no está en disco — eso reventaría
+ * la precarga entera al arrancar el juego.
+ *
+ * Lo que este test NO comprueba, a propósito (decisión de David, 2026-08-05:
+ * "deja el kit entero en public, y ya veremos qué usamos"): que no sobren
+ * `.gltf` en la carpeta. Están los 283 modelos del pack, mientras que
+ * `KIT_MODELS` es la lista de los que el juego PRECARGA — y son dos cosas
+ * distintas a propósito: tener el pack completo en disco permite probar una
+ * pieza nueva cambiando una línea, sin volver al zip original, pero
+ * precargarlos todos costaría ~9 MB en el arranque y el GDD §14 pide entrar a
+ * jugar en segundos. Registrar un modelo es lo que lo mete en la precarga; el
+ * resto está disponible pero no pesa.
  */
 
 import { existsSync, readdirSync } from 'node:fs';
@@ -25,18 +34,16 @@ describe('KIT_MODELS ↔ public/models/kaykit/', () => {
     }
   });
 
-  it('no hay ningún .gltf en la carpeta que no esté registrado en KIT_MODELS', () => {
-    const registered = new Set<string>(KIT_MODELS);
-    const gltfFilesOnDisk = readdirSync(KIT_ROOT).filter((file) => file.endsWith('.gltf'));
-    for (const file of gltfFilesOnDisk) {
-      const name = file.slice(0, -'.gltf'.length);
-      expect(registered.has(name), `${file} existe en disco pero no está en KIT_MODELS`).toBe(true);
-    }
+  it('KIT_MODELS no tiene nombres repetidos (un duplicado cargaría el mismo modelo dos veces)', () => {
+    expect(new Set<string>(KIT_MODELS).size).toBe(KIT_MODELS.length);
   });
 
-  it('KIT_MODELS no tiene entradas huérfanas (mismo tamaño que los .gltf en disco)', () => {
+  it('el catálogo precargado es un SUBCONJUNTO del pack en disco, y bastante menor', () => {
     const gltfFilesOnDisk = readdirSync(KIT_ROOT).filter((file) => file.endsWith('.gltf'));
-    expect(KIT_MODELS.length).toBe(gltfFilesOnDisk.length);
+    // Menos de la mitad: si algún día se registra el pack casi entero, es señal
+    // de que la precarga se ha desmadrado y toca revisar el arranque (GDD §14),
+    // no de que este test sobre.
+    expect(KIT_MODELS.length).toBeLessThan(gltfFilesOnDisk.length / 2);
   });
 
   it('la textura compartida dungeon_texture.png existe', () => {

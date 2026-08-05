@@ -4,10 +4,18 @@ Origen: [KayKit — Dungeon Asset Pack](https://kaylousberg.com) de Kay Lousberg
 (CC0, ver `LICENSE-kaykit.txt` en este mismo directorio). Plan de integración:
 `docs/plans/ART_KIT_PLAN.md`.
 
-A diferencia del pack de UI de Kenney (que se guarda entero, son 52 KB), aquí
-solo están los **46 modelos elegidos** de los 283 del pack, en glTF — el pack
-original trae además fbx/obj y pesa 40 MB. Cada `.gltf` viene con su `.bin`
-hermano, sin modificar respecto al original.
+Están los **283 modelos del pack en glTF** (8.8 MB), no solo los que el juego
+usa hoy — decisión de David (2026-08-05): *"deja el kit entero en public, y ya
+veremos qué usamos"*. Del pack original (40 MB) se descartan los formatos fbx y
+obj, que three.js no necesita. Cada `.gltf` viene con su `.bin` hermano, sin
+modificar.
+
+**Tener un modelo en esta carpeta NO significa que el juego lo cargue.** La
+lista de lo que se precarga es `KIT_MODELS` en
+`src/game/render/kit-models.ts`; precargar los 283 costaría los 8.8 MB enteros
+en el arranque, y el GDD §14 pide entrar a jugar en segundos. Para probar una
+pieza nueva basta con añadir su nombre a esa lista — ya está en disco, no hay
+que volver al zip original.
 
 ## Los dos ficheros que no son del pack tal cual
 
@@ -21,7 +29,7 @@ hermano, sin modificar respecto al original.
   editado ni un píxel.
 - Este README.
 
-## Qué hay y para qué
+## Qué carga el juego hoy
 
 | Familia | Modelos | Uso |
 | --- | --- | --- |
@@ -36,5 +44,8 @@ hermano, sin modificar respecto al original.
 | Luz | `torch_mounted`, `candle_triple` | Cera de las antorchas (la llama y el `GlowPuddle` siguen siendo propios) |
 | Tienda y atrezzo | `bartop_A_medium`, `shelves_decorated`, `chest_gold`, `table_medium`, `stool`, `bench`, `bookcase_single_decoratedA`, `banner_red`, `banner_blue`, `sword_shield` | Puesto del tendero y decoración de salas |
 
-El pack **no incluye personajes**: héroe, enemigos, jefes y el propio tendero
-siguen siendo geometría propia de `src/game/render/assets.ts`.
+Todo lo demás del pack (el resto de muros, suelos, escaleras, mobiliario,
+estandartes...) está en disco sin registrar, a la espera de decidir qué se usa.
+
+El pack **no incluye personajes**: enemigos y jefes siguen siendo geometría
+propia de `src/game/render/assets.ts`.
