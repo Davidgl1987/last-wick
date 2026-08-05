@@ -9,12 +9,13 @@
 
 import { useUiStore } from '@/game/session/store';
 import type { GameSession } from '@/game/session/session';
+import { Button, Modal } from '@/ui';
 import './modals.css';
 
 export function NextDungeonModal({ session, onAdvance }: { session: GameSession; onAdvance: () => void }) {
   const phase = useUiStore((s) => s.phase);
 
-  if (phase !== 'dungeon-cleared') return null;
+  const isOpen = phase === 'dungeon-cleared';
 
   // session.stageIndex todavía apunta a la mazmorra recién superada (se
   // incrementa en advanceToNextDungeon, al pulsar el botón).
@@ -22,16 +23,21 @@ export function NextDungeonModal({ session, onAdvance }: { session: GameSession;
   const totalStages = session.bossSequence.length;
 
   return (
-    <div className="modal-backdrop">
-      <div className="modal victory-modal">
-        <h2 className="modal-title">¡Jefe derrotado!</h2>
-        <p className="modal-subtitle">
-          Mazmorra {stageNumber} de {totalStages} superada
-        </p>
-        <button type="button" className="modal-primary-btn" onClick={onAdvance}>
+    <Modal
+      open={isOpen}
+      // Reutiliza el tono dorado de "victoria" (victory-modal): es, en
+      // esencia, una victoria parcial.
+      className="victory-modal"
+      title="¡Jefe derrotado!"
+      actions={
+        <Button variant="primary" onClick={onAdvance}>
           Siguiente mazmorra
-        </button>
-      </div>
-    </div>
+        </Button>
+      }
+    >
+      <p className="modal-subtitle">
+        Mazmorra {stageNumber} de {totalStages} superada
+      </p>
+    </Modal>
   );
 }

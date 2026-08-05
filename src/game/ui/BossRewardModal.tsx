@@ -12,21 +12,30 @@
  * renderizar un modal vacío en el frame de transición.
  */
 
+import { useRef } from 'react';
 import { chooseBossReward, ensureBossRewardChoices, type GameSession } from '@/game/session/session';
 import { getUpgradeLevel, type UpgradeDef } from '@/game/session/upgrades';
 import { useUiStore } from '@/game/session/store';
+import { Modal } from '@/ui';
 import { UpgradeIcon, UpgradeLevelPips } from './UpgradeIcon';
 import './modals.css';
 
 export function BossRewardModal({ session }: { session: GameSession }) {
   const phase = useUiStore((s) => s.phase);
 
-  if (phase !== 'boss-reward') return null;
+  const isOpen = phase === 'boss-reward';
 
-  // Idempotente: normalmente ya calculadas por el game loop en el mismo frame
-  // del cambio de fase; esta llamada cubre el primer render del modal.
-  const choices = ensureBossRewardChoices(session);
-  if (choices.length === 0) return null;
+  // Idempotente, pero SOLO se llama con el modal abierto: fuera de la fase
+  // 'boss-reward' no debe tocar la sesión (antes lo garantizaba el `return
+  // null` temprano, que ahora es la prop `open`).
+  const choices = isOpen ? ensureBossRewardChoices(session) : [];
+  // El modal sigue montado mientras dura su animación de salida, y para
+  // entonces las opciones ya se han consumido: recordamos las últimas para
+  // que no se vacíe el panel a mitad de la animación.
+  const lastChoices = useRef(choices);
+  if (choices.length > 0) lastChoices.current = choices;
+  const shownChoices = choices.length > 0 ? choices : lastChoices.current;
+  if (shownChoices.length === 0) return null;
 
   const hero = session.world.hero;
 
@@ -35,26 +44,23 @@ export function BossRewardModal({ session }: { session: GameSession }) {
   };
 
   return (
-    <div className="modal-backdrop">
-      <div className="modal upgrade-modal">
-        <h2 className="modal-title">¡Jefe derrotado!</h2>
-        <p className="modal-subtitle">Elige una mejora gratis</p>
-        <div className="upgrade-cards">
-          {choices.map((def) => {
-            const level = getUpgradeLevel(hero, def.id);
-            return (
-              <button key={def.id} type="button" className="upgrade-card" onClick={() => pick(def)}>
-                <div className="upgrade-card-head">
-                  <UpgradeIcon icon={def.icon} size={32} />
-                  <span className="upgrade-card-name">{def.name}</span>
-                </div>
-                <span className="upgrade-card-desc">{def.description}</span>
-                <UpgradeLevelPips level={level} maxLevel={def.maxLevel} previewLevel={level + 1} />
-              </button>
-            );
-          })}
-        </div>
+    <Modal open={isOpen} className="upgrade-modal" title="¡Jefe derrotado!">
+      <p className="modal-subtitle">Elige una mejora gratis</p>
+      <div className="upgrade-cards">
+        {shownChoices.map((def) => {
+          const level = getUpgradeLevel(hero, def.id);
+          return (
+            <button key={def.id} type="button" className="upgrade-card" onClick={() => pick(def)}>
+              <div className="upgrade-card-head">
+                <UpgradeIcon icon={def.icon} size={32} />
+                <span className="upgrade-card-name">{def.name}</span>
+              </div>
+              <span className="upgrade-card-desc">{def.description}</span>
+              <UpgradeLevelPips level={level} maxLevel={def.maxLevel} previewLevel={level + 1} />
+            </button>
+          );
+        })}
       </div>
-    </div>
+    </Modal>
   );
 }

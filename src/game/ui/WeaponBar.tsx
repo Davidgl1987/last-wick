@@ -12,17 +12,21 @@ import { ARROW_COOLDOWN, SPELL_COOLDOWN } from '@/game/features/combat/constants
 import { BODY_LAUNCH_COOLDOWN } from '@/game/features/hero/constants';
 import type { GameSession } from '@/game/session/session';
 import type { WeaponMode } from '@/game/world/types';
+import { frameClass, Icon, type IconName } from '@/ui';
 import './weapon-bar.css';
 
 /**
- * Cada modo lleva el COLOR de su ataque (mismo color que su proyectil/estela,
- * feedback de playtest): cuerpo azul, flecha amarilla, hechizo violeta. Se
- * aplica vía clase CSS `weapon-btn-<mode>` (colores en weapon-bar.css).
+ * Nombres de la capa de presentación (Cera/Fuego/Hechizo) — los identificadores
+ * internos `'body' | 'arrow' | 'spell'` (tipo `WeaponMode` del mundo simulado)
+ * NO cambian, solo su etiqueta e icono aquí. Cada modo lleva el COLOR de su
+ * ataque (mismo color que su proyectil/estela, feedback de playtest): cera
+ * amarilla, fuego azul, hechizo violeta. Se aplica vía clase CSS
+ * `weapon-btn-<mode>` (colores en weapon-bar.css).
  */
-const MODES: { mode: WeaponMode; label: string; icon: string }[] = [
-  { mode: 'body', label: 'Cuerpo', icon: '●' },
-  { mode: 'arrow', label: 'Flecha', icon: '➤' },
-  { mode: 'spell', label: 'Hechizo', icon: '✦' },
+const MODES: { mode: WeaponMode; label: string; icon: IconName }[] = [
+  { mode: 'body', label: 'Cera', icon: 'dot' },
+  { mode: 'arrow', label: 'Fuego', icon: 'flame' },
+  { mode: 'spell', label: 'Hechizo', icon: 'spark' },
 ];
 
 /** Fracción [0,1] de recarga completada para un modo (1 = listo). */
@@ -119,7 +123,7 @@ export function WeaponBar({ session }: { session: GameSession }) {
         <button
           key={mode}
           type="button"
-          className={`weapon-btn weapon-btn-${mode}${active === mode ? ' weapon-btn-active' : ''}`}
+          className={frameClass('plain', `weapon-btn weapon-btn-${mode}${active === mode ? ' weapon-btn-active' : ''}`)}
           onPointerDown={(e) => {
             // Evita que el gesto de puntería del canvas capture este toque.
             e.stopPropagation();
@@ -128,14 +132,18 @@ export function WeaponBar({ session }: { session: GameSession }) {
           aria-label={`Arma: ${label}`}
           aria-pressed={active === mode}
         >
-          <span className="weapon-btn-icon">{icon}</span>
+          <span className="weapon-btn-icon">
+            <Icon name={icon} size={20} />
+          </span>
           <span className="weapon-btn-label">{label}</span>
-          <div
-            className="weapon-btn-cooldown"
-            ref={(el) => {
-              overlayRefs.current[i] = el;
-            }}
-          />
+          <div className="weapon-btn-cooldown-clip">
+            <div
+              className="weapon-btn-cooldown"
+              ref={(el) => {
+                overlayRefs.current[i] = el;
+              }}
+            />
+          </div>
         </button>
       ))}
     </div>

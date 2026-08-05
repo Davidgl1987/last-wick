@@ -1,35 +1,8 @@
-/* ── Modales (GDD §12: tarjetas grandes, usables con el pulgar) ── */
-
-.modal-backdrop {
-  position: absolute;
-  inset: 0;
-  background: rgba(6, 8, 14, 0.72);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
-  z-index: 10;
-}
-
-.modal {
-  background: #141827;
-  border: 1px solid #39405c;
-  border-radius: 20px;
-  padding: 24px 20px;
-  width: min(420px, 100%);
-  text-align: center;
-}
-
-.modal-title {
-  margin: 0 0 4px;
-  font-size: 22px;
-}
-
-.modal-subtitle {
-  margin: 0 0 18px;
-  font-size: 14px;
-  color: #aab2d4;
-}
+/* ── Modales específicos de cada pantalla del juego (GDD §12) ──
+   El panel, el backdrop, el título y los botones genéricos viven ahora en el
+   kit (`@/ui`, ver Modal.tsx/Button.tsx/Slider.tsx/Checkbox.tsx): aquí solo
+   queda lo propio de cada modal — tarjetas de mejora, listas de stats,
+   secciones del modal de pausa y la tienda. */
 
 .upgrade-cards {
   display: flex;
@@ -43,9 +16,8 @@
   gap: 4px;
   padding: 16px;
   min-height: 64px;
-  border-radius: 14px;
-  border: 2px solid #39405c;
-  background: #1b2033;
+  border: 2px solid var(--ui-line);
+  background: var(--ui-surface-2);
   color: inherit;
   font-family: inherit;
   text-align: left;
@@ -53,8 +25,8 @@
 }
 
 .upgrade-card:active {
-  border-color: #54c7ff;
-  background: #202741;
+  border-color: var(--ui-accent);
+  background: var(--ui-surface-2);
 }
 
 .upgrade-card:disabled {
@@ -62,8 +34,8 @@
 }
 
 .upgrade-card:disabled:active {
-  border-color: #39405c;
-  background: #1b2033;
+  border-color: var(--ui-line);
+  background: var(--ui-surface-2);
 }
 
 .upgrade-card-head {
@@ -79,7 +51,7 @@
 
 .upgrade-card-desc {
   font-size: 13px;
-  color: #aab2d4;
+  color: var(--ui-text-dim);
 }
 
 .game-over-stats {
@@ -96,7 +68,7 @@
 }
 
 .game-over-stat dt {
-  color: #aab2d4;
+  color: var(--ui-text-dim);
 }
 
 .game-over-stat dd {
@@ -104,37 +76,42 @@
   font-weight: 700;
 }
 
-.modal-primary-btn {
-  width: 100%;
-  min-height: 52px;
-  border-radius: 14px;
-  border: none;
-  background: #54c7ff;
-  color: #0b0d14;
-  font-family: inherit;
-  font-size: 17px;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.modal-primary-btn:active {
-  background: #7fd6ff;
-}
-
+/* Título en dorado (distinto del ámbar del marco): Victory Y NextDungeon
+   ("¡Jefe derrotado!") comparten esta clase — el segundo es, en esencia, una
+   victoria parcial. */
 .victory-modal .modal-title {
-  color: #ffd166;
+  color: var(--ui-gold);
 }
 
-/* ── Modal de pausa (GDD §12: mejoras acumuladas + leyenda) ── */
+/* ── Modal de créditos ── */
 
+.credits-section {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 0 14px;
+}
+
+.credits-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ui-text-dim);
+}
+
+.credits-value {
+  font-family: var(--font-body);
+  font-size: 17px;
+  color: var(--ui-text);
+}
+
+/* ── Modal de pausa (GDD §12: mejoras acumuladas + ajustes) ──
+   `.modal.pause-modal` sobreescribe el text-align:center por defecto del kit
+   (src/ui/modal.css): las listas de este modal se leen mejor alineadas a la
+   izquierda. El título (`.modal-title`, del kit) ya se recentra por su
+   cuenta pase lo que pase con el contenedor. */
 .pause-modal {
-  max-height: calc(100dvh - 40px);
-  overflow-y: auto;
   text-align: left;
-}
-
-.pause-modal .modal-title {
-  text-align: center;
 }
 
 .pause-section {
@@ -143,63 +120,23 @@
 
 .pause-section-title {
   margin: 0 0 6px;
+  font-family: var(--font-display);
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: #aab2d4;
+  color: var(--ui-text-dim);
 }
 
-/* Leyenda como acordeón (ronda 3, punto 4): <details>/<summary> nativos,
-   plegados por defecto (accesibles: foco de teclado + semántica de
-   disclosure sin JS propio). El <summary> reutiliza el estilo de
-   pause-section-title y añade una flecha que rota al desplegar. */
-details.pause-accordion > summary.pause-section-title {
+/* Reset de lista — envuelven filas de `Slider`/`Checkbox` del kit. */
+.pause-audio-list {
   margin: 0;
-  cursor: pointer;
+  padding: 0;
   list-style: none;
   display: flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 28px;
-  -webkit-tap-highlight-color: transparent;
-}
-
-details.pause-accordion > summary.pause-section-title::-webkit-details-marker {
-  display: none;
-}
-
-details.pause-accordion > summary.pause-section-title::before {
-  content: '▸';
-  display: inline-block;
-  font-size: 10px;
-  transition: transform 0.15s ease;
-}
-
-details.pause-accordion[open] > summary.pause-section-title::before {
-  transform: rotate(90deg);
-}
-
-details.pause-accordion .pause-legend {
-  margin-top: 8px;
-}
-
-/* Slider de distancia de cámara (ronda 3, punto 5). */
-.pause-camera-slider {
-  display: flex;
   flex-direction: column;
-  gap: 6px;
-  font-size: 13px;
-  color: #aab2d4;
+  gap: 10px;
 }
 
-.pause-camera-slider input[type='range'] {
-  width: 100%;
-  height: 36px;
-  accent-color: #54c7ff;
-}
-
-/* Sección "Efectos visuales" (fase 1 de post-procesado): lista de checkboxes,
-   mismo tono/tamaño que el resto de listas del modal de pausa. */
 .pause-effects-list {
   margin: 0;
   padding: 0;
@@ -209,25 +146,10 @@ details.pause-accordion .pause-legend {
   gap: 8px;
 }
 
-.pause-effect-toggle {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  color: #d7dcf5;
-  cursor: pointer;
-}
-
-.pause-effect-toggle input[type='checkbox'] {
-  accent-color: #54c7ff;
-  width: 16px;
-  height: 16px;
-}
-
 .pause-empty {
   margin: 0;
   font-size: 13px;
-  color: #aab2d4;
+  color: var(--ui-text-dim);
 }
 
 .pause-upgrade-list {
@@ -254,7 +176,7 @@ details.pause-accordion .pause-legend {
 }
 
 .pause-upgrade-desc {
-  color: #aab2d4;
+  color: var(--ui-text-dim);
 }
 
 /* ── Lista compacta de mejoras en resumen final (Victory/GameOver) ── */
@@ -288,55 +210,6 @@ details.pause-accordion .pause-legend {
   white-space: nowrap;
 }
 
-.pause-legend {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  font-size: 13px;
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-}
-
-.pause-legend li {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.pause-legend-swatch {
-  width: 14px;
-  height: 14px;
-  border-radius: 4px;
-  border: 1px solid #39405c;
-  flex: 0 0 auto;
-}
-
-.pause-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 18px;
-}
-
-.modal-secondary-btn {
-  width: 100%;
-  min-height: 48px;
-  border-radius: 14px;
-  border: 2px solid #39405c;
-  background: transparent;
-  color: #aab2d4;
-  font-family: inherit;
-  font-size: 15px;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.modal-secondary-btn:active {
-  border-color: #54c7ff;
-  color: #e8f6ff;
-}
-
 /* ── Modal de tienda (docs/plans/ECONOMY_PLAN.md F4) ── */
 
 .shop-balance {
@@ -347,14 +220,17 @@ details.pause-accordion .pause-legend {
   margin: 0 0 16px;
   font-size: 28px;
   font-weight: 700;
-  color: #ffd166;
+  color: var(--ui-gold);
 }
 
+/* Círculo de verdad (moneda): de los pocos border-radius que sobreviven a la
+   regla transversal de "cero bordes redondeados" (ver también .hud-coin-icon
+   en hud.css, mismo icono repetido en el HUD). */
 .shop-balance-icon {
   width: 20px;
   height: 20px;
   border-radius: 50%;
-  background: radial-gradient(circle at 35% 35%, #ffe9a8, #ffd166 55%, #c98f1b);
+  background: radial-gradient(circle at 35% 35%, var(--ui-gold-soft), var(--ui-gold) 55%, var(--ui-gold-deep));
 }
 
 .shop-card-footer {
@@ -368,7 +244,7 @@ details.pause-accordion .pause-legend {
 .shop-card-price {
   font-size: 13px;
   font-weight: 700;
-  color: #ffd166;
+  color: var(--ui-gold);
   white-space: nowrap;
 }
 

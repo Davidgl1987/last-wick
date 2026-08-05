@@ -24,6 +24,7 @@ import { validateLive } from './validate';
 import type { PlaceKind, Selection } from './types';
 import { EditorCanvas } from '@/editor/components/EditorCanvas';
 import { EditorSidePanel } from '@/editor/components/EditorSidePanel';
+import { Button, Frame, Icon } from '@/ui';
 import './editor.css';
 
 // ── Página ─────────────────────────────────────────────────────────────────
@@ -330,17 +331,19 @@ export function EditorPage() {
 
   return (
     <div className="editor-root">
-      <header className="editor-header">
-        <a href="#/" className="editor-back">
-          ← Juego
-        </a>
+      <Frame as="header" variant="plain" className="editor-header">
+        <Button variant="secondary" href="#/" className="editor-back-btn">
+          <Icon name="chevron" size={14} style={{ transform: 'rotate(-90deg)' }} />
+          Juego
+        </Button>
         <h1 className="editor-title">Editor de niveles</h1>
         <div className="editor-header-actions">
-          <button type="button" className="editor-btn editor-btn-primary" onClick={playtest}>
-            ▶ Probar
-          </button>
+          <Button variant="primary" className="editor-probar-btn" onClick={playtest}>
+            <Icon name="play" size={16} />
+            Probar
+          </Button>
         </div>
-      </header>
+      </Frame>
 
       <div className="editor-body">
         <EditorCanvas

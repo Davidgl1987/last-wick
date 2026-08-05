@@ -86,7 +86,7 @@ export function EditorCanvas({
               width={h.width}
               height={h.height}
               fill={HAZARD_COLOR[h.kind]}
-              stroke={selection?.type === 'hazard' && selection.id === h.id ? '#54c7ff' : 'none'}
+              stroke={selection?.type === 'hazard' && selection.id === h.id ? 'var(--ui-accent)' : 'none'}
               strokeWidth={0.08}
             />
             {h.kind === 'boost' && h.direction && (
@@ -109,7 +109,7 @@ export function EditorCanvas({
             cy={i.position.y}
             r={0.28}
             fill={ITEM_COLOR[i.kind]}
-            stroke={selection?.type === 'item' && selection.id === i.id ? '#54c7ff' : '#0b0d14'}
+            stroke={selection?.type === 'item' && selection.id === i.id ? 'var(--ui-accent)' : '#0b0d14'}
             strokeWidth={0.07}
             onPointerDown={(e) => beginDrag(e, { type: 'item', id: i.id })}
           />
@@ -133,7 +133,7 @@ export function EditorCanvas({
               cy={en.position.y}
               r={en.radius ?? 0.4}
               fill={ENEMY_COLOR[en.kind]}
-              stroke={selection?.type === 'enemy' && selection.id === en.id ? '#54c7ff' : '#0b0d14'}
+              stroke={selection?.type === 'enemy' && selection.id === en.id ? 'var(--ui-accent)' : '#0b0d14'}
               strokeWidth={0.07}
             />
             {en.kind === 'spike' && (
@@ -160,7 +160,7 @@ export function EditorCanvas({
                   fill="#20243a"
                   stroke={
                     selection?.type === 'patrol' && selection.id === en.id
-                      ? '#54c7ff'
+                      ? 'var(--ui-accent)'
                       : ENEMY_COLOR[en.kind]
                   }
                   strokeWidth={0.08}
@@ -171,20 +171,25 @@ export function EditorCanvas({
             )}
           </g>
         ))}
-        {/* Inicio del jugador */}
+        {/* Inicio del jugador: color propio (identifica esta entidad, igual que
+            ENEMY_COLOR/HAZARD_COLOR/ITEM_COLOR) — el anillo de selección SÍ es
+            un acento de UI y usa el mismo ámbar que el resto de selecciones. */}
         <circle
           cx={room.playerStart.x}
           cy={room.playerStart.y}
           r={0.38}
           fill="#54c7ff"
-          stroke={selection?.type === 'start' ? '#ffffff' : '#0b0d14'}
+          stroke={selection?.type === 'start' ? 'var(--ui-accent)' : '#0b0d14'}
           strokeWidth={0.08}
           onPointerDown={(e) => beginDrag(e, { type: 'start' })}
         />
       </svg>
       {placing && (
         <div className="editor-placing-hint">
-          Toca el lienzo para colocar · <button type="button" onClick={() => setPlacing(null)}>cancelar</button>
+          Toca el lienzo para colocar ·{' '}
+          <button type="button" className="editor-hint-cancel" onClick={() => setPlacing(null)}>
+            cancelar
+          </button>
         </div>
       )}
       {status && <div className="editor-status">{status}</div>}

@@ -1,0 +1,64 @@
+/* ── Marco decorativo 9-slice (Kenney Fantasy UI Borders, en public/ui) ──
+   El arte viene en blanco puro, así que el color NO se hornea en el PNG: se
+   usa el marco como máscara de un pseudo-elemento relleno con
+   `--ui-frame-color`. Así un mismo asset sirve para cualquier tinte y los
+   ficheros quedan tal como los publica Kenney.
+   `mask-border` aún va con prefijo en Blink/WebKit y Firefox no lo implementa;
+   ahí se degrada a `border-image`, que pinta el mismo marco en su blanco
+   original — pierde el tinte, no el marco.
+
+   Quien use `.ui-frame` define `--ui-frame-image` y `--ui-frame-color` (las
+   4 variantes de abajo ya las fijan por defecto: `frameClass`/`<Frame>` del
+   kit son la única vía recomendada para consumirlo). El marco es un overlay
+   sobre el borde del elemento y no ocupa espacio: el elemento pone su propio
+   `background` y necesita `padding` suficiente (18px por lado como mínimo)
+   para que su contenido no quede bajo el marco. Y nunca `border-radius`: el
+   arte es de esquinas rectas. */
+.ui-frame {
+  position: relative;
+}
+
+.ui-frame::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  /* Trazo de 2px sin antialias: al escalar en pantallas de alta densidad
+     interesa que siga nítido, no interpolado. */
+  image-rendering: pixelated;
+  border: 16px solid transparent;
+  border-image: var(--ui-frame-image) 16 stretch;
+}
+
+@supports (-webkit-mask-box-image: url('')) or (mask-border: url('')) {
+  .ui-frame::after {
+    border: 0;
+    background: var(--ui-frame-color, #fff);
+    -webkit-mask-box-image: var(--ui-frame-image) 16 / 16px stretch;
+    mask-border: var(--ui-frame-image) 16 / 16px stretch;
+  }
+}
+
+/* ── Las 4 variantes del kit (ver public/ui/README.md para qué es cada asset
+   Kenney) — cada una fija su imagen y un color ámbar/azulado por defecto,
+   sobreescribible con la prop `color` de `<Frame>` (o `--ui-frame-color`
+   directamente si se compone la clase a mano vía `frameClass`). */
+.frame-ornate {
+  --ui-frame-image: url('/ui/default/border/panel-border-029.png');
+  --ui-frame-color: var(--ui-accent);
+}
+
+.frame-plain {
+  --ui-frame-image: url('/ui/default/border/panel-border-009.png');
+  --ui-frame-color: var(--ui-accent);
+}
+
+.frame-rich {
+  --ui-frame-image: url('/ui/default/border/panel-border-026.png');
+  --ui-frame-color: var(--ui-accent);
+}
+
+.frame-inset {
+  --ui-frame-image: url('/ui/default/border/panel-border-021.png');
+  --ui-frame-color: var(--ui-accent);
+}

@@ -1,0 +1,88 @@
+/* ── Botón (kit) ──
+   Las dos variantes comparten color (el ámbar único de la UI, ver base.css) y
+   se distinguen por el RELLENO, no por el tono: el primario va con fondo, el
+   secundario transparente. Antes el secundario era azulado, y tener dos
+   acentos compitiendo hacía que pantallas como el menú de pausa se leyeran
+   como una mezcla en vez de como una familia.
+
+   El marco lo pone `frame.css` vía `.frame-ornate`/`.frame-plain` (ver
+   Frame.tsx); aquí solo se fija tipografía, relleno, color de texto y los
+   estados hover/active/focus-visible/disabled. */
+
+.btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  box-sizing: border-box;
+  border: 0;
+  cursor: pointer;
+  text-decoration: none;
+  font-family: var(--font-display);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  transition:
+    background-color var(--ui-dur-out) var(--ui-ease-in),
+    color var(--ui-dur-out) var(--ui-ease-in),
+    transform var(--ui-dur-out) var(--ui-ease-in);
+}
+
+/* Se hunde al pulsar: acuse de recibo inmediato, sin sonido ni háptica. */
+.btn:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.btn-md {
+  min-height: 56px;
+  font-size: 17px;
+  padding: 18px 22px;
+}
+
+/* Único uso hoy: el botón "Jugar" de la pantalla de título — de ahí que el
+   resplandor (box-shadow) vaya ligado a este tamaño y no a la variante. */
+.btn-lg {
+  min-height: 68px;
+  font-size: 21px;
+  font-weight: 700;
+  padding: 18px 22px;
+  box-shadow: 0 6px 26px rgba(255, 196, 110, 0.22);
+}
+
+/* Relleno = acción principal de la pantalla. */
+.btn-primary {
+  color: var(--ui-accent-hi);
+  background: var(--ui-accent-fill);
+  font-weight: 700;
+}
+
+.btn-primary:hover,
+.btn-primary:active {
+  background: var(--ui-accent-fill-hi);
+  --ui-frame-color: var(--ui-accent-hi);
+}
+
+/* Transparente = acción de apoyo. Mismo ámbar, un paso más apagado: pesa
+   menos sin salirse de la familia. */
+.btn-secondary {
+  color: var(--ui-accent-dim);
+  background: transparent;
+  font-weight: 400;
+}
+
+.btn-secondary:hover,
+.btn-secondary:active {
+  background: var(--ui-accent-fill);
+  color: var(--ui-accent-hi);
+  --ui-frame-color: var(--ui-accent-hi);
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--ui-accent-hi);
+  outline-offset: 3px;
+}
+
+.btn:disabled {
+  cursor: default;
+  opacity: 0.45;
+  pointer-events: none;
+}

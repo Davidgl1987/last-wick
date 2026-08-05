@@ -1,5 +1,79 @@
 /* Estilos globales — móvil primero: sin scroll, sin zoom, fondo oscuro. */
 
+:root {
+  /* Tipografías de TODA la UI (GDD: mansión victoriana a la luz de una vela):
+     la display para encabezados y botones, la de texto como fuente base del
+     `body`, así que HUD, modales y editor también las heredan. */
+  --font-display: 'Cinzel Decorative', 'Times New Roman', serif;
+  --font-body: 'Cormorant Garamond', 'Times New Roman', serif;
+  /* ── Superficies: escala fría de 3 pasos, apiladas de fuera a dentro
+     (fondo de app > panel > tarjeta/campo). ── */
+  --ui-bg: #0b0d14;
+  --ui-surface: #131622;
+  --ui-surface-2: #1b1f2e;
+  /* Trazo neutro: bordes de tarjetas y campos, barras, scrollbar fino. */
+  --ui-line: #363c52;
+
+  /* ── Texto: dos pasos (principal y atenuado) y ni uno más. Tira a marfil
+     cálido, no a blanco azulado: la escena es de luz de vela. Lo deshabilitado
+     se resuelve con `opacity`, no con un tercer color. ── */
+  --ui-text: #ece6d9;
+  --ui-text-dim: #9aa0b5;
+
+  /* ── Acento ÚNICO de toda la UI: el ámbar de la llama. Antes competía con
+     un azul para marcar "secundario"; ahora la jerarquía la da el RELLENO
+     (primario con fondo, secundario transparente), no un segundo color, así
+     que una pantalla entera se lee como una sola familia. ── */
+  --ui-accent: #e9c37c;
+  --ui-accent-hi: #ffe3a8;
+  --ui-accent-dim: #c9a76a;
+  --ui-accent-fill: rgba(233, 195, 124, 0.14);
+  --ui-accent-fill-hi: rgba(233, 195, 124, 0.24);
+
+  /* ── Semánticos: NO son decoración, identifican cosas del juego, así que
+     quedan fuera de la unificación de arriba. El dorado de moneda es
+     deliberadamente más saturado que el ámbar de los marcos para que "dinero"
+     no se confunda con "elemento interactivo". Los colores por arma viven en
+     weapon-bar.css y los de entidades en el editor, por el mismo motivo. ── */
+  --ui-gold: #ffd166;
+  --ui-gold-soft: #ffe9a8;
+  --ui-gold-deep: #c98f1b;
+  /* Vida del héroe (las llamas del HUD): naranja de mecha encendida, más
+     saturado que el ámbar de los marcos para que no se confunda con chrome. */
+  --ui-life: #ffb347;
+  --ui-life-off: #3a3f57;
+  /* Estados (validación del editor, acciones destructivas). */
+  --ui-danger: #ff5964;
+  --ui-warn: #ff9f45;
+  --ui-ok: #4dd68a;
+
+  /* ── Movimiento: dos duraciones y dos curvas para toda la UI. Entrar es un
+     pelín más lento que salir (una salida rápida se percibe como respuesta;
+     una entrada rápida, como parpadeo). Ver la anulación por
+     `prefers-reduced-motion` al final de este fichero. ── */
+  --ui-dur-in: 190ms;
+  --ui-dur-out: 130ms;
+  --ui-ease-in: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --ui-ease-out: cubic-bezier(0.55, 0.06, 0.68, 0.19);
+}
+
+/* Anulación única de TODO el movimiento de la UI para quien lo pide por
+   sistema. Se hace aquí y no media query a media query en cada componente
+   para que ninguna animación nueva se olvide de respetarlo. No se pone a 0
+   sino a 0.01ms a propósito: así los eventos `animationend`/`transitionend`
+   siguen disparándose y la lógica que depende de ellos (el desmontaje
+   diferido de `Modal`, por ejemplo) no se queda colgada. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 * {
   box-sizing: border-box;
 }
@@ -17,10 +91,32 @@ body,
 body {
   background: #0b0d14;
   color: #e8e8f0;
-  font-family: system-ui, -apple-system, sans-serif;
+  font-family: var(--font-body);
+  /* Cormorant Garamond es una serif fina; a su peso 400 por defecto se lee
+     apagada en pantallas pequeñas, así que subimos peso y tamaño base aquí. */
+  font-weight: 500;
+  font-size: 17px;
+  /* Cormorant Garamond usa cifras de estilo antiguo por defecto (el 0 se lee
+     como una "o" minúscula, el 9 baja de la línea base): forzamos cifras de
+     caja alta para que los campos numéricos del editor sean legibles. */
+  font-variant-numeric: lining-nums;
+  font-feature-settings: 'lnum' 1;
   user-select: none;
   -webkit-user-select: none;
   -webkit-tap-highlight-color: transparent;
+}
+
+input,
+select,
+textarea,
+button {
+  font-family: inherit;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
 }
 
 canvas {

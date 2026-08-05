@@ -1,5 +1,6 @@
 import type { EnemySpawn, HazardSpawn, ItemSpawn, RoomData } from '@/game/world/types';
 import type { PlaceKind, Selection } from '@/editor/types';
+import { Frame } from '@/ui';
 import { RoomSection } from './RoomSection';
 import { DoorsSection } from './DoorsSection';
 import { EditorPalette } from './EditorPalette';
@@ -47,27 +48,29 @@ export function EditorSidePanel({
   errors: string[];
 }) {
   return (
-    <aside className="editor-panel">
-      <RoomSection room={room} setRoom={setRoom} />
-      <DoorsSection room={room} setRoom={setRoom} />
-      <EditorPalette placing={placing} setPlacing={setPlacing} />
-      <SelectionPanel
-        selection={selection}
-        selectedEnemy={selectedEnemy}
-        selectedHazard={selectedHazard}
-        selectedItem={selectedItem}
-        duplicateSelected={duplicateSelected}
-        deleteSelected={deleteSelected}
-        onEnemyChange={onEnemyChange}
-        onHazardChange={onHazardChange}
-      />
-      <FileSection
-        exportRoom={exportRoom}
-        importRoom={importRoom}
-        saveToDevServer={saveToDevServer}
-        fileInputRef={fileInputRef}
-      />
-      <ValidationSection errors={errors} />
-    </aside>
+    <Frame as="aside" variant="plain" className="editor-panel">
+      <div className="editor-panel-body">
+        <RoomSection room={room} setRoom={setRoom} />
+        <DoorsSection room={room} setRoom={setRoom} />
+        <EditorPalette placing={placing} setPlacing={setPlacing} />
+        <SelectionPanel
+          selection={selection}
+          selectedEnemy={selectedEnemy}
+          selectedHazard={selectedHazard}
+          selectedItem={selectedItem}
+          duplicateSelected={duplicateSelected}
+          deleteSelected={deleteSelected}
+          onEnemyChange={onEnemyChange}
+          onHazardChange={onHazardChange}
+        />
+        <FileSection
+          exportRoom={exportRoom}
+          importRoom={importRoom}
+          saveToDevServer={saveToDevServer}
+          fileInputRef={fileInputRef}
+        />
+        <ValidationSection errors={errors} />
+      </div>
+    </Frame>
   );
 }

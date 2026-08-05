@@ -1,0 +1,87 @@
+/* ── Slider (kit): fila etiqueta | pista | valor. Pulgar CUADRADO y pequeño (12px) en
+   --ui-accent (regla transversal: nunca la bola por defecto del navegador) —
+   `border-radius: 0` EXPLÍCITO en los pulgares porque Firefox los redondea
+   por defecto pese al `appearance: none`.
+
+   Relleno de la pista hasta el valor actual: Firefox lo resuelve solo con el
+   pseudo-elemento nativo `::-moz-range-progress`; WebKit no tiene equivalente,
+   así que ahí el relleno lo pinta un gradiente que lee la custom property
+   `--slider-percent` (puesta inline por Slider.tsx, calculada en JS a partir
+   de value/min/max). Altura del `<input>` a 32px: zona pulsable cómoda aunque
+   la pista visual sea más fina. */
+
+.slider-row {
+  display: grid;
+  grid-template-columns: minmax(4.5em, max-content) 1fr auto;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  color: var(--ui-text);
+  cursor: pointer;
+}
+
+.slider-value {
+  min-width: 3.2em;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--ui-text-dim);
+}
+
+.slider-input {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  min-width: 0;
+  height: 32px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.slider-input::-webkit-slider-runnable-track {
+  height: 4px;
+  background: linear-gradient(
+    to right,
+    var(--ui-accent) 0%,
+    var(--ui-accent) var(--slider-percent, 0%),
+    var(--ui-line) var(--slider-percent, 0%),
+    var(--ui-line) 100%
+  );
+}
+
+.slider-input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  /* Centra el pulgar de 12px sobre una pista de 4px: (4 - 12) / 2. */
+  margin-top: -4px;
+  background: var(--ui-accent);
+  border: 0;
+  border-radius: 0;
+  cursor: pointer;
+}
+
+.slider-input::-moz-range-track {
+  height: 4px;
+  background: var(--ui-line);
+}
+
+.slider-input::-moz-range-progress {
+  height: 4px;
+  background: var(--ui-accent);
+}
+
+.slider-input::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  background: var(--ui-accent);
+  border: 0;
+  border-radius: 0;
+  cursor: pointer;
+}
+
+.slider-input:focus-visible {
+  outline: 2px solid var(--ui-accent);
+  outline-offset: 3px;
+}

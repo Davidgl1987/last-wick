@@ -36,6 +36,18 @@ export const ITEM_COLOR: Record<ItemKind, string> = {
 };
 export const SIDE_LABEL: Record<DoorSide, string> = { north: 'Norte', south: 'Sur', east: 'Este', west: 'Oeste' };
 
+/** Las 4 direcciones cardinales de los selectores de dirección del editor
+ * (púa del enemigo `spike` en EnemyProperties, impulso del hazard `boost` en
+ * HazardProperties): comparten un único icono `chevron` (apunta arriba, ver
+ * src/ui/Icon.tsx) rotado por CSS con `rotate` en vez de registrar 4 iconos
+ * casi idénticos en el kit. */
+export const DIRECTIONS: { label: string; rotate: number; dir: { x: number; y: number } }[] = [
+  { label: 'arriba', rotate: 0, dir: { x: 0, y: -1 } },
+  { label: 'abajo', rotate: 180, dir: { x: 0, y: 1 } },
+  { label: 'izquierda', rotate: -90, dir: { x: -1, y: 0 } },
+  { label: 'derecha', rotate: 90, dir: { x: 1, y: 0 } },
+];
+
 export const HAZARD_DEFAULT_SIZE: Record<HazardKind, { width: number; height: number }> = {
   pit: { width: 1.6, height: 1.6 },
   spikes: { width: 1.4, height: 1.4 },

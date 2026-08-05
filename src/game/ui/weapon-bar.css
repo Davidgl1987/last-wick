@@ -10,16 +10,26 @@
   pointer-events: auto;
 }
 
+/* Marco plain del kit (variante por defecto: azulado, ver src/ui/frame.css),
+   teñido con el color de cada arma. Selector compuesto `.frame-plain.weapon-btn`
+   para ganarle en especificidad al `--ui-frame-color` por defecto de
+   `.frame-plain` pase lo que pase el orden de imports. `overflow: hidden` de
+   la cortina de recarga vive en `.weapon-btn-cooldown-clip` (envoltorio
+   interno) en vez de aquí: si recortara el propio `.weapon-btn`, se llevaría
+   por delante el marco `.ui-frame` (un `::after` con `inset: 0`). */
+.frame-plain.weapon-btn {
+  --ui-frame-color: var(--weapon-color);
+}
+
 .weapon-btn {
   position: relative;
   width: 64px;
   height: 64px;
   min-width: 48px;
   min-height: 48px;
-  border-radius: 16px;
-  border: 2px solid #39405c;
-  background: rgba(18, 21, 34, 0.88);
-  color: #aab2d4;
+  border: none;
+  background: rgba(12, 15, 24, 0.82);
+  color: var(--ui-text-dim);
   font-family: inherit;
   display: flex;
   flex-direction: column;
@@ -27,15 +37,15 @@
   justify-content: center;
   gap: 2px;
   padding: 0;
-  overflow: hidden;
   cursor: pointer;
 }
 
 /* Color por arma (feedback de playtest): cada botón usa el color de su
    ataque — mismo color que el proyectil/estela para mapeo instantáneo.
-   Intercambio cuerpo↔flecha (rama `estilo-oscuro`, playtest): cuerpo pasa a
-   amarillo, flecha al azul que antes tenía el cuerpo — mismos hex que
-   `WEAPON_COLOR` en render/assets.ts. */
+   Mismos hex que `WEAPON_COLOR` en render/assets.ts.
+   NOTA: el azul de "Fuego" (weapon-btn-arrow) es el color heredado del
+   proyectil `arrow` — coincidencia con el nombre del elemento (agua/hielo,
+   no fuego), pendiente de decidir un color propio para el arma renombrada. */
 .weapon-btn-body {
   --weapon-color: #fef08a;
   --weapon-glow: rgba(254, 240, 138, 0.4);
@@ -55,21 +65,36 @@
   color: var(--weapon-color);
 }
 
+/* Activo: sube el brillo del marco (mismo mecanismo --ui-frame-color, un
+   tono más claro) y mantiene el resplandor propio en box-shadow. */
 .weapon-btn-active {
-  border-color: var(--weapon-color);
-  color: #e8f6ff;
+  color: var(--ui-text);
   box-shadow: 0 0 12px var(--weapon-glow);
+  filter: brightness(1.25);
 }
 
 .weapon-btn-icon {
   font-size: 20px;
   line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .weapon-btn-label {
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.02em;
+}
+
+/* Envoltorio de recorte de la cortina de recarga: el `overflow: hidden` va
+   aquí (no en `.weapon-btn`) para no recortar el marco `.ui-frame`, que es
+   un `::after` posicionado sobre todo el botón. */
+.weapon-btn-cooldown-clip {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
 }
 
 /* Cortina de recarga: se escala en Y desde arriba vía rAF (sin setState). */

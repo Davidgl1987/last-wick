@@ -1,3 +1,5 @@
+import { Button } from '@/ui';
+
 /** Acciones de fichero: exportar/importar y (en dev) guardar en src/game/features/dungeon/levels. */
 export function FileSection({
   exportRoom,
@@ -11,20 +13,20 @@ export function FileSection({
   fileInputRef: React.RefObject<HTMLInputElement | null>;
 }) {
   return (
-    <section className="editor-section">
+    <section className="editor-section editor-stack">
       <h2>Archivo</h2>
       <div className="editor-field-row">
-        <button type="button" className="editor-btn" onClick={() => void exportRoom()}>
+        <Button variant="secondary" onClick={() => void exportRoom()}>
           Exportar
-        </button>
-        <button type="button" className="editor-btn" onClick={() => fileInputRef.current?.click()}>
+        </Button>
+        <Button variant="secondary" onClick={() => fileInputRef.current?.click()}>
           Importar
-        </button>
+        </Button>
       </div>
       {import.meta.env.DEV && (
-        <button type="button" className="editor-btn editor-btn-wide" onClick={() => void saveToDevServer()}>
+        <Button variant="secondary" className="editor-btn-save" onClick={() => void saveToDevServer()}>
           Guardar en src/game/features/dungeon/levels (dev)
-        </button>
+        </Button>
       )}
       <input
         ref={fileInputRef}

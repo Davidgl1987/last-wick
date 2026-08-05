@@ -1,11 +1,12 @@
 import { DOOR_WIDTH } from '@/game/world/constants';
 import type { RoomData } from '@/game/world/types';
 import { SIDES, SIDE_LABEL } from '@/editor/constants';
+import { Button, Icon, TextField } from '@/ui';
 
 /** Huecos de puerta por lado (máx. 2 por lado). */
 export function DoorsSection({ room, setRoom }: { room: RoomData; setRoom: (r: RoomData) => void }) {
   return (
-    <section className="editor-section">
+    <section className="editor-section editor-stack">
       <h2>Puertas (máx. 2 por lado)</h2>
       {SIDES.map((side) => {
         const slots = room.doorSlots.filter((s) => s.side === side);
@@ -14,7 +15,9 @@ export function DoorsSection({ room, setRoom }: { room: RoomData; setRoom: (r: R
             <span className="editor-doors-label">{SIDE_LABEL[side]}</span>
             {slots.map((slot, i) => (
               <span key={i} className="editor-door-slot">
-                <input
+                <TextField
+                  label={`Offset puerta ${SIDE_LABEL[side]}`}
+                  hideLabel
                   type="number"
                   step={0.5}
                   value={slot.offset}
@@ -30,19 +33,20 @@ export function DoorsSection({ room, setRoom }: { room: RoomData; setRoom: (r: R
                 />
                 <button
                   type="button"
+                  className="editor-door-remove"
                   aria-label={`Quitar puerta ${SIDE_LABEL[side]}`}
                   onClick={() =>
                     setRoom({ ...room, doorSlots: room.doorSlots.filter((s) => s !== slot) })
                   }
                 >
-                  ×
+                  <Icon name="close" size={12} />
                 </button>
               </span>
             ))}
             {slots.length < 2 && (
-              <button
-                type="button"
-                className="editor-btn-small"
+              <Button
+                variant="secondary"
+                className="editor-add-door-btn"
                 onClick={() =>
                   setRoom({
                     ...room,
@@ -54,7 +58,7 @@ export function DoorsSection({ room, setRoom }: { room: RoomData; setRoom: (r: R
                 }
               >
                 + puerta
-              </button>
+              </Button>
             )}
           </div>
         );

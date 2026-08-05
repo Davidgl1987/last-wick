@@ -1,19 +1,32 @@
-/* ── Editor de niveles (GDD §13) ── */
+/* ── Editor de niveles (GDD §13) ──
+   Migrado a la identidad visual del kit (`@/ui`, ver ese README de cabecera
+   en src/ui/index.ts): marco Kenney en la barra superior y el panel lateral,
+   tokens `--ui-*` de src/styles/base.css en vez de hex sueltos, y CERO
+   `border-radius` salvo que algo sea circular de verdad (aquí no hay ningún
+   caso: los antiguos "pill" de estado/aviso pasan a rectángulo recto).
+
+   Lo que SÍ se queda con sus propios colores: los colores semánticos del
+   lienzo y la paleta (enemigos/hazards/items/puertas/suelo, ver
+   src/editor/constants.ts y EditorCanvas.tsx) — identifican entidades del
+   juego, no son "decoración de UI", así que no se tocan aquí. */
 
 .editor-root {
   display: flex;
   flex-direction: column;
   height: 100dvh;
-  background: #0b0d14;
+  background: var(--ui-bg);
   overflow: hidden;
 }
 
+/* Barra superior: marco `plain` del kit (ver Frame.tsx) en vez del antiguo
+   `border-bottom` suelto — así se lee como parte de la misma UI que el resto
+   del juego. Padding ≥18px en los 4 lados: mínimo documentado en
+   src/ui/frame.css para que el contenido no quede bajo el trazo del marco. */
 .editor-header {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: calc(env(safe-area-inset-top) + 8px) 14px 8px;
-  border-bottom: 1px solid #39405c;
+  padding: calc(env(safe-area-inset-top) + 18px) 18px;
   flex: 0 0 auto;
 }
 
@@ -21,11 +34,51 @@
   margin: 0;
   font-size: 16px;
   flex: 1;
+  min-width: 0;
 }
 
-.editor-back {
-  color: #aab2d4;
-  text-decoration: none;
+/* En móvil el título se partía en tres líneas entre los dos botones y
+   engordaba la barra a costa del lienzo. Aquí es puramente informativo (ya
+   sabes dónde estás), así que se oculta solo visualmente: sigue en el árbol
+   de accesibilidad y vuelve en cuanto hay ancho de sobra. */
+@media (max-width: 560px) {
+  .editor-title {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+
+.editor-header-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* "‹ Juego" (Button secundario del kit, ver src/ui/Button.tsx): compacto para
+   caber en una barra delgada — mismo patrón de sobreescritura por selector
+   compuesto que `.btn.hud-pause-btn` en src/game/ui/hud.css. */
+.btn.editor-back-btn {
+  width: auto;
+  min-height: 0;
+  padding: 8px 12px;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+/* "Probar" (Button primario del kit): la acción destacada de la barra
+   superior, tamaño compacto por el mismo motivo que `.editor-back-btn`. */
+.btn.editor-probar-btn {
+  width: auto;
+  min-height: 0;
+  padding: 10px 20px;
+  gap: 8px;
   font-size: 14px;
 }
 
@@ -49,24 +102,38 @@
   cursor: crosshair;
 }
 
+/* Aviso de "modo colocar" y barra de estado: antes eran "pills" con
+   `border-radius: 999px` — pasan a rectángulo recto (regla transversal de
+   cero bordes redondeados) y el borde ámbar usa el token `--ui-accent` en
+   vez del cian `#54c7ff` heredado del diseño anterior. */
 .editor-placing-hint {
   position: absolute;
   top: 10px;
   left: 50%;
   transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
   background: rgba(18, 21, 34, 0.9);
-  border: 1px solid #54c7ff;
-  border-radius: 999px;
+  border: 1px solid var(--ui-accent);
   padding: 6px 14px;
   font-size: 13px;
+  color: var(--ui-text);
 }
 
-.editor-placing-hint button {
+/* "cancelar" es un enlace de texto incrustado EN la propia frase del aviso
+   (no un botón de bloque): forzar aquí el `Button` del kit exigiría anular
+   casi todas sus reglas (`display:flex`, `width:100%`, `min-height`), así
+   que se queda como botón nativo mínimo — la excepción "imprescindible por
+   su forma" de la regla de botones, con los mismos tokens que el resto. */
+.editor-hint-cancel {
   background: none;
-  border: none;
-  color: #54c7ff;
+  border: 0;
+  color: var(--ui-accent);
+  text-decoration: underline;
   cursor: pointer;
   font: inherit;
+  font-size: inherit;
   padding: 0;
 }
 
@@ -76,22 +143,38 @@
   left: 50%;
   transform: translateX(-50%);
   background: rgba(18, 21, 34, 0.92);
-  border: 1px solid #39405c;
-  border-radius: 999px;
+  border: 1px solid var(--ui-line);
   padding: 7px 16px;
   font-size: 13px;
   white-space: nowrap;
+  color: var(--ui-text);
 }
 
+/* Panel lateral: mismo tratamiento que la barra superior (marco `plain`,
+   padding ≥18px). El marco NO scrollea (así su trazo queda fijo, mismo
+   mecanismo que `.modal`/`.modal-body` en src/ui/modal.css) — el contenido
+   largo scrollea en `.editor-panel-body`, hijo suyo. */
 .editor-panel {
   width: 300px;
   flex: 0 0 auto;
-  overflow-y: auto;
-  border-left: 1px solid #39405c;
-  padding: 12px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  min-height: 0;
+  padding: 18px 14px;
+}
+
+.editor-panel-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  /* Separa el contenido del scrollbar (mismo motivo que modal.css: la barra
+     del sistema pegada al borde se come el marco). */
+  padding-right: 8px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--ui-line) transparent;
 }
 
 @media (max-width: 720px) {
@@ -104,9 +187,23 @@
   .editor-panel {
     width: auto;
     flex: 1;
-    border-left: none;
-    border-top: 1px solid #39405c;
   }
+}
+
+/* Los `Button` del kit a tamaño "md" (56px de alto, mayúsculas con tracking
+   ancho, ver src/ui/button.css) están pensados para CTAs grandes — no caben
+   en un panel de 300px con dos botones por fila (Exportar/Importar,
+   Duplicar/Borrar): "IMPORTAR" quedaba literalmente cortado. Se compactan
+   aquí de una vez para TODOS los botones del panel, en vez de repetir la
+   misma reducción botón a botón; las excepciones puntuales
+   (`.editor-add-door-btn`, celdas de paleta/dirección, `.editor-btn-save`)
+   van declaradas MÁS ABAJO en el fichero para ganar el empate de
+   especificidad — misma técnica que `.btn.editor-btn-danger`. */
+.editor-panel .btn {
+  min-height: 40px;
+  padding: 10px 14px;
+  font-size: 13px;
+  letter-spacing: 0.03em;
 }
 
 .editor-section h2 {
@@ -114,34 +211,38 @@
   font-size: 13px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: #aab2d4;
+  color: var(--ui-text-dim);
 }
 
+/* Ritmo vertical genérico de una sección: separa sus hijos directos sin que
+   cada componente tenga que declarar su propio margin-top/bottom (usado por
+   `.editor-section` y por el envoltorio interno de EnemyProperties/
+   HazardProperties, un nivel más adentro). */
+.editor-stack > * + * {
+  margin-top: 10px;
+}
+
+/* Envoltorio "etiqueta encima de contenido" para lo que NO es un campo de
+   texto/número (esos ahora son `TextField` del kit, con su propia clase) —
+   hoy solo lo usan los selectores de dirección (púa/impulso). */
 .editor-field {
   display: flex;
   flex-direction: column;
   gap: 3px;
   font-size: 12px;
-  color: #aab2d4;
-  margin-bottom: 8px;
-  flex: 1;
-}
-
-.editor-field input {
-  background: #1b2033;
-  border: 1px solid #39405c;
-  border-radius: 8px;
-  color: #e8e8f0;
-  padding: 7px 9px;
-  font: inherit;
-  font-size: 14px;
-  width: 100%;
-  min-width: 0;
+  color: var(--ui-text-dim);
 }
 
 .editor-field-row {
   display: flex;
   gap: 8px;
+}
+
+/* Los botones de acción dentro de una fila (Exportar/Importar, Duplicar/
+   Borrar) reparten el ancho a partes iguales — `Button` ya es block/100% por
+   su cuenta, aquí solo se fuerza `flex` para que convivan dos en la fila. */
+.editor-field-row > .btn {
+  flex: 1;
 }
 
 .editor-tags {
@@ -150,29 +251,25 @@
   gap: 8px;
 }
 
-.editor-tag {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 13px;
-  background: #1b2033;
-  border: 1px solid #39405c;
-  border-radius: 999px;
+/* Ficha de tag: `Checkbox` del kit (fila casilla+texto) con fondo/borde de
+   "chip" superpuestos vía selector compuesto — mismo patrón que
+   `.checkbox-row` + clase propia en vez de reinventar el control. */
+.checkbox-row.editor-tag {
+  background: var(--ui-surface-2);
+  border: 1px solid var(--ui-line);
   padding: 5px 10px;
-  cursor: pointer;
 }
 
 .editor-doors-side {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-bottom: 6px;
   flex-wrap: wrap;
 }
 
 .editor-doors-label {
   font-size: 12px;
-  color: #aab2d4;
+  color: var(--ui-text-dim);
   width: 44px;
 }
 
@@ -182,25 +279,55 @@
   gap: 2px;
 }
 
-.editor-door-slot input {
+/* Offset de un hueco de puerta: `TextField` compacto (su etiqueta va oculta,
+   ver `hideLabel` en src/ui/TextField.tsx — el lado ya lo rotula
+   `.editor-doors-label` al lado). */
+.editor-door-slot .text-field-input {
   width: 58px;
-  background: #1b2033;
-  border: 1px solid #39405c;
-  border-radius: 8px;
-  color: #e8e8f0;
   padding: 5px 7px;
-  font: inherit;
   font-size: 13px;
 }
 
-.editor-door-slot button {
+/* Quitar hueco de puerta: icono suelto (no `Button` del kit — a este tamaño
+   el botón de bloque del kit no cabe junto a un campo de 58px), tokens de
+   "peligro" sin token dedicado en el kit (no existe `--ui-danger`; incidencia
+   puntual, igual que el rojo de daño del HUD en hud.css). */
+.editor-door-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
   background: none;
-  border: none;
-  color: #ff5964;
-  font-size: 16px;
+  color: var(--ui-danger);
   cursor: pointer;
-  padding: 2px 5px;
 }
+
+.editor-door-remove:focus-visible {
+  outline: 2px solid var(--ui-danger);
+  outline-offset: 2px;
+}
+
+/* Puerta: Button secundario compacto, mismo patrón que `.editor-back-btn`. */
+.btn.editor-add-door-btn {
+  width: auto;
+  min-height: 0;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+/* ── Celdas de la paleta y selectores de dirección: botones-toggle (elegir
+   UNO de varios), no "acciones" — mismo mecanismo que los 3 botones de
+   `WeaponBar` (src/game/ui/weapon-bar.css): marco `plain` del kit puesto a
+   mano con `frameClass` sobre un `<button>` nativo, sin pasar por `Button`
+   (que fuerza tamaño de bloque a 100%, incompatible con una rejilla de
+   celdas pequeñas). El estado activo se lee por `aria-pressed`, no por una
+   clase — más accesible y evita duplicar la condición en className. ── */
 
 .editor-palette {
   display: flex;
@@ -209,10 +336,12 @@
 }
 
 .editor-palette-btn {
-  background: #1b2033;
-  border: 1.5px solid #39405c;
-  border-radius: 8px;
-  color: #e8e8f0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  background: var(--ui-surface-2);
+  color: var(--ui-text);
   font: inherit;
   font-size: 12px;
   padding: 7px 10px;
@@ -220,66 +349,75 @@
   cursor: pointer;
 }
 
-.editor-palette-btn.active {
-  background: #202741;
-  box-shadow: 0 0 8px rgba(84, 199, 255, 0.45);
+.editor-palette-btn[aria-pressed='true'] {
+  background: var(--ui-surface-2);
+  box-shadow: 0 0 8px rgba(233, 195, 124, 0.45);
 }
 
-.editor-btn {
-  background: #1b2033;
-  border: 1px solid #39405c;
-  border-radius: 10px;
-  color: #e8e8f0;
-  font: inherit;
-  font-size: 14px;
-  padding: 9px 14px;
-  min-height: 40px;
+.editor-dir-btn {
+  border: 0;
+  width: 34px;
+  height: 34px;
+  min-height: 0;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--ui-surface-2);
+  color: var(--ui-text-dim);
   cursor: pointer;
-  flex: 1;
 }
 
-.editor-btn-primary {
-  background: #54c7ff;
-  border-color: #54c7ff;
-  color: #0b0d14;
-  font-weight: 700;
-  flex: 0 0 auto;
+.editor-dir-btn[aria-pressed='true'] {
+  --ui-frame-color: var(--ui-accent);
+  color: var(--ui-accent);
 }
 
-.editor-btn-danger {
-  border-color: #ff5964;
-  color: #ff5964;
+/* Acción destructiva (Borrar / Quitar destino de patrulla): mismo `Button`
+   secundario del kit, tokens rojos superpuestos por selector compuesto en
+   vez de una variante nueva en el kit (un solo caso no lo justifica). La
+   especificidad de 2 clases gana a `.btn-secondary:hover` del kit pase lo
+   que pase el orden de imports (mismo truco que `.frame-plain.weapon-btn`). */
+.btn.editor-btn-danger {
+  color: var(--ui-danger);
+  --ui-frame-color: var(--ui-danger);
 }
 
-.editor-btn-wide {
-  width: 100%;
-  margin-top: 8px;
+.btn.editor-btn-danger:hover,
+.btn.editor-btn-danger:active {
+  --ui-frame-color: var(--ui-danger);
 }
 
-.editor-btn-small {
-  background: #1b2033;
-  border: 1px solid #39405c;
-  border-radius: 8px;
-  color: #e8e8f0;
-  font: inherit;
+.btn.editor-btn-danger:focus-visible {
+  outline-color: var(--ui-danger);
+}
+
+/* "Guardar en src/game/features/dungeon/levels (dev)": el texto es una RUTA
+   (sin espacios en el tramo largo), así que en mayúsculas con tracking se
+   lee peor y no rompe de línea con normalidad — se queda en minúsculas y con
+   `break-word` para que envuelva en vez de desbordar el panel. */
+.btn.editor-btn-save {
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: 400;
   font-size: 12px;
-  padding: 5px 9px;
-  cursor: pointer;
-}
-
-.editor-btn-small.active {
-  border-color: #54c7ff;
-  color: #54c7ff;
+  line-height: 1.4;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  white-space: normal;
 }
 
 .editor-hint {
   font-size: 12px;
-  color: #aab2d4;
-  margin: 0 0 8px;
+  color: var(--ui-text-dim);
+  margin: 0;
 }
 
 .editor-valid {
-  color: #4dd68a;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ui-ok);
   font-size: 13px;
   margin: 0;
 }
@@ -288,13 +426,8 @@
   margin: 0;
   padding-left: 18px;
   font-size: 12px;
-  color: #ff9f45;
+  color: var(--ui-warn);
   display: flex;
   flex-direction: column;
   gap: 4px;
-}
-
-.editor-header-actions {
-  display: flex;
-  gap: 8px;
 }

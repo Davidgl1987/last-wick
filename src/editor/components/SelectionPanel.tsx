@@ -1,5 +1,6 @@
 import type { EnemySpawn, HazardSpawn, ItemSpawn } from '@/game/world/types';
 import type { Selection } from '@/editor/types';
+import { Button } from '@/ui';
 import { EnemyProperties } from './EnemyProperties';
 import { HazardProperties } from './HazardProperties';
 
@@ -25,25 +26,25 @@ export function SelectionPanel({
 }) {
   if (!selection) return null;
   return (
-    <section className="editor-section">
+    <section className="editor-section editor-stack">
       <h2>Selección</h2>
       {selection.type !== 'start' && selection.type !== 'patrol' && (
         <div className="editor-field-row">
-          <button type="button" className="editor-btn" onClick={duplicateSelected}>
+          <Button variant="secondary" onClick={duplicateSelected}>
             Duplicar
-          </button>
-          <button type="button" className="editor-btn editor-btn-danger" onClick={deleteSelected}>
+          </Button>
+          <Button variant="secondary" className="editor-btn-danger" onClick={deleteSelected}>
             Borrar
-          </button>
+          </Button>
         </div>
       )}
       {selection.type === 'start' && <p className="editor-hint">Inicio del jugador (arrástralo en el lienzo).</p>}
       {selection.type === 'patrol' && (
         <>
           <p className="editor-hint">Destino de patrulla (arrástralo en el lienzo).</p>
-          <button type="button" className="editor-btn editor-btn-danger editor-btn-wide" onClick={deleteSelected}>
+          <Button variant="secondary" className="editor-btn-danger" onClick={deleteSelected}>
             Quitar destino de patrulla
-          </button>
+          </Button>
         </>
       )}
 

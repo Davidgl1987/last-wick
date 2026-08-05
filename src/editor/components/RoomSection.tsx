@@ -1,60 +1,51 @@
 import { ROOM_MIN_SIZE } from '@/game/world/constants';
 import type { RoomData } from '@/game/world/types';
 import { ALL_TAGS } from '@/editor/constants';
+import { Checkbox, TextField } from '@/ui';
 
 /** Metadatos de la sala: id, nombre, tamaño y tags. */
 export function RoomSection({ room, setRoom }: { room: RoomData; setRoom: (r: RoomData) => void }) {
   return (
-    <section className="editor-section">
+    <section className="editor-section editor-stack">
       <h2>Sala</h2>
-      <label className="editor-field">
-        <span>Identificador</span>
-        <input
-          value={room.id}
-          onChange={(e) => setRoom({ ...room, id: e.target.value.trim() })}
-        />
-      </label>
-      <label className="editor-field">
-        <span>Nombre</span>
-        <input value={room.name} onChange={(e) => setRoom({ ...room, name: e.target.value })} />
-      </label>
+      <TextField
+        label="Identificador"
+        value={room.id}
+        onChange={(e) => setRoom({ ...room, id: e.target.value.trim() })}
+      />
+      <TextField label="Nombre" value={room.name} onChange={(e) => setRoom({ ...room, name: e.target.value })} />
       <div className="editor-field-row">
-        <label className="editor-field">
-          <span>Ancho (impar ≥ {ROOM_MIN_SIZE})</span>
-          <input
-            type="number"
-            min={ROOM_MIN_SIZE}
-            step={2}
-            value={room.width}
-            onChange={(e) => setRoom({ ...room, width: Number(e.target.value) })}
-          />
-        </label>
-        <label className="editor-field">
-          <span>Alto (impar ≥ {ROOM_MIN_SIZE})</span>
-          <input
-            type="number"
-            min={ROOM_MIN_SIZE}
-            step={2}
-            value={room.height}
-            onChange={(e) => setRoom({ ...room, height: Number(e.target.value) })}
-          />
-        </label>
+        <TextField
+          label={`Ancho (impar ≥ ${ROOM_MIN_SIZE})`}
+          type="number"
+          min={ROOM_MIN_SIZE}
+          step={2}
+          value={room.width}
+          onChange={(e) => setRoom({ ...room, width: Number(e.target.value) })}
+        />
+        <TextField
+          label={`Alto (impar ≥ ${ROOM_MIN_SIZE})`}
+          type="number"
+          min={ROOM_MIN_SIZE}
+          step={2}
+          value={room.height}
+          onChange={(e) => setRoom({ ...room, height: Number(e.target.value) })}
+        />
       </div>
       <div className="editor-tags">
         {ALL_TAGS.map((tag) => (
-          <label key={tag} className="editor-tag">
-            <input
-              type="checkbox"
-              checked={room.tags.includes(tag)}
-              onChange={(e) =>
-                setRoom({
-                  ...room,
-                  tags: e.target.checked ? [...room.tags, tag] : room.tags.filter((x) => x !== tag),
-                })
-              }
-            />
-            {tag}
-          </label>
+          <Checkbox
+            key={tag}
+            label={tag}
+            className="editor-tag"
+            checked={room.tags.includes(tag)}
+            onChange={(checked) =>
+              setRoom({
+                ...room,
+                tags: checked ? [...room.tags, tag] : room.tags.filter((x) => x !== tag),
+              })
+            }
+          />
         ))}
       </div>
     </section>

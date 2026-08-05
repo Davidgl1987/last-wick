@@ -7,6 +7,7 @@
 import type { GameSession } from '@/game/session/session';
 import { getUpgradeLevel, UPGRADE_POOL } from '@/game/session/upgrades';
 import { useUiStore } from '@/game/session/store';
+import { Button, Modal } from '@/ui';
 import { UpgradeIcon, UpgradeLevelPips } from './UpgradeIcon';
 import './modals.css';
 
@@ -24,54 +25,57 @@ export function GameOverModal({
   const coins = useUiStore((s) => s.coins);
   const score = useUiStore((s) => s.score);
 
-  if (phase !== 'game-over') return null;
+  const isOpen = phase === 'game-over';
 
   const hero = session.world.hero;
   const acquiredUpgrades = UPGRADE_POOL.filter((def) => getUpgradeLevel(hero, def.id) > 0);
 
   return (
-    <div className="modal-backdrop">
-      <div className="modal game-over-modal">
-        <h2 className="modal-title">Fin de la run</h2>
-        <dl className="game-over-stats">
-          <div className="game-over-stat">
-            <dt>Salas limpiadas</dt>
-            <dd>{roomsCleared}</dd>
-          </div>
-          <div className="game-over-stat">
-            <dt>Monedas</dt>
-            <dd>{coins}</dd>
-          </div>
-          <div className="game-over-stat">
-            <dt>Puntuación</dt>
-            <dd>{score}</dd>
-          </div>
-        </dl>
-        {acquiredUpgrades.length > 0 && (
-          <section className="final-upgrade-section">
-            <h3 className="pause-section-title">Mejoras conseguidas</h3>
-            <ul className="final-upgrade-list">
-              {acquiredUpgrades.map((def) => (
-                <li key={def.id} className="final-upgrade-item">
-                  <UpgradeIcon icon={def.icon} size={20} />
-                  <span className="final-upgrade-name">{def.name}</span>
-                  <UpgradeLevelPips level={getUpgradeLevel(hero, def.id)} maxLevel={def.maxLevel} />
-                </li>
-              ))}
-            </ul>
-          </section>
-        )}
-        <div className="pause-actions">
-          <button type="button" className="modal-primary-btn" onClick={onRestart}>
+    <Modal
+      open={isOpen}
+      className="game-over-modal"
+      title="Fin de la run"
+      actions={
+        <>
+          <Button variant="primary" onClick={onRestart}>
             Reintentar
-          </button>
+          </Button>
           {onExitToTitle && (
-            <button type="button" className="modal-secondary-btn" onClick={onExitToTitle}>
+            <Button variant="secondary" onClick={onExitToTitle}>
               Menú principal
-            </button>
+            </Button>
           )}
+        </>
+      }
+    >
+      <dl className="game-over-stats">
+        <div className="game-over-stat">
+          <dt>Salas limpiadas</dt>
+          <dd>{roomsCleared}</dd>
         </div>
-      </div>
-    </div>
+        <div className="game-over-stat">
+          <dt>Monedas</dt>
+          <dd>{coins}</dd>
+        </div>
+        <div className="game-over-stat">
+          <dt>Puntuación</dt>
+          <dd>{score}</dd>
+        </div>
+      </dl>
+      {acquiredUpgrades.length > 0 && (
+        <section className="final-upgrade-section">
+          <h3 className="pause-section-title">Mejoras conseguidas</h3>
+          <ul className="final-upgrade-list">
+            {acquiredUpgrades.map((def) => (
+              <li key={def.id} className="final-upgrade-item">
+                <UpgradeIcon icon={def.icon} size={20} />
+                <span className="final-upgrade-name">{def.name}</span>
+                <UpgradeLevelPips level={getUpgradeLevel(hero, def.id)} maxLevel={def.maxLevel} />
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+    </Modal>
   );
 }

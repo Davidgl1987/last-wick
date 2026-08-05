@@ -17,6 +17,7 @@
 import { closeShop, type GameSession } from '@/game/session/session';
 import { canOfferUpgrade, getUpgradeLevel, tryPurchaseUpgrade, type UpgradeDef } from '@/game/session/upgrades';
 import { useUiStore } from '@/game/session/store';
+import { Button, Modal } from '@/ui';
 import { UpgradeIcon, UpgradeLevelPips } from './UpgradeIcon';
 import './modals.css';
 
@@ -24,7 +25,7 @@ export function ShopModal({ session }: { session: GameSession }) {
   const phase = useUiStore((s) => s.phase);
   const coins = useUiStore((s) => s.coins);
 
-  if (phase !== 'shopping') return null;
+  const isOpen = phase === 'shopping';
 
   const hero = session.world.hero;
 
@@ -37,49 +38,52 @@ export function ShopModal({ session }: { session: GameSession }) {
   };
 
   return (
-    <div className="modal-backdrop">
-      <div className="modal upgrade-modal shop-modal">
-        <h2 className="modal-title">Tienda</h2>
-        <p className="shop-balance" aria-label={`Monedas: ${coins}`}>
-          <span className="shop-balance-icon" />
-          {coins}
-        </p>
-        <div className="upgrade-cards">
-          {session.shopStock.map((def) => {
-            const level = getUpgradeLevel(hero, def.id);
-            const capped = level >= def.maxLevel;
-            // `canOfferUpgrade` cubre maxLevel Y `isAvailable` (ej. Ascua
-            // Vital con hp/maxHp ya a tope): más robusto que comparar solo
-            // contra maxLevel para decidir si el botón se puede pulsar.
-            const offerable = canOfferUpgrade(def, hero);
-            const price = def.price(level + 1);
-            const affordable = offerable && coins >= price;
-            const priceLabel = capped ? 'Máx.' : offerable ? `${price}` : 'No disp.';
-            return (
-              <button
-                key={def.id}
-                type="button"
-                className="upgrade-card"
-                disabled={!affordable}
-                onClick={() => handleBuy(def)}
-              >
-                <div className="upgrade-card-head">
-                  <UpgradeIcon icon={def.icon} size={32} />
-                  <span className="upgrade-card-name">{def.name}</span>
-                </div>
-                <span className="upgrade-card-desc">{def.description}</span>
-                <div className="shop-card-footer">
-                  <UpgradeLevelPips level={level} maxLevel={def.maxLevel} previewLevel={offerable ? level + 1 : level} />
-                  <span className="shop-card-price">{priceLabel}</span>
-                </div>
-              </button>
-            );
-          })}
-        </div>
-        <button type="button" className="modal-secondary-btn" onClick={handleExit}>
+    <Modal
+      open={isOpen}
+      className="upgrade-modal shop-modal"
+      title="Tienda"
+      actions={
+        <Button variant="secondary" onClick={handleExit}>
           Salir
-        </button>
+        </Button>
+      }
+    >
+      <p className="shop-balance" aria-label={`Monedas: ${coins}`}>
+        <span className="shop-balance-icon" />
+        {coins}
+      </p>
+      <div className="upgrade-cards">
+        {session.shopStock.map((def) => {
+          const level = getUpgradeLevel(hero, def.id);
+          const capped = level >= def.maxLevel;
+          // `canOfferUpgrade` cubre maxLevel Y `isAvailable` (ej. Ascua
+          // Vital con hp/maxHp ya a tope): más robusto que comparar solo
+          // contra maxLevel para decidir si el botón se puede pulsar.
+          const offerable = canOfferUpgrade(def, hero);
+          const price = def.price(level + 1);
+          const affordable = offerable && coins >= price;
+          const priceLabel = capped ? 'Máx.' : offerable ? `${price}` : 'No disp.';
+          return (
+            <button
+              key={def.id}
+              type="button"
+              className="upgrade-card"
+              disabled={!affordable}
+              onClick={() => handleBuy(def)}
+            >
+              <div className="upgrade-card-head">
+                <UpgradeIcon icon={def.icon} size={32} />
+                <span className="upgrade-card-name">{def.name}</span>
+              </div>
+              <span className="upgrade-card-desc">{def.description}</span>
+              <div className="shop-card-footer">
+                <UpgradeLevelPips level={level} maxLevel={def.maxLevel} previewLevel={offerable ? level + 1 : level} />
+                <span className="shop-card-price">{priceLabel}</span>
+              </div>
+            </button>
+          );
+        })}
       </div>
-    </div>
+    </Modal>
   );
 }

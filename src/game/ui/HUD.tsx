@@ -1,11 +1,11 @@
 /**
- * HUD (GDD §12): corazones y monedas arriba, icono de llave, botón de pausa
+ * HUD (GDD §12): llamas y monedas arriba, icono de llave, botón de pausa
  * arriba a la derecha, avisos contextuales y selector de armas abajo. React
  * DOM superpuesto al canvas (nunca drei <Html>). Solo lee estado de baja
  * frecuencia del store; las barras de recarga viven en WeaponBar (rAF sobre
  * la sim, sin setState).
  *
- * Feedback visual por CSS (sin re-render por frame): los corazones parpadean
+ * Feedback visual por CSS (sin re-render por frame): las llamas parpadean
  * en rojo al recibir daño y en rosa al curar (animación retrigger por key);
  * la llave hace "pop" al aparecer (animación de montaje).
  */
@@ -14,6 +14,7 @@ import { useEffect, useRef } from 'react';
 import { BossHealthBar } from '@/game/features/bosses/BossHealthBar';
 import { pauseGame, type GameSession } from '@/game/session/session';
 import { useUiStore } from '@/game/session/store';
+import { Button, Icon } from '@/ui';
 import './hud.css';
 import { WeaponBar } from './WeaponBar';
 
@@ -38,7 +39,7 @@ export function HUD({ session }: { session: GameSession }) {
   useEffect(() => {
     prevHp.current = hp;
   }, [hp]);
-  const heartsFlashClass = hpDelta < 0 ? ' hud-hearts-damage' : hpDelta > 0 ? ' hud-hearts-heal' : '';
+  const flamesFlashClass = hpDelta < 0 ? ' hud-flames-damage' : hpDelta > 0 ? ' hud-flames-heal' : '';
 
   // Modo dios de playtest (?godmode, render/debug-params.ts): estático para
   // toda la sesión (fijado al crear/recrear `world`, session.ts), así que
@@ -58,12 +59,12 @@ export function HUD({ session }: { session: GameSession }) {
         <div className="hud-hp-group">
           <div
             key={`hp-${hp}-${maxHp}`}
-            className={`hud-hearts${heartsFlashClass}`}
+            className={`hud-flames${flamesFlashClass}`}
             aria-label={`Vida: ${hp} de ${maxHp}`}
           >
             {Array.from({ length: maxHp }, (_, i) => (
-              <span key={i} className={i < hp ? 'heart-full' : 'heart-empty'}>
-                ♥
+              <span key={i} className={i < hp ? 'flame-full' : 'flame-empty'}>
+                <Icon name="flame" size={22} />
               </span>
             ))}
           </div>
@@ -82,15 +83,15 @@ export function HUD({ session }: { session: GameSession }) {
         <div className="hud-top-right">
           {hasKey && (
             <span className="hud-key" aria-label="Llave" title="Llave">
-              🗝
+              <Icon name="key" size={22} />
             </span>
           )}
           <div className="hud-coins" aria-label={`Monedas: ${coins}`}>
             <span className="hud-coin-icon" />
             {coins}
           </div>
-          <button
-            type="button"
+          <Button
+            variant="secondary"
             className="hud-pause-btn"
             aria-label="Pausa"
             disabled={phase !== 'playing'}
@@ -100,8 +101,8 @@ export function HUD({ session }: { session: GameSession }) {
               pauseGame(session);
             }}
           >
-            ❚❚
-          </button>
+            <Icon name="pause" size={16} />
+          </Button>
         </div>
       </div>
       {roomIndex !== null && totalRooms !== null && (

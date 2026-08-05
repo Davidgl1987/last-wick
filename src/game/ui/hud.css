@@ -24,8 +24,8 @@
 }
 
 .hud-key {
-  font-size: 22px;
-  line-height: 1;
+  display: flex;
+  color: var(--ui-gold-soft);
   filter: drop-shadow(0 0 6px rgba(255, 224, 130, 0.8));
   animation: key-pop 0.45s ease-out;
 }
@@ -47,24 +47,23 @@
   align-items: center;
 }
 
-.hud-hearts {
+.hud-flames {
   display: flex;
   gap: 2px;
-  font-size: 24px;
   line-height: 1;
 }
 
 /* Feedback de HP (GDD §12): parpadeo rojo al dañar, rosa al curar. Se
    retrigea remontando el nodo con key={hp} — CSS puro, sin re-render por frame. */
-.hud-hearts-damage {
-  animation: hearts-damage 0.5s ease-out;
+.hud-flames-damage {
+  animation: flames-damage 0.5s ease-out;
 }
 
-.hud-hearts-heal {
-  animation: hearts-heal 0.5s ease-out;
+.hud-flames-heal {
+  animation: flames-heal 0.5s ease-out;
 }
 
-@keyframes hearts-damage {
+@keyframes flames-damage {
   0%,
   40% {
     filter: drop-shadow(0 0 8px rgba(255, 59, 59, 1)) brightness(1.8);
@@ -76,7 +75,7 @@
   }
 }
 
-@keyframes hearts-heal {
+@keyframes flames-heal {
   0%,
   40% {
     filter: drop-shadow(0 0 8px rgba(255, 107, 203, 1)) brightness(1.5);
@@ -88,51 +87,48 @@
   }
 }
 
-/* Botón de pausa (GDD §12: arriba a la derecha, ≥48px táctil). */
-.hud-pause-btn {
+/* Botón de pausa (GDD §12: arriba a la derecha, ≥48px táctil): `Button`
+   secundario del kit (marco plain, ver src/ui/Button.tsx) con retoques de
+   icono-sin-texto — cuadrado, sin mayúsculas/tracking, padding 0. Selector
+   compuesto `.btn.hud-pause-btn` para ganarle en especificidad a `.btn-md`
+   pase lo que pase el orden de imports. */
+.btn.hud-pause-btn {
   width: 48px;
   height: 48px;
-  border-radius: 14px;
-  border: 2px solid #39405c;
-  background: rgba(18, 21, 34, 0.88);
-  color: #aab2d4;
-  font-family: inherit;
-  font-size: 15px;
-  letter-spacing: -1px;
-  cursor: pointer;
-  pointer-events: auto;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  min-height: 0;
+  color: var(--ui-text-dim);
+  background: rgba(12, 15, 24, 0.8);
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: 400;
   padding: 0;
-}
-
-.hud-pause-btn:disabled {
-  opacity: 0.4;
-  cursor: default;
+  pointer-events: auto;
 }
 
 /* Badge del modo dios de playtest (?godmode): estático, marca claramente en
-   capturas/playtest que la run es de testeo (no una run real). */
+   capturas/playtest que la run es de testeo (no una run real). No es un
+   elemento circular (regla transversal de "cero bordes redondeados"), así
+   que sus esquinas quedan rectas como el resto del marco de la UI. */
 .hud-godmode-badge {
   margin-left: 6px;
   padding: 2px 7px;
-  border-radius: 6px;
   font-size: 11px;
   font-weight: 800;
   letter-spacing: 0.06em;
   color: #1a1330;
-  background: linear-gradient(135deg, #ffd166, #ff6bcb);
+  background: linear-gradient(135deg, var(--ui-gold), #ff6bcb);
   box-shadow: 0 0 8px rgba(255, 107, 203, 0.7);
   align-self: center;
 }
 
-.heart-full {
-  color: #ff5964;
+/* Ámbar cálido: es una vela, debe verse viva (brillo suave). */
+.flame-full {
+  color: var(--ui-life);
+  filter: drop-shadow(0 0 5px rgba(255, 150, 40, 0.55));
 }
 
-.heart-empty {
-  color: #39405c;
+.flame-empty {
+  color: var(--ui-life-off);
 }
 
 .hud-coins {
@@ -141,14 +137,17 @@
   gap: 7px;
   font-size: 19px;
   font-weight: 700;
-  color: #ffd166;
+  color: var(--ui-gold);
 }
 
+/* Círculo de verdad (moneda): de los pocos border-radius que sobreviven a la
+   regla transversal de "cero bordes redondeados" (mismo icono repetido en
+   .shop-balance-icon, modals.css). */
 .hud-coin-icon {
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  background: radial-gradient(circle at 35% 35%, #ffe9a8, #ffd166 55%, #c98f1b);
+  background: radial-gradient(circle at 35% 35%, var(--ui-gold-soft), var(--ui-gold) 55%, var(--ui-gold-deep));
 }
 
 .hud-room-banner {
@@ -164,17 +163,19 @@
 }
 
 .hud-room-progress {
+  font-family: var(--font-display);
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.06em;
-  color: #aab2d4;
+  color: var(--ui-text-dim);
   text-transform: uppercase;
 }
 
 .hud-room-name {
+  font-family: var(--font-display);
   font-size: 15px;
   font-weight: 700;
-  color: #e8e8f0;
+  color: var(--ui-text);
   text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
 }
 
@@ -184,9 +185,19 @@
   left: 50%;
   transform: translateX(-50%);
   background: rgba(18, 21, 34, 0.88);
-  border: 1px solid #39405c;
+  border: 1px solid var(--ui-line);
   padding: 7px 16px;
-  border-radius: 999px;
   font-size: 14px;
   white-space: nowrap;
+  /* Entra deslizándose desde arriba: aparece a media partida, y el
+     movimiento lo hace visible sin robar la atención del centro. */
+  animation: hud-notice-in var(--ui-dur-in) var(--ui-ease-in) both;
+}
+
+@keyframes hud-notice-in {
+  from {
+    opacity: 0;
+    /* Conserva el centrado del translateX del selector base. */
+    transform: translateX(-50%) translateY(-10px);
+  }
 }

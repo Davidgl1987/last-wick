@@ -52,7 +52,6 @@ import { ShopModal } from '@/game/ui/ShopModal';
 import { VictoryModal } from '@/game/ui/VictoryModal';
 import { AimIndicatorView } from '@/game/features/hero/AimIndicatorView';
 import { CameraRig } from './CameraRig';
-import './game-root.css';
 import { PostEffects } from './PostEffects';
 import { BarrelViews, HazardViews } from '@/game/features/hazards/HazardView';
 import { HeroView } from '@/game/features/hero/HeroView';
@@ -247,10 +246,7 @@ export function GameRoot({
       <DamageVignette />
       <FpsCounter />
       <HUD session={session} />
-      <a className="editor-link" href="#/editor">
-        {playtestRoom ? '← Volver al editor' : '✎ Editor'}
-      </a>
-      <PauseModal session={session} onRestart={handleRestart} />
+      <PauseModal session={session} onExitToTitle={onExitToTitle} />
       <BossRewardModal session={session} />
       <NextDungeonModal session={session} onAdvance={handleAdvanceDungeon} />
       <ShopModal session={session} />

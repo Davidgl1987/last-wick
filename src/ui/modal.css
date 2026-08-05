@@ -1,0 +1,118 @@
+/* ── Modal (kit, GDD §12: tarjetas grandes, usables con el pulgar) ──
+   Estructura anti-scroll: el panel `.modal` (marco rich, ver Frame.tsx) NO
+   scrollea — así su marco (un `::after` con `inset: 0`) queda fijo — y el
+   contenido largo scrollea en `.modal-body`, hijo suyo. `.modal-actions`
+   (pie con los botones) queda FUERA del área de scroll, siempre a la vista;
+   los modales cortos que no la usan simplemente no la renderizan. */
+
+.modal-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  /* Opacidad+blur del backdrop original de Créditos (el único modal que se
+     abre SOBRE otra UI, los botones de la pantalla de título, en vez de
+     sobre el canvas 3D): sin ellos, esos botones se transparentaban debajo
+     del panel. Un pelín más oscuro/desenfocado no perjudica a los modales de
+     partida (que solo tapan el canvas). */
+  background: rgba(6, 8, 14, 0.86);
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.modal {
+  background: var(--ui-surface);
+  padding: 28px 24px;
+  width: min(420px, 100%);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100dvh - 40px);
+  text-align: center;
+}
+
+.modal-body {
+  overflow-y: auto;
+  /* Permite que el flex item se encoja por debajo de su altura de contenido
+     (default min-height: auto lo impediría) — imprescindible para que el
+     scroll interno funcione dentro de un contenedor flex. */
+  min-height: 0;
+  /* Barra fina y en la paleta: la del sistema es ancha y clara, y al ir
+     pegada al borde del panel se comía el marco dorado. El padding la separa
+     de él (en modales cortos, sin scroll real, es un margen fijo apenas
+     perceptible — se acepta a cambio de no repetir esta regla por consumidor). */
+  padding-right: 10px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--ui-line) transparent;
+}
+
+.modal-title {
+  margin: 0 0 4px;
+  font-family: var(--font-display);
+  font-size: 22px;
+  text-align: center;
+}
+
+.modal-subtitle {
+  margin: 0 0 18px;
+  font-size: 14px;
+  color: var(--ui-text-dim);
+}
+
+.modal-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 18px;
+  flex: 0 0 auto;
+}
+
+/* ── Entrada y salida (ver Modal.tsx: `open` retrasa el desmontaje para que
+   la de salida llegue a verse) ──
+   El backdrop solo funde; el panel además escala y sube un poco, para que
+   parezca que se acerca en vez de aparecer de golpe. La salida va más rápida
+   que la entrada: al cerrar, lo que se espera es respuesta. */
+.modal-in {
+  animation: modal-backdrop-in var(--ui-dur-in) var(--ui-ease-in) both;
+}
+
+.modal-in .modal {
+  animation: modal-panel-in var(--ui-dur-in) var(--ui-ease-in) both;
+}
+
+.modal-out {
+  animation: modal-backdrop-out var(--ui-dur-out) var(--ui-ease-out) both;
+}
+
+.modal-out .modal {
+  animation: modal-panel-out var(--ui-dur-out) var(--ui-ease-out) both;
+}
+
+@keyframes modal-backdrop-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes modal-backdrop-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes modal-panel-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(8px);
+  }
+}
+
+@keyframes modal-panel-out {
+  to {
+    opacity: 0;
+    transform: scale(0.97) translateY(4px);
+  }
+}

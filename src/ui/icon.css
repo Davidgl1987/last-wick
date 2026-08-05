@@ -1,0 +1,6 @@
+/* ── Icono SVG del kit — mismo patrón de layout que .upgrade-icon. ── */
+
+.icon {
+  flex: 0 0 auto;
+  display: block;
+}
