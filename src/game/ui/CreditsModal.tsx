@@ -15,6 +15,9 @@ import './modals.css';
 const CREDIT_SECTIONS: { label: string; value: string }[] = [
   { label: 'Diseño y programación', value: 'David García López' },
   { label: 'Interfaz', value: 'Kenney · Fantasy UI Borders (CC0)' },
+  // CC0: la atribución no es obligatoria, se pone igual (mismo criterio que
+  // con Kenney). Licencia completa en public/models/kaykit/LICENSE-kaykit.txt.
+  { label: 'Escenario y objetos', value: 'KayKit · Dungeon Pack, de Kay Lousberg (CC0)' },
   { label: 'Tipografías', value: 'Cinzel Decorative · Cormorant Garamond' },
   { label: 'Motor', value: 'three.js · React Three Fiber' },
 ];

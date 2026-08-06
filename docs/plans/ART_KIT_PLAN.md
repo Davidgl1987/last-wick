@@ -52,7 +52,14 @@ Los props que tienen tamaño de juego propio (barril, roca, moneda, poción,
 llave) **no** usan `KIT_SCALE`: cada uno se escala a su AABB / radio de recogida
 actual, como hoy.
 
-### Muros: parapeto, no muro completo
+### Muros: parapeto → muro completo
+
+> **SUPERADO en playtest (2026-08-06).** Lo que sigue es el razonamiento
+> original, que llevó al parapeto. David prefirió después el muro completo, y
+> la oclusión que este apartado predice se cumplió exactamente — se resolvió con
+> siluetas de oclusión, no bajando el muro. Ver §7. Se conserva el texto porque
+> la aritmética de oclusión sigue siendo la buena y es la que hay que rehacer
+> ante cualquier cambio de altura o de cámara.
 
 Decisión tomada (David me la delegó): **`barrier` a altura 0.92 u**, no el muro
 de 4 u.
@@ -115,18 +122,18 @@ La textura se sirve tal cual (17 KB); si el perfilado de F6 lo pide, se baja a
 | Hoy (placeholder) | Fichero | Modelo KayKit |
 |---|---|---|
 | Suelo: plano liso | `RoomView.tsx` | `floor_tile_large` instanciada + `floor_tile_small_broken_A/B`, `_weeds_A/B`, `floor_tile_large_rocks` salpicadas |
-| Muros: cajas instanciadas | `RoomView.tsx` | `barrier` / `barrier_half` + `column` en esquinas |
-| Portón cerrado (caja azul/dorada) | `RoomView.tsx` | `floor_tile_grate` de canto (reja de 2 u, proporción exacta); alternativa a comparar en F2: `wall_gated` escalado |
-| Hueco de puerta | `RoomView.tsx` | `wall_doorway` como marco (a la altura del parapeto) |
+| Muros: cajas instanciadas | `RoomView.tsx` | ~~`barrier`~~ → **`wall`** completo + `column` en esquinas (§7) |
+| Portón cerrado (caja azul/dorada) | `RoomView.tsx` | ~~`floor_tile_grate`~~ → **`wall_doorway`**, nodo de la HOJA (§7) |
+| Hueco de puerta | `RoomView.tsx` | `wall_doorway`, nodo del MARCO (siempre visible) |
 | Rocas: cajas grises | `RoomView.tsx` | `rocks`, `rocks_small`, `rocks_decorated`, `rubble_half` |
 | Columnas de la Reina (3 estados) | `QueenColumnsView.tsx` | `column` intacta → `column` + grieta → `rubble_half` de escombros |
 | Barril explosivo | `HazardView.tsx` | `barrel_small` / `barrel_large`; `keg` como variante |
 | Barriles del Guardián | `guardian/barrels.ts` | `barrel_large_decorated` |
-| Campo de pinchos (conos) | `HazardView.tsx` | `floor_tile_big_spikes` tileada |
+| Campo de pinchos (conos) | `HazardView.tsx` | `floor_tile_big_spikes` en sus 2 nodos: losa fija + púas retráctiles (§7) |
 | Foso (quad negro) | `HazardView.tsx` | **se mantiene** el quad negro (legibilidad, GDD §14) + reborde `floor_foundation_front/corner` |
 | Barro / acelerador / charco | `HazardView.tsx`, `PuddleView.tsx` | **se mantienen** (quads emisivos, no hay equivalente) |
 | Moneda (cilindro + canto) | `ItemView.tsx` | `coin`; `coin_stack_small` para montones grandes |
-| Poción (esfera + cuello + tapón) | `ItemView.tsx` | `bottle_A_labeled_green` |
+| Poción (esfera + cuello + tapón) | `ItemView.tsx` | `bottle_C_green` (el más ancho), paleta cálida sin tinte |
 | Llave | `ItemView.tsx` | `key_gold` |
 | Antorcha de muro (cera + llama) | `TorchView.tsx` | `torch_mounted`; la llama emisiva y el `GlowPuddle` **se mantienen** |
 | Tendero (cono + esfera) | `ItemView.tsx` | puesto: `bartop_A_medium` + `shelves_decorated` + `chest_gold`; sin figura |
@@ -180,10 +187,13 @@ run, para que el editor y los tests sigan siendo reproducibles.
 *Aceptación:* ninguna pieza de atrezzo cae dentro de una trayectoria jugable ni
 tapa un hazard.
 
-**F6 · Limpieza y perfilado.** Borrar de `assets.ts` / `assets-dark.ts` las
-geometrías y materiales que queden muertos, actualizar `docs/ARCHITECTURE.md` y
-el crédito en `CreditsModal`, y pasada de FPS en móvil real con el contador que
-ya existe.
+**F6 · Créditos y perfilado.** Crédito a KayKit en `CreditsModal` y pasada de
+FPS en móvil real con el contador que ya existe.
+
+**La limpieza de `assets.ts` queda CANCELADA** (David, 2026-08-06: "no quiero
+que se borren assets de momento porque hay bastantes que cambiaría"). Las
+geometrías y materiales que hoy no usa nadie se quedan donde están: son
+material de trabajo para las siguientes rondas de arte, no código muerto.
 *Aceptación:* 60 fps estables en gama media (GDD §14, innegociable).
 
 ---
@@ -242,8 +252,48 @@ blanco. Un gris neutro multiplicador lo devuelve a su sitio. Ojo al tocarlo:
 three multiplica en espacio LINEAL, así que `#9a9a9a` (0.60 en sRGB) equivale a
 multiplicar por ~0.32 la luz reflejada, no por 0.60.
 
-**Pendiente de F2:** el marco de hueco de puerta (`wall_doorway`) quedó sin
-implementar.
+### Segunda ronda de playtest (2026-08-06)
+
+**Muro completo en vez de parapeto, y su consecuencia.** David eligió el muro
+(`wall`, 3.36 u) sobre el parapeto: "me gusta más la opción del muro más que la
+que has puesto con huecos". La oclusión que §2 anticipaba se cumplió al pie de
+la letra — en la arena del Guardián el héroe desaparecía de pantalla por
+completo. NO se resolvió bajando el muro, sino con **siluetas de oclusión**
+(`render/occlusion-silhouette.ts`), idea de David: una copia de la malla con
+`depthFunc = GreaterDepth` se ve exactamente donde el personaje está tapado, sin
+postproceso ni stencil ni saber qué tapa a quién.
+
+*Límite conocido y aceptado:* la silueta devuelve al personaje, no al SUELO. La
+franja de sala detrás del muro sur —con sus monedas, hazards y proyectiles—
+sigue oculta. Si molesta en playtest, bajar ESE lado a parapeto sigue siendo un
+cambio de constante.
+
+**Puerta con hoja.** `wall_doorway` trae marco y hoja como nodos separados, así
+que el marco se pinta siempre y la hoja solo cuando la puerta está cerrada. Es
+la misma API (`kitGeometryPart`) que hizo falta para los pinchos retráctiles.
+
+**Variedad por sala.** Suelo, muro y puerta se eligen por hash del id de sala,
+salado por categoría para que las tres elecciones no queden correlacionadas.
+
+**Pinchos retráctiles.** La losa con agujeros se ve siempre (es la pista que
+hace justa la trampa) y las púas asoman solo cuando algo pisa el área. Dos
+fallos que costaron una ronda extra, ambos instructivos: la losa se alineaba
+por su BASE mientras el suelo se alinea por su CARA SUPERIOR (flotaba 0.17 u), y
+losa y púas se tileaban en rejillas distintas, así que la placa enseñaba 25
+agujeros y asomaban 4 púas — el disparo se perdía como ruido. Son los dos nodos
+del MISMO modelo: tileados igual, cada púa sale por su agujero.
+
+**Regla de material, ya con tres casos.** `kitMaterial` (NightA azul) para la
+piedra; `kitWarmMaterial` (atlas original) para madera y metal — barriles,
+puertas, púas, puesto del tendero, moneda y poción; y material PLANO propio
+solo donde el color es información pura y el atlas no lo tiene (la llave). El
+error recurrente de toda la integración fue pintar de azul algo que no era
+piedra y verlo desaparecer contra el muro.
+
+**Pendiente:** el marco de hueco de puerta quedó cubierto por `wall_doorway`,
+pero la limpieza de `assets.ts` (F6) queda EXPRESAMENTE cancelada por decisión
+de David (2026-08-06): "no quiero que se borren assets de momento porque hay
+bastantes que cambiaría".
 
 ## 8. Riesgos
 
