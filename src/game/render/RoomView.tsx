@@ -24,7 +24,8 @@
  * Suelo, muro y puerta llevan además una VARIANTE elegida POR SALA de forma
  * determinista (hash del id, mismo patrón que `pickRockVariant` — nunca
  * `Math.random()`, la sala debe verse igual entre recargas) — ver
- * `pickFloorVariant`/`pickWallVariant`/`pickDoorVariant` más abajo.
+ * `pickFloorFamily`/`pickFloorTile` (suelo) y `pickWallModule` (muro) más
+ * abajo: la FAMILIA la fija la sala y la VARIANTE la sortea cada pieza.
  *
  * Todas las piezas comparten `kitMaterial` (1 material/1 textura para todo el
  * kit, ver kit.ts) salvo: la madera (suelo de madera, hoja de puerta), que va
@@ -42,8 +43,9 @@ import { DOOR_WIDTH, WALL_THICKNESS } from '@/game/world/constants';
 import type { DoorConnection } from '@/game/features/dungeon/dungeon';
 import { QUEEN_COLUMN_ID_PREFIX } from '@/game/features/bosses/queen/constants';
 import { DOOR_GATE_ID_PREFIX, doorGateAabb } from '@/game/features/dungeon/dungeon-world';
-import type { Obstacle, World } from '@/game/world/types';
+import type { Obstacle, RoomTag, World } from '@/game/world/types';
 import { kitGeometry, kitGeometryPart, kitMaterial, kitWarmMaterial } from './kit';
+import type { KitModelName } from './kit-models';
 import { kitBoxSize, kitGroundOffset, kitTopAlignOffset } from './kit-fit';
 import { betterModuleLength, wallModuleLayout } from './wall-modules';
 
@@ -93,115 +95,216 @@ function isQueenColumnObstacle(o: Obstacle): boolean {
 // ── Suelo: rejilla de floor_tile_large por sala, variante por sala ─────────
 
 /**
- * Fracción del tamaño natural de la baldosa que se usa como tamaño objetivo
- * en pantalla. El kit está modelado para un personaje humano de pie (§2 del
- * plan) y su baldosa "grande" mide 3.36 u — SIETE veces el diámetro del héroe
- * (0.48 u): a tamaño natural la sala se leía como un suelo gigantesco con un
- * bicho encima (playtest de David, 2026-08-05). A la mitad, cada baldosa es
- * ~3.5 veces la bola, que es la proporción que se lee bien desde la cámara
- * cenital. Se estira la MISMA pieza en vez de usar `floor_tile_small`
- * (1.68 u de fábrica) a propósito: la pequeña es una losa lisa y perdería el
- * relieve octogonal, que es justo lo que hace que el suelo se lea como suelo.
+ * FAMILIAS de suelo, y dentro de cada una sus variantes. Dos niveles a
+ * propósito (encargo de David, 2026-08-06: "si el suelo es de baldosas, se
+ * usen las variedades de baldosas, si es de tierra, las variedades de tierra
+ * con plantas o piedras pequeñas"): la FAMILIA la elige la sala y se mantiene
+ * coherente en toda ella, y dentro de la sala cada baldosa sortea una variante
+ * de ESA familia. Antes se elegía una sola pieza por sala y se repetía idéntica
+ * — que es lo que David rechazó.
+ *
+ * Se usan las baldosas PEQUEÑAS del pack (2×2 de fábrica ⇒ 1.68 u a
+ * `KIT_SCALE`) a su tamaño natural, en vez de estirar una grande al 50% como
+ * hacía la versión anterior: da exactamente el mismo tamaño en pantalla —el ya
+ * validado— y a cambio abre el catálogo de variantes, que solo existe en el
+ * tamaño pequeño.
+ *
+ * `base` es la norma y `subtle`/`loud` son acentos con dosis distinta (ver
+ * `pickFloorTile`): un suelo donde cada baldosa es distinta se lee como ruido,
+ * no como suelo. `loud` son las que levantan relieve (hierbajos, decorada) y
+ * además cuestan 400-600 tris frente a los ~70 de una lisa.
  */
-const FLOOR_TILE_SCALE = 0.5;
+interface FloorFamily {
+  /** Baldosa lisa: la mayoría del suelo, y la que fija la altura de la familia (ver `FloorGrid`). */
+  base: KitModelName;
+  /** Mismo perfil, distinto desgaste (roturas, vetas de tierra): salpicadas sin llamar la atención. */
+  subtle: readonly KitModelName[];
+  /** Con relieve por encima del plano (hierbajos, decorada): muy de vez en cuando. */
+  loud: readonly KitModelName[];
+  /** true ⇒ atlas cálido del pack (madera de verdad); false ⇒ piedra fría (ver cabecera). */
+  warm: boolean;
+}
+
+const FLOOR_FAMILIES = {
+  piedra: {
+    base: 'floor_tile_small',
+    subtle: ['floor_tile_small_broken_A', 'floor_tile_small_broken_B'],
+    loud: ['floor_tile_small_weeds_A', 'floor_tile_small_weeds_B', 'floor_tile_small_decorated'],
+    warm: false,
+  },
+  tierra: {
+    base: 'floor_dirt_small_D',
+    subtle: ['floor_dirt_small_A', 'floor_dirt_small_B', 'floor_dirt_small_C'],
+    loud: ['floor_dirt_small_weeds'],
+    warm: false,
+  },
+  madera: {
+    base: 'floor_wood_small',
+    subtle: ['floor_wood_small_dark'],
+    loud: [],
+    warm: true,
+  },
+} as const satisfies Record<string, FloorFamily>;
+
+type FloorFamilyName = keyof typeof FLOOR_FAMILIES;
+
+/** Familias que puede tocarle a una sala PELIGROSA — la madera queda fuera a propósito, ver `pickFloorFamily`. */
+const DANGEROUS_FLOOR_FAMILIES: readonly FloorFamilyName[] = ['piedra', 'tierra'];
 
 /**
- * Variantes de suelo elegibles por sala (encargo de David, 2026-08-06:
- * "podrías ir cambiando distintos suelos por cada sala"). Tres, no las ~10
- * losas 4×4 del catálogo:
- * - `floor_tile_large`: la baldosa por defecto (piedra lisa).
- * - `floor_dirt_large`: mismo perfil (min/max.y casi idénticos), tierra en
- *   vez de sillar — "mismo tipo con distinto detalle" (la otra mitad del
- *   encargo), sin cambiar de material: bajo `kitMaterial` la paleta NightA
- *   recolorea el atlas entero a azul-gris, así que esta variante se lee como
- *   "otro relieve de la misma piedra fría", no como tierra marrón — encaja.
- * - `floor_wood_large`: madera de verdad (piso de armería/tienda), por eso
- *   SÍ cambia de material a `kitWarmMaterial` (ver cabecera del fichero).
+ * Familia de suelo de una sala. La MADERA no se sortea: es la marca de las
+ * salas seguras (encargo de David: "el suelo de madera es buena idea, pero
+ * para las salas seguras nada más"), y eso la convierte en información de
+ * juego y no en decoración — al entrar, el suelo cálido dice "aquí no te van a
+ * atacar" antes de que veas si hay enemigos. Seguras son las dos etiquetas sin
+ * enemigos del pool: `inicio` y `tienda`.
  *
- * Descartada `floor_tile_large_rocks` (sí en el catálogo del plan) como
- * suelo BASE: su relieve de rocas sube hasta max.y≈0.54 (vs ≈0.05-0.11 de las
- * tres de arriba), y `FloorGrid` posiciona por `kitTopAlignOffset` (la cara
- * superior a y=0): tejida como suelo completo, la parte LISA de cada baldosa
- * quedaría ~0.44 u por debajo del plano jugable, un escalón falso en toda la
- * sala. Sigue en el kit como decal SUELTO de vez en cuando (`room-props.ts`,
- * ya reescalado ahí a propósito para ese uso puntual), donde ese descuadre no
- * se nota.
+ * El resto de salas sortean piedra o tierra por hash del id (determinista: la
+ * misma sala se ve igual entre recargas, ver `hashId`).
  */
-const FLOOR_VARIANTS = ['floor_tile_large', 'floor_dirt_large', 'floor_wood_large'] as const;
-type FloorVariant = (typeof FLOOR_VARIANTS)[number];
-
-/** Variante de suelo determinista a partir del id de sala — ver `hashId`. */
-function pickFloorVariant(roomId: string): FloorVariant {
-  return FLOOR_VARIANTS[hashId(`${roomId}:floor`) % FLOOR_VARIANTS.length];
+function pickFloorFamily(roomId: string, tags: readonly RoomTag[]): FloorFamilyName {
+  if (tags.includes('inicio') || tags.includes('tienda')) return 'madera';
+  return DANGEROUS_FLOOR_FAMILIES[hashId(`${roomId}:floor`) % DANGEROUS_FLOOR_FAMILIES.length];
 }
 
 /**
- * Rejilla de una variante de suelo cubriendo un rectángulo `width × height`
- * centrado en `(originX, originY)`: `nx × nz` baldosas (`ceil`, nunca menos
- * de las que hacen falta para cubrir el rectángulo entero — a diferencia de
- * `wallModuleLayout`, que usa `round` porque un muro tolera ±15% de estirado
- * en un sillar puntual, ver wall-modules.ts) cada una ESTIRADA en X/Z (mismo
- * criterio de "escala = longitud/(nº piezas·tamaño natural)" que
- * `wallModuleLayout`, aplicado aquí directamente porque el redondeo de conteo
- * es distinto) para que la rejilla cubra el rectángulo EXACTO sin dejar
- * ningún borde de sala sin baldosa.
+ * Variante de UNA baldosa concreta dentro de su familia. Determinista por
+ * sala + coordenada de la baldosa: la misma sala se ve siempre igual, pero dos
+ * baldosas contiguas no se parecen por construcción.
+ *
+ * Dosis: ~8% llamativas, ~25% sutiles, el resto lisas. El orden de los dos
+ * `if` importa — 12 es múltiplo de 3, así que comprobar primero las llamativas
+ * evita que se las coma el filtro de las sutiles.
  */
-function FloorGrid({
-  width,
-  height,
-  originX,
-  originY,
-  variant,
+function pickFloorTile(family: FloorFamily, roomId: string, ix: number, iz: number): KitModelName {
+  const hash = hashId(`${roomId}:tile:${ix}:${iz}`);
+  if (family.loud.length > 0 && hash % 12 === 0) return family.loud[Math.floor(hash / 12) % family.loud.length];
+  if (family.subtle.length > 0 && hash % 3 === 0) return family.subtle[Math.floor(hash / 3) % family.subtle.length];
+  return family.base;
+}
+
+/** Una baldosa colocada: centro y estirado a su celda (el estirado es el mismo para todas las de la sala). */
+interface TilePlacement {
+  x: number;
+  z: number;
+}
+
+/**
+ * Instancias de UNA variante de baldosa. Hace falta una malla por variante
+ * (un `InstancedMesh` solo admite una geometría), pero siguen siendo 2-4
+ * mallas por sala en vez de una baldosa suelta por celda.
+ *
+ * `topY` NO se calcula aquí sino que lo impone la familia: si cada variante se
+ * alineara por SU propio `max.y`, las que llevan hierbajos (max.y = 0.20, que
+ * es la punta de la planta) hundirían su losa 0.2 u respecto a las lisas y el
+ * suelo quedaría a escalones. Alineando todas por la altura de la losa base,
+ * las losas quedan coplanares y las plantas asoman por encima, que es justo lo
+ * que se quiere.
+ */
+function FloorTileInstances({
+  model,
+  placements,
+  scaleX,
+  scaleZ,
+  topY,
+  material,
 }: {
-  width: number;
-  height: number;
-  originX: number;
-  originY: number;
-  variant: FloorVariant;
+  model: KitModelName;
+  placements: TilePlacement[];
+  scaleX: number;
+  scaleZ: number;
+  topY: number;
+  material: THREE.Material;
 }) {
-  const geometry = kitGeometry(variant);
-  // Madera → material cálido (atlas original, colores de verdad); el resto,
-  // piedra/tierra → material frío compartido (ver cabecera del fichero).
-  const material = variant === 'floor_wood_large' ? kitWarmMaterial : kitMaterial;
-  const tileSize = useMemo(() => kitBoxSize(geometry), [geometry]);
-  const topY = useMemo(() => kitTopAlignOffset(geometry), [geometry]);
-  // Objetivo de tamaño de baldosa EN PANTALLA, no el natural de la pieza (ver
-  // FLOOR_TILE_SCALE): de él salen `nx`/`nz`, y el estirado de abajo hace el
-  // resto — cada instancia acaba escalada ≈ FLOOR_TILE_SCALE sin ningún
-  // cálculo aparte.
-  const targetX = tileSize.x * FLOOR_TILE_SCALE;
-  const targetZ = tileSize.z * FLOOR_TILE_SCALE;
-  const nx = Math.max(1, Math.ceil(width / targetX));
-  const nz = Math.max(1, Math.ceil(height / targetZ));
-  const count = nx * nz;
+  const geometry = kitGeometry(model);
   const meshRef = useRef<THREE.InstancedMesh>(null);
 
   useLayoutEffect(() => {
     const mesh = meshRef.current;
     if (!mesh) return;
     const scratch = new THREE.Object3D();
-    const tileW = width / nx;
-    const tileH = height / nz;
-    const scaleX = tileW / tileSize.x;
-    const scaleZ = tileH / tileSize.z;
-    let index = 0;
-    for (let ix = 0; ix < nx; ix++) {
-      for (let iz = 0; iz < nz; iz++) {
-        const localX = -width / 2 + (ix + 0.5) * tileW;
-        const localZ = -height / 2 + (iz + 0.5) * tileH;
-        scratch.position.set(originX + localX, topY, originY + localZ);
-        scratch.scale.set(scaleX, 1, scaleZ);
-        scratch.updateMatrix();
-        mesh.setMatrixAt(index++, scratch.matrix);
-      }
+    for (let i = 0; i < placements.length; i++) {
+      scratch.position.set(placements[i].x, topY, placements[i].z);
+      scratch.scale.set(scaleX, 1, scaleZ);
+      scratch.updateMatrix();
+      mesh.setMatrixAt(i, scratch.matrix);
     }
-    mesh.count = count;
+    mesh.count = placements.length;
     mesh.instanceMatrix.needsUpdate = true;
-  }, [width, height, originX, originY, nx, nz, count, tileSize, topY]);
+  }, [placements, scaleX, scaleZ, topY]);
 
+  if (placements.length === 0) return null;
   // Solo recibe sombra (igual que el suelo antiguo): un suelo no proyecta
   // sombra sobre sí mismo, y el resto de piezas ya castean sobre él.
-  return <instancedMesh ref={meshRef} args={[geometry, material, count]} receiveShadow />;
+  return <instancedMesh ref={meshRef} args={[geometry, material, placements.length]} receiveShadow />;
+}
+
+/**
+ * Rejilla de suelo de una sala: `nx × nz` baldosas de la familia elegida,
+ * cada una sorteando su variante. `ceil` sobre el tamaño NATURAL de la baldosa
+ * pequeña (1.68 u) — nunca menos de las que hacen falta para cubrir la sala —
+ * y luego un estirado mínimo para que la rejilla cubra el rectángulo EXACTO
+ * sin dejar borde sin baldosa (mismo criterio de "escala = longitud / (nº
+ * piezas · tamaño natural)" que `wallModuleLayout`, con redondeo distinto).
+ */
+function FloorGrid({
+  width,
+  height,
+  originX,
+  originY,
+  roomId,
+  familyName,
+}: {
+  width: number;
+  height: number;
+  originX: number;
+  originY: number;
+  roomId: string;
+  familyName: FloorFamilyName;
+}) {
+  const family: FloorFamily = FLOOR_FAMILIES[familyName];
+  const baseGeometry = kitGeometry(family.base);
+  const tileSize = useMemo(() => kitBoxSize(baseGeometry), [baseGeometry]);
+  const topY = useMemo(() => kitTopAlignOffset(baseGeometry), [baseGeometry]);
+  const material = family.warm ? kitWarmMaterial : kitMaterial;
+
+  const nx = Math.max(1, Math.ceil(width / tileSize.x));
+  const nz = Math.max(1, Math.ceil(height / tileSize.z));
+  const tileW = width / nx;
+  const tileH = height / nz;
+
+  // Reparto de baldosas por variante, una sola vez por sala.
+  const groups = useMemo(() => {
+    const byModel = new Map<KitModelName, TilePlacement[]>();
+    for (let ix = 0; ix < nx; ix++) {
+      for (let iz = 0; iz < nz; iz++) {
+        const model = pickFloorTile(family, roomId, ix, iz);
+        const list = byModel.get(model) ?? [];
+        list.push({
+          x: originX - width / 2 + (ix + 0.5) * tileW,
+          z: originY - height / 2 + (iz + 0.5) * tileH,
+        });
+        byModel.set(model, list);
+      }
+    }
+    return [...byModel.entries()];
+  }, [family, roomId, nx, nz, tileW, tileH, originX, originY, width, height]);
+
+  return (
+    <>
+      {groups.map(([model, placements]) => (
+        <FloorTileInstances
+          key={model}
+          model={model}
+          placements={placements}
+          scaleX={tileW / tileSize.x}
+          scaleZ={tileH / tileSize.z}
+          topY={topY}
+          material={material}
+        />
+      ))}
+    </>
+  );
 }
 
 /** Parche de suelo bajo un hueco de puerta (el paso entre interiores): `floor_tile_small` estirada al hueco, mismo criterio de altura que `FloorGrid`. */
@@ -239,20 +342,83 @@ interface WallSpan {
 }
 
 /**
- * Variantes de MURO COMPLETO elegibles por sala (encargo de David,
- * 2026-08-06: "para las paredes me gusta más la opción del muro" — sustituye
- * al parapeto `barrier` del F2 original, ver cabecera del fichero). Cuatro
- * piezas con el MISMO perfil exterior (4×4×~1 de fábrica: ancho y alto
- * idénticos, solo cambia el detalle de superficie — grieta/rotura/arco), así
- * que tilan igual de bien que `wall` a secas y se leen como "la misma
- * mazmorra, distinto desgaste" en vez de mezclar estilos.
+ * Módulo de muro: una pieza LISA que es la norma, y acentos que salpican
+ * (encargo de David, 2026-08-06: "si es un muro de ladrillo, hay varias
+ * variantes, con ventana, con hueco, sin hueco, con estanterías, con
+ * barrotes"). Antes se elegía UNA variante por sala y se repetía idéntica en
+ * todo el perímetro; ahora la elección es POR MÓDULO, así que un mismo muro
+ * tiene tramos lisos con alguna hornacina, ventana o reja de vez en cuando.
+ *
+ * Los cinco acentos comparten el perfil exacto de `wall` (4×4×1 de fábrica),
+ * así que tilan igual y el muro no cambia de grosor a media pared. Eso
+ * descarta dos candidatas obvias, y por un motivo que no es estético:
+ * `wall_cracked` mide 1.26 de profundidad (sobresaldría 0.13 u del plano del
+ * muro, además de costar 2010 tris frente a 494) y `wall_shelves` cuelga sus
+ * baldas 0.37 u HACIA DENTRO de la sala — un volumen visible dentro del área
+ * jugable que la bola atravesaría, justo la mentira que el atrezzo tiene
+ * prohibida (ver `room-props.ts`). Las hornacinas `wall_inset_*` hacen lo
+ * contrario, excavan hacia dentro del muro, y por eso sí valen.
+ *
+ * Quedan fuera también las variantes AGUJEREADAS de verdad (`wall_broken`,
+ * `wall_window_open`): por su hueco se vería el vacío negro de fuera de la
+ * sala, o peor, el suelo flotante de la sala de al lado. `wall_window_closed`
+ * y `wall_archedwindow_gated` dan la misma lectura de "ventana" sin abrir
+ * agujero.
  */
-const WALL_VARIANTS = ['wall', 'wall_cracked', 'wall_broken', 'wall_arched'] as const;
-type WallVariant = (typeof WALL_VARIANTS)[number];
+const WALL_BASE_MODULE = 'wall';
+const WALL_ACCENT_MODULES = [
+  'wall_inset',
+  'wall_inset_shelves',
+  'wall_inset_candles',
+  'wall_window_closed',
+  'wall_archedwindow_gated',
+] as const;
 
-/** Variante de muro determinista a partir del id de sala — ver `hashId`. */
-function pickWallVariant(roomId: string): WallVariant {
-  return WALL_VARIANTS[hashId(`${roomId}:wall`) % WALL_VARIANTS.length];
+/**
+ * Uno de cada cuatro módulos lleva acento. La dosis importa tanto como la
+ * elección: con todos los módulos distintos el muro se lee como ruido y deja
+ * de leerse como muro — y en un juego donde la pared es la superficie de
+ * rebote, eso es información que se pierde, no solo estética.
+ */
+const WALL_ACCENT_EVERY = 4;
+
+/** Módulo de muro para una posición concreta, determinista por sala + índice (ver `hashId`). */
+function pickWallModule(roomId: string, index: number): KitModelName {
+  const hash = hashId(`${roomId}:wall:${index}`);
+  if (hash % WALL_ACCENT_EVERY !== 0) return WALL_BASE_MODULE;
+  return WALL_ACCENT_MODULES[Math.floor(hash / WALL_ACCENT_EVERY) % WALL_ACCENT_MODULES.length];
+}
+
+/** Un módulo de muro ya colocado: dónde va, si está girado 90° y cuánto se estira a lo largo. */
+interface WallPlacement {
+  cx: number;
+  cz: number;
+  horizontal: boolean;
+  scale: number;
+}
+
+/**
+ * Reparte los tramos en módulos concretos (`wallModuleLayout` decide cuántos
+ * caben en cada tramo y cuánto estirarlos para cubrirlo EXACTO). Se separa del
+ * pintado porque ahora cada módulo puede llevar una geometría distinta: primero
+ * se calcula DÓNDE va cada uno, luego se agrupan por variante.
+ */
+function wallPlacements(spans: WallSpan[], moduleLength: number): WallPlacement[] {
+  const placements: WallPlacement[] = [];
+  for (const span of spans) {
+    const { count, scale } = wallModuleLayout(span.length, moduleLength);
+    const segmentLength = span.length / count;
+    for (let i = 0; i < count; i++) {
+      const offset = -span.length / 2 + (i + 0.5) * segmentLength;
+      placements.push({
+        cx: span.horizontal ? span.cx + offset : span.cx,
+        cz: span.horizontal ? span.cz : span.cz + offset,
+        horizontal: span.horizontal,
+        scale,
+      });
+    }
+  }
+  return placements;
 }
 
 /**
@@ -275,47 +441,31 @@ function pickWallVariant(roomId: string): WallVariant {
  * a pieza) y se aplica en el eje Z LOCAL del módulo (su profundidad antes de
  * rotar), igual que `scale` se aplica en su X local (longitud).
  */
-function WallModuleInstances({ spans, geometry }: { spans: WallSpan[]; geometry: THREE.BufferGeometry }) {
+function WallModuleInstances({ placements, geometry }: { placements: WallPlacement[]; geometry: THREE.BufferGeometry }) {
   const size = useMemo(() => kitBoxSize(geometry), [geometry]);
-  const moduleLength = size.x;
   const thicknessScale = useMemo(() => WALL_THICKNESS / size.z, [size]);
   const groundY = useMemo(() => kitGroundOffset(geometry), [geometry]);
   const meshRef = useRef<THREE.InstancedMesh>(null);
-
-  const totalCount = useMemo(
-    () => spans.reduce((sum, span) => sum + wallModuleLayout(span.length, moduleLength).count, 0),
-    [spans, moduleLength],
-  );
 
   useLayoutEffect(() => {
     const mesh = meshRef.current;
     if (!mesh) return;
     const scratch = new THREE.Object3D();
-    let index = 0;
-    for (const span of spans) {
-      const { count, scale } = wallModuleLayout(span.length, moduleLength);
-      const segmentLength = span.length / count;
-      for (let i = 0; i < count; i++) {
-        const offset = -span.length / 2 + (i + 0.5) * segmentLength;
-        if (span.horizontal) {
-          scratch.position.set(span.cx + offset, groundY, span.cz);
-          scratch.rotation.set(0, 0, 0);
-        } else {
-          scratch.position.set(span.cx, groundY, span.cz + offset);
-          scratch.rotation.set(0, Math.PI / 2, 0);
-        }
-        scratch.scale.set(scale, 1, thicknessScale);
-        scratch.updateMatrix();
-        mesh.setMatrixAt(index++, scratch.matrix);
-      }
+    for (let i = 0; i < placements.length; i++) {
+      const placement = placements[i];
+      scratch.position.set(placement.cx, groundY, placement.cz);
+      scratch.rotation.set(0, placement.horizontal ? 0 : Math.PI / 2, 0);
+      scratch.scale.set(placement.scale, 1, thicknessScale);
+      scratch.updateMatrix();
+      mesh.setMatrixAt(i, scratch.matrix);
     }
-    mesh.count = totalCount;
+    mesh.count = placements.length;
     mesh.instanceMatrix.needsUpdate = true;
-  }, [spans, moduleLength, groundY, thicknessScale, totalCount]);
+  }, [placements, groundY, thicknessScale]);
 
-  if (totalCount === 0) return null;
+  if (placements.length === 0) return null;
   // Sombras (playtest histórico, ver comentario largo de DoorFrame/DoorLeaf más abajo): muros castean y reciben.
-  return <instancedMesh ref={meshRef} args={[geometry, kitMaterial, totalCount]} castShadow receiveShadow />;
+  return <instancedMesh ref={meshRef} args={[geometry, kitMaterial, placements.length]} castShadow receiveShadow />;
 }
 
 /** Convierte los `Obstacle` de muro de UNA sala en tramos (`WallSpan`, eje largo = el más largo del AABB) — usado por el modo mazmorra; el modo sala única (`SingleRoomView`) ya conoce sus 4 tramos de memoria y no pasa por aquí. */
@@ -335,35 +485,50 @@ function wallSpansFromObstacles(walls: Obstacle[]): WallSpan[] {
 }
 
 /**
- * Reparte los tramos de muro de UNA sala entre DOS `InstancedMesh` según qué
- * módulo encaje mejor en cada tramo (`betterModuleLength`, wall-modules.ts):
- * la VARIANTE elegida para la sala (`variant`, módulo grande, ~3.36 u) para
- * los tramos largos, `wall_half` (módulo pequeño, ~1.68 u, siempre sin
- * decorar: es la única "hermana" de tamaño reducido del catálogo — encargo
- * de David, "wall_half para tramos cortos") para los que quedan mejor con
- * menos estirado — típicamente el resto de pared corto que deja un hueco de
- * puerta junto a una esquina.
+ * Muros de UNA sala. Dos repartos encadenados:
+ *
+ * 1. Por LONGITUD de tramo (`betterModuleLength`, wall-modules.ts): los tramos
+ *    largos se cubren con el módulo grande (~3.36 u) y los cortos con
+ *    `wall_half` (~1.68 u, siempre liso), que es el que deja menos estirado en
+ *    el resto de pared corto que queda junto a un hueco de puerta.
+ * 2. Por VARIANTE, solo entre los módulos grandes: cada uno sortea liso o
+ *    acento (`pickWallModule`), y se agrupan por geometría porque un
+ *    `InstancedMesh` solo admite una. Salen 2-4 mallas por sala en vez de una
+ *    pieza suelta por módulo.
  */
-function RoomWalls({ spans, variant }: { spans: WallSpan[]; variant: WallVariant }) {
-  const variantGeometry = kitGeometry(variant);
+function RoomWalls({ spans, roomId }: { spans: WallSpan[]; roomId: string }) {
+  const fullGeometry = kitGeometry(WALL_BASE_MODULE);
   const halfGeometry = kitGeometry('wall_half');
-  const variantModuleLength = useMemo(() => kitBoxSize(variantGeometry).x, [variantGeometry]);
+  const fullModuleLength = useMemo(() => kitBoxSize(fullGeometry).x, [fullGeometry]);
   const halfModuleLength = useMemo(() => kitBoxSize(halfGeometry).x, [halfGeometry]);
 
-  const { fullSpans, halfSpans } = useMemo(() => {
+  const { fullGroups, halfPlacements } = useMemo(() => {
     const fullSpans: WallSpan[] = [];
     const halfSpans: WallSpan[] = [];
     for (const span of spans) {
-      const chosen = betterModuleLength(span.length, variantModuleLength, halfModuleLength);
+      const chosen = betterModuleLength(span.length, fullModuleLength, halfModuleLength);
       (chosen === halfModuleLength ? halfSpans : fullSpans).push(span);
     }
-    return { fullSpans, halfSpans };
-  }, [spans, variantModuleLength, halfModuleLength]);
+    const byModel = new Map<KitModelName, WallPlacement[]>();
+    const placements = wallPlacements(fullSpans, fullModuleLength);
+    for (let i = 0; i < placements.length; i++) {
+      const model = pickWallModule(roomId, i);
+      const list = byModel.get(model) ?? [];
+      list.push(placements[i]);
+      byModel.set(model, list);
+    }
+    return {
+      fullGroups: [...byModel.entries()],
+      halfPlacements: wallPlacements(halfSpans, halfModuleLength),
+    };
+  }, [spans, roomId, fullModuleLength, halfModuleLength]);
 
   return (
     <>
-      <WallModuleInstances spans={fullSpans} geometry={variantGeometry} />
-      <WallModuleInstances spans={halfSpans} geometry={halfGeometry} />
+      {fullGroups.map(([model, placements]) => (
+        <WallModuleInstances key={model} placements={placements} geometry={kitGeometry(model)} />
+      ))}
+      <WallModuleInstances placements={halfPlacements} geometry={halfGeometry} />
     </>
   );
 }
@@ -532,6 +697,14 @@ const doorKeyLeafMaterial = kitWarmMaterial.clone();
 doorKeyLeafMaterial.color = new THREE.Color('#d9a531');
 
 /** Transformación compartida por el marco Y la hoja de una puerta: aplicar la MISMA a las dos es lo que las mantiene encajadas (la hoja nace, en el `.gltf`, ya colocada dentro del hueco del marco — ver cabecera de esta sección), aunque el tamaño natural de cada nodo sea distinto. */
+/**
+ * Desplazamiento (u) de la pieza de puerta en la normal del muro. Existe solo
+ * para romper el empate de profundidad con los módulos de muro que solapa (ver
+ * `doorPieceLayout`): 1.2 cm sobre un muro de 0.42 de grosor es invisible, y
+ * sin él las dos superficies coplanares parpadean.
+ */
+const DOOR_PIECE_Z_NUDGE = 0.012;
+
 interface DoorPieceLayout {
   position: [number, number, number];
   rotationY: number;
@@ -539,30 +712,67 @@ interface DoorPieceLayout {
 }
 
 /**
- * Calcula `DoorPieceLayout` a partir de un AABB de hueco de puerta (siempre
- * el de `doorGateAabb`, dungeon-world.ts — mismas coordenadas que el
- * `Obstacle` portón real, así que el marco, que se pinta SIEMPRE, y la hoja,
- * que solo aparece si ese `Obstacle` existe, quedan perfectamente alineados
- * sea cual sea el lado de la conexión) y el tamaño/apoyo natural del MARCO
- * (`naturalSize`/`groundY`; la hoja usa estos mismos valores aunque su propio
- * boundingBox sea distinto — ver interfaz de arriba). Ancho objetivo = el
- * AABB completo (`DOOR_WIDTH`); alto SIN escalar (el marco ya nace a la
- * altura del resto del muro, ver cabecera); grosor ajustado a
- * `WALL_THICKNESS` igual que `WallModuleInstances` — el marco de puerta ES
- * un módulo de muro con un hueco, mismo problema de grosor de fábrica
- * (1 u ⇒ 0.84 a KIT_SCALE, el doble de `WALL_THICKNESS`).
+ * Coloca una pieza de puerta (marco u hoja) sobre el hueco de una conexión.
+ *
+ * EL FALLO QUE ESTO ARREGLA (playtest de David, 2026-08-06: "las puertas no
+ * están bien puestas"): el hueco de `wall_doorway` NO está centrado en la
+ * pieza. Medido en el `.gltf`, el marco ocupa x[-2.00, 2.00] pero su hueco va
+ * de x[-0.18, 1.82] — el centro del hueco cae a +0.82 (natural) del centro de
+ * la pieza. La versión anterior centraba LA PIEZA en el vano, así que el hueco
+ * —y con él la hoja— salía desplazado casi un metro de juego a un lado, con
+ * medio paso tapado por muro. Ahora se centra EL HUECO, que es lo que el
+ * jugador atraviesa; dónde caiga el resto de la pieza da igual.
+ *
+ * Y una segunda cuenta encadenada: el vano mide `DOOR_WIDTH` (2 u) y el hueco
+ * de la pieza mide 1.68 u a `KIT_SCALE`, así que la pieza se escala en su eje
+ * largo hasta que el HUECO mide exactamente el paso real. La pieza entera
+ * crece entonces a ~4 u y solapa ~1 u de muro a cada lado; como ambos son
+ * muros idénticos en el mismo plano, el solape no se ve —pero SÍ produciría
+ * z-fighting al ser coplanar, y de ahí el desplazamiento mínimo en la normal
+ * (`DOOR_PIECE_Z_NUDGE`). La alternativa era recortar los tramos de muro
+ * contiguos, que obliga al tileado de muro a conocer dónde hay puertas: mucho
+ * más acoplamiento para un problema que un nudge de 1.2 cm resuelve entero.
  */
-function doorPieceLayout(aabb: AABB, naturalSize: THREE.Vector3, groundY: number): DoorPieceLayout {
+function doorPieceLayout(
+  aabb: AABB,
+  frameSize: THREE.Vector3,
+  groundY: number,
+  hole: { center: number; width: number },
+): DoorPieceLayout {
   const width = aabb.maxX - aabb.minX;
   const depth = aabb.maxY - aabb.minY;
   const horizontal = width >= depth;
-  const longTarget = horizontal ? width : depth;
-  const shortTarget = horizontal ? depth : width;
+  const gapWidth = horizontal ? width : depth;
+  const gapThickness = horizontal ? depth : width;
+  // Escala del eje largo: la que hace que el HUECO (no la pieza) mida el paso.
+  const lengthScale = gapWidth / hole.width;
+  const gapCenterX = (aabb.minX + aabb.maxX) / 2;
+  const gapCenterZ = (aabb.minY + aabb.maxY) / 2;
+  // El centro del hueco vive a `hole.center` del origen de la pieza: se
+  // desplaza la pieza justo lo contrario (ya escalado) para que el hueco caiga
+  // sobre el centro del vano.
+  const shift = -hole.center * lengthScale;
   return {
-    position: [(aabb.minX + aabb.maxX) / 2, groundY, (aabb.minY + aabb.maxY) / 2],
+    position: [
+      gapCenterX + (horizontal ? shift : DOOR_PIECE_Z_NUDGE),
+      groundY,
+      gapCenterZ + (horizontal ? DOOR_PIECE_Z_NUDGE : shift),
+    ],
     rotationY: horizontal ? 0 : Math.PI / 2,
-    scale: [longTarget / naturalSize.x, 1, shortTarget / naturalSize.z],
+    scale: [lengthScale, 1, gapThickness / frameSize.z],
   };
+}
+
+/**
+ * Centro y ancho del hueco de una pieza de puerta, leídos del boundingBox de
+ * su nodo HOJA — la hoja es exactamente lo que llena el hueco, así que medirla
+ * es medir el hueco. Se lee de la geometría real y no se hardcodea: si algún
+ * día se añade otra variante de puerta con el hueco en otro sitio, encaja sola.
+ */
+function doorHoleMetrics(leafGeometry: THREE.BufferGeometry): { center: number; width: number } {
+  const box = leafGeometry.boundingBox;
+  if (!box) throw new Error('la hoja de puerta del kit no trae boundingBox calculado');
+  return { center: (box.max.x + box.min.x) / 2, width: box.max.x - box.min.x };
 }
 
 /**
@@ -576,10 +786,13 @@ function doorPieceLayout(aabb: AABB, naturalSize: THREE.Vector3, groundY: number
 function DoorFrame({ conn }: { conn: DoorConnection }) {
   const variant = useMemo(() => pickDoorVariant(conn.roomAId), [conn.roomAId]);
   const geometry = kitGeometryPart(variant, variant);
+  // La hoja se carga aunque el marco no la pinte: es lo que MIDE el hueco.
+  const leafGeometry = kitGeometryPart(variant, `${variant}_door`);
   const naturalSize = useMemo(() => kitBoxSize(geometry), [geometry]);
   const groundY = useMemo(() => kitGroundOffset(geometry), [geometry]);
+  const hole = useMemo(() => doorHoleMetrics(leafGeometry), [leafGeometry]);
   const aabb = useMemo(() => doorGateAabb(conn.center, conn.sideOnA), [conn.center, conn.sideOnA]);
-  const layout = useMemo(() => doorPieceLayout(aabb, naturalSize, groundY), [aabb, naturalSize, groundY]);
+  const layout = useMemo(() => doorPieceLayout(aabb, naturalSize, groundY, hole), [aabb, naturalSize, groundY, hole]);
 
   return (
     <mesh
@@ -610,7 +823,11 @@ function DoorLeaf({ conn, gate }: { conn: DoorConnection; gate: Obstacle }) {
   // queda encajada en el hueco exactamente igual que `DoorFrame`.
   const naturalSize = useMemo(() => kitBoxSize(frameGeometry), [frameGeometry]);
   const groundY = useMemo(() => kitGroundOffset(frameGeometry), [frameGeometry]);
-  const layout = useMemo(() => doorPieceLayout(gate.aabb, naturalSize, groundY), [gate.aabb, naturalSize, groundY]);
+  const hole = useMemo(() => doorHoleMetrics(leafGeometry), [leafGeometry]);
+  const layout = useMemo(
+    () => doorPieceLayout(gate.aabb, naturalSize, groundY, hole),
+    [gate.aabb, naturalSize, groundY, hole],
+  );
   const isKeyDoor = gate.id.endsWith('-key');
 
   return (
@@ -700,7 +917,8 @@ function DungeonStructureView({ world }: { world: World }) {
           height={placed.room.height}
           originX={placed.origin.x}
           originY={placed.origin.y}
-          variant={pickFloorVariant(placed.room.id)}
+          roomId={placed.room.id}
+          familyName={pickFloorFamily(placed.room.id, placed.room.tags)}
         />
       ))}
       {dungeon.connections.map((conn, i) => (
@@ -710,7 +928,7 @@ function DungeonStructureView({ world }: { world: World }) {
         <RoomWalls
           key={`walls-${placed.room.id}`}
           spans={wallSpansFromObstacles(wallsByRoom.get(placed.room.id) ?? [])}
-          variant={pickWallVariant(placed.room.id)}
+          roomId={placed.room.id}
         />
       ))}
       {dungeon.rooms.map((placed) => (
@@ -755,8 +973,15 @@ function SingleRoomView({ world }: { world: World }) {
 
   return (
     <group>
-      <FloorGrid width={width} height={height} originX={0} originY={0} variant={pickFloorVariant(world.room.id)} />
-      <RoomWalls spans={wallSpans} variant={pickWallVariant(world.room.id)} />
+      <FloorGrid
+        width={width}
+        height={height}
+        originX={0}
+        originY={0}
+        roomId={world.room.id}
+        familyName={pickFloorFamily(world.room.id, world.room.tags)}
+      />
+      <RoomWalls spans={wallSpans} roomId={world.room.id} />
       <CornerColumns halfW={halfW} halfH={halfH} t={t} originX={0} originY={0} />
       {/* Rocas (obstáculos AABB). Las columnas de la Reina (`isQueenColumnObstacle`)
           se excluyen aquí: las pinta QueenColumnsView desde queenState(world).columns,
