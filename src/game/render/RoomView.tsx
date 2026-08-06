@@ -38,12 +38,11 @@
 import { useFrame } from '@react-three/fiber';
 import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
-import type { AABB } from '@/engine/geometry';
 import { DOOR_WIDTH, WALL_THICKNESS } from '@/game/world/constants';
 import type { DoorConnection } from '@/game/features/dungeon/dungeon';
 import { QUEEN_COLUMN_ID_PREFIX } from '@/game/features/bosses/queen/constants';
-import { DOOR_GATE_ID_PREFIX, doorGateAabb } from '@/game/features/dungeon/dungeon-world';
-import type { Obstacle, RoomTag, World } from '@/game/world/types';
+import { DOOR_GATE_ID_PREFIX } from '@/game/features/dungeon/dungeon-world';
+import type { Obstacle, World } from '@/game/world/types';
 import { kitGeometry, kitGeometryPart, kitMaterial, kitWarmMaterial } from './kit';
 import type { KitModelName } from './kit-models';
 import { kitBoxSize, kitGroundOffset, kitTopAlignOffset } from './kit-fit';
@@ -153,18 +152,24 @@ const DANGEROUS_FLOOR_FAMILIES: readonly FloorFamilyName[] = ['piedra', 'tierra'
 
 /**
  * Familia de suelo de una sala. La MADERA no se sortea: es la marca de las
- * salas seguras (encargo de David: "el suelo de madera es buena idea, pero
+ * salas SEGURAS (encargo de David: "el suelo de madera es buena idea, pero
  * para las salas seguras nada más"), y eso la convierte en información de
  * juego y no en decoración — al entrar, el suelo cálido dice "aquí no te van a
- * atacar" antes de que veas si hay enemigos. Seguras son las dos etiquetas sin
- * enemigos del pool: `inicio` y `tienda`.
+ * atacar" antes de que veas si hay alguien.
+ *
+ * "Segura" se decide por si la sala TIENE ENEMIGOS, no por su etiqueta. Es más
+ * robusto y dice exactamente lo que se quiere decir: las etiquetas no son
+ * excluyentes (hay salas del pool con `tags: ['inicio', 'combate']`, ver
+ * rooms.ts), así que fiarse de `tags.includes('inicio')` habría puesto suelo
+ * cálido —o sea, la promesa de "aquí no pasa nada"— en una sala que sí trae
+ * enemigos. Sin spawns no hay pelea posible, con etiqueta o sin ella.
  *
  * El resto de salas sortean piedra o tierra por hash del id (determinista: la
  * misma sala se ve igual entre recargas, ver `hashId`).
  */
-function pickFloorFamily(roomId: string, tags: readonly RoomTag[]): FloorFamilyName {
-  if (tags.includes('inicio') || tags.includes('tienda')) return 'madera';
-  return DANGEROUS_FLOOR_FAMILIES[hashId(`${roomId}:floor`) % DANGEROUS_FLOOR_FAMILIES.length];
+function pickFloorFamily(room: { id: string; enemies: readonly unknown[] }): FloorFamilyName {
+  if (room.enemies.length === 0) return 'madera';
+  return DANGEROUS_FLOOR_FAMILIES[hashId(`${room.id}:floor`) % DANGEROUS_FLOOR_FAMILIES.length];
 }
 
 /**
@@ -653,190 +658,77 @@ function CornerColumns({
 // ── Puertas: marco (siempre) + hoja (solo si la conexión está cerrada) ─────
 
 /**
- * `wall_doorway` tiene DOS nodos en su `.gltf`: `wall_doorway` (el marco,
- * pieza de muro con el hueco ya recortado) y `wall_doorway_door` (la HOJA,
- * hijo del marco — ver comentario de `kitGeometryPart`/`cacheModelParts` en
- * kit.ts). Antes (F2 original) esto quedó "pendiente" porque los muros eran
- * el parapeto `barrier` (0.92 u) y un marco a su altura NATURAL (3.36 u,
- * muro entero) habría tapado ~2.2 u de sala — el mismo problema de oclusión
- * que entonces descartó el muro completo. Con el encargo de David de pasar a
- * MURO COMPLETO (misma altura que este marco, sin escalar), ese obstáculo
- * desaparece solo: el marco es, geométricamente, "un módulo de muro con un
- * hueco", así que encaja con el resto de `WallModuleInstances` sin ningún
- * ajuste especial de altura.
+ * Puerta cerrada: la HOJA de `wall_doorway`, y SOLO la hoja.
  *
- * `wall_gated` (el rastrillo de barrotes que usaba el F2 original) queda
- * descartado del todo: David lo pidió explícitamente ("que parezcan puertas,
- * no rejas"), y el marco+hoja de `wall_doorway` cubre el motivo por el que
- * `wall_gated` se había elegido en su día (`floor_tile_grate` de canto se
- * veía por una cara y no por la otra, ver historial en ART_KIT_PLAN §7) sin
- * su inconveniente: la hoja tiene volumen real (no es una rejilla plana), así
- * que no hereda ese problema — verificado en el navegador desde los dos lados
- * (ver informe de la tarea).
+ * Historia de dos intentos fallidos, porque el motivo de no usar el marco no
+ * es evidente y sin él alguien lo reintentaría:
  *
- * Variantes de marco elegidas por sala (encargo, "lo mismo para... puertas"):
- * solo DOS, no 3-4 como suelo/muro — son las únicas piezas del catálogo con
- * la MISMA estructura de 2 nodos que necesita este código (`<variante>` =
- * marco, `<variante>_door` = hoja, con la hoja YA colocada dentro del hueco
- * en el propio `.gltf`). `wall_doorway_Tsplit` es un cruce en T de 8 u
- * (pensado para un muro partido en tres direcciones, no un hueco simple) y
- * `wall_doorway_sides` no trae hoja separada (un único nodo, nada que
- * mostrar/ocultar al abrir la puerta): ninguna de las dos sirve sin
- * reescribir el resto de este bloque, así que se quedan fuera.
+ * 1. Primero se usó `wall_gated` (rastrillo de barrotes). David: quería una
+ *    puerta, no una reja.
+ * 2. Después, la pieza `wall_doorway` ENTERA como marco. Y ahí está la trampa:
+ *    esa pieza no es un marco, es un MÓDULO DE MURO de 4 u con un hueco
+ *    abierto — y el hueco además está descentrado (ocupa x[-0.18, 1.82] dentro
+ *    de x[-2, 2]). Encajarla en un vano de 2 u la deja o comprimida o
+ *    sobresaliendo por un lado, solapando el muro contiguo: "eso se supone que
+ *    es una puerta..." (playtest 2026-08-06, con captura). No hay colocación
+ *    buena: la pieza está pensada para SER un tramo de muro, no para meterse
+ *    entre dos.
+ *
+ * Lo que sí funciona es lo que se hace aquí: los módulos de muro ya dejan el
+ * vano (la sim lo genera), así que la hoja sola, estirada al vano completo,
+ * llena el hueco de lado a lado y de arriba abajo. Cerrada se lee como una
+ * puerta de madera; abierta, el vano queda limpio. Cero solape, cero
+ * asimetría, y ninguna pieza que la bola pueda atravesar sin motivo.
+ *
+ * La hoja nace descentrada respecto a su propio origen (hereda las
+ * coordenadas del marco del que se recorta): se recentra UNA vez sobre una
+ * copia, nunca mutando la geometría cacheada de `kitGeometryPart`.
  */
-const DOOR_VARIANTS = ['wall_doorway', 'wall_doorway_scaffold'] as const;
-type DoorVariant = (typeof DOOR_VARIANTS)[number];
+const DOOR_LEAF_MODEL = 'wall_doorway';
 
-/** Variante de marco de puerta determinista a partir del id de la sala DE ORIGEN de la conexión (`conn.roomAId`) — ver `hashId`. Una conexión conecta dos salas; hay que elegir una sola como semilla, y `roomAId` es estable (siempre la misma sala "A" para esa conexión, nunca cambia en la partida). */
-function pickDoorVariant(roomAId: string): DoorVariant {
-  return DOOR_VARIANTS[hashId(`${roomAId}:door`) % DOOR_VARIANTS.length];
-}
-
-/** Material de la hoja de puerta de LLAVE (dorada, distinta de la normal): clon de `kitWarmMaterial` (madera) teñido, creado UNA vez — nunca se muta `kitWarmMaterial`, que comparte el resto de madera del kit (barriles, atrezzo). */
+/**
+ * Hoja de la puerta que exige LLAVE: clon dorado del material cálido. La
+ * distinción "esta puerta necesita llave" lleva validada desde antes del kit y
+ * no puede perderse — se clona una vez a nivel de módulo, nunca se muta
+ * `kitWarmMaterial`, que comparte todo lo de madera del juego.
+ */
 const doorKeyLeafMaterial = kitWarmMaterial.clone();
 doorKeyLeafMaterial.color = new THREE.Color('#d9a531');
 
-/** Transformación compartida por el marco Y la hoja de una puerta: aplicar la MISMA a las dos es lo que las mantiene encajadas (la hoja nace, en el `.gltf`, ya colocada dentro del hueco del marco — ver cabecera de esta sección), aunque el tamaño natural de cada nodo sea distinto. */
-/**
- * Desplazamiento (u) de la pieza de puerta en la normal del muro. Existe solo
- * para romper el empate de profundidad con los módulos de muro que solapa (ver
- * `doorPieceLayout`): 1.2 cm sobre un muro de 0.42 de grosor es invisible, y
- * sin él las dos superficies coplanares parpadean.
- */
-const DOOR_PIECE_Z_NUDGE = 0.012;
-
-interface DoorPieceLayout {
-  position: [number, number, number];
-  rotationY: number;
-  scale: [number, number, number];
+/** Alto del vano = alto del módulo de muro: la hoja se estira hasta taparlo entero (si no, quedaría un hueco abierto por encima de la puerta). */
+function doorOpeningHeight(): number {
+  return kitBoxSize(kitGeometry(WALL_BASE_MODULE)).y;
 }
 
-/**
- * Coloca una pieza de puerta (marco u hoja) sobre el hueco de una conexión.
- *
- * EL FALLO QUE ESTO ARREGLA (playtest de David, 2026-08-06: "las puertas no
- * están bien puestas"): el hueco de `wall_doorway` NO está centrado en la
- * pieza. Medido en el `.gltf`, el marco ocupa x[-2.00, 2.00] pero su hueco va
- * de x[-0.18, 1.82] — el centro del hueco cae a +0.82 (natural) del centro de
- * la pieza. La versión anterior centraba LA PIEZA en el vano, así que el hueco
- * —y con él la hoja— salía desplazado casi un metro de juego a un lado, con
- * medio paso tapado por muro. Ahora se centra EL HUECO, que es lo que el
- * jugador atraviesa; dónde caiga el resto de la pieza da igual.
- *
- * Y una segunda cuenta encadenada: el vano mide `DOOR_WIDTH` (2 u) y el hueco
- * de la pieza mide 1.68 u a `KIT_SCALE`, así que la pieza se escala en su eje
- * largo hasta que el HUECO mide exactamente el paso real. La pieza entera
- * crece entonces a ~4 u y solapa ~1 u de muro a cada lado; como ambos son
- * muros idénticos en el mismo plano, el solape no se ve —pero SÍ produciría
- * z-fighting al ser coplanar, y de ahí el desplazamiento mínimo en la normal
- * (`DOOR_PIECE_Z_NUDGE`). La alternativa era recortar los tramos de muro
- * contiguos, que obliga al tileado de muro a conocer dónde hay puertas: mucho
- * más acoplamiento para un problema que un nudge de 1.2 cm resuelve entero.
- */
-function doorPieceLayout(
-  aabb: AABB,
-  frameSize: THREE.Vector3,
-  groundY: number,
-  hole: { center: number; width: number },
-): DoorPieceLayout {
-  const width = aabb.maxX - aabb.minX;
-  const depth = aabb.maxY - aabb.minY;
+function DoorLeaf({ gate }: { gate: Obstacle }) {
+  const geometry = useMemo(() => {
+    const source = kitGeometryPart(DOOR_LEAF_MODEL, `${DOOR_LEAF_MODEL}_door`);
+    const box = source.boundingBox;
+    if (!box) throw new Error('la hoja de puerta del kit no trae boundingBox calculado');
+    const centered = source.clone().translate(-(box.max.x + box.min.x) / 2, 0, -(box.max.z + box.min.z) / 2);
+    centered.computeBoundingBox();
+    return centered;
+  }, []);
+  const leafSize = useMemo(() => kitBoxSize(geometry), [geometry]);
+  const groundY = useMemo(() => kitGroundOffset(geometry), [geometry]);
+  const openingHeight = useMemo(() => doorOpeningHeight(), []);
+  const isKeyDoor = gate.id.endsWith('-key');
+
+  const { minX, minY, maxX, maxY } = gate.aabb;
+  const width = maxX - minX;
+  const depth = maxY - minY;
   const horizontal = width >= depth;
   const gapWidth = horizontal ? width : depth;
   const gapThickness = horizontal ? depth : width;
-  // Escala del eje largo: la que hace que el HUECO (no la pieza) mida el paso.
-  const lengthScale = gapWidth / hole.width;
-  const gapCenterX = (aabb.minX + aabb.maxX) / 2;
-  const gapCenterZ = (aabb.minY + aabb.maxY) / 2;
-  // El centro del hueco vive a `hole.center` del origen de la pieza: se
-  // desplaza la pieza justo lo contrario (ya escalado) para que el hueco caiga
-  // sobre el centro del vano.
-  const shift = -hole.center * lengthScale;
-  return {
-    position: [
-      gapCenterX + (horizontal ? shift : DOOR_PIECE_Z_NUDGE),
-      groundY,
-      gapCenterZ + (horizontal ? DOOR_PIECE_Z_NUDGE : shift),
-    ],
-    rotationY: horizontal ? 0 : Math.PI / 2,
-    scale: [lengthScale, 1, gapThickness / frameSize.z],
-  };
-}
-
-/**
- * Centro y ancho del hueco de una pieza de puerta, leídos del boundingBox de
- * su nodo HOJA — la hoja es exactamente lo que llena el hueco, así que medirla
- * es medir el hueco. Se lee de la geometría real y no se hardcodea: si algún
- * día se añade otra variante de puerta con el hueco en otro sitio, encaja sola.
- */
-function doorHoleMetrics(leafGeometry: THREE.BufferGeometry): { center: number; width: number } {
-  const box = leafGeometry.boundingBox;
-  if (!box) throw new Error('la hoja de puerta del kit no trae boundingBox calculado');
-  return { center: (box.max.x + box.min.x) / 2, width: box.max.x - box.min.x };
-}
-
-/**
- * Marco de hueco de puerta: se pinta SIEMPRE, puerta abierta o cerrada — es
- * la parte de "esto es una puerta" que nunca desaparece (encargo de David).
- * Una pieza por conexión, sin instanciar: una mazmorra de F2 tiene un puñado
- * de conexiones (≤ nº de salas), muy por debajo de lo que compensaría
- * agrupar en un `InstancedMesh` (mismo criterio que `DoorFloorPatch`, ya sin
- * instanciar por el mismo motivo).
- */
-function DoorFrame({ conn }: { conn: DoorConnection }) {
-  const variant = useMemo(() => pickDoorVariant(conn.roomAId), [conn.roomAId]);
-  const geometry = kitGeometryPart(variant, variant);
-  // La hoja se carga aunque el marco no la pinte: es lo que MIDE el hueco.
-  const leafGeometry = kitGeometryPart(variant, `${variant}_door`);
-  const naturalSize = useMemo(() => kitBoxSize(geometry), [geometry]);
-  const groundY = useMemo(() => kitGroundOffset(geometry), [geometry]);
-  const hole = useMemo(() => doorHoleMetrics(leafGeometry), [leafGeometry]);
-  const aabb = useMemo(() => doorGateAabb(conn.center, conn.sideOnA), [conn.center, conn.sideOnA]);
-  const layout = useMemo(() => doorPieceLayout(aabb, naturalSize, groundY, hole), [aabb, naturalSize, groundY, hole]);
+  const heightScale = openingHeight / leafSize.y;
 
   return (
     <mesh
       geometry={geometry}
-      material={kitMaterial}
-      position={layout.position}
-      rotation={[0, layout.rotationY, 0]}
-      scale={layout.scale}
-      castShadow
-      receiveShadow
-    />
-  );
-}
-
-/**
- * Hoja de puerta cerrada: nodo `<variante>_door`, mismo `layout` que su
- * `DoorFrame` (misma conexión, mismo `doorGateAabb`) para quedar encajada en
- * el hueco del marco. Madera (`kitWarmMaterial`, NO `kitMaterial` — si no, se
- * funde con el muro azul de detrás, mismo fallo ya corregido con los
- * barriles, ver cabecera del fichero); dorada si la conexión exige llave
- * (distinción ya validada en playtest, se mantiene).
- */
-function DoorLeaf({ conn, gate }: { conn: DoorConnection; gate: Obstacle }) {
-  const variant = useMemo(() => pickDoorVariant(conn.roomAId), [conn.roomAId]);
-  const frameGeometry = kitGeometryPart(variant, variant);
-  const leafGeometry = kitGeometryPart(variant, `${variant}_door`);
-  // Tamaño/apoyo del MARCO, no de la hoja (ver doorPieceLayout): así la hoja
-  // queda encajada en el hueco exactamente igual que `DoorFrame`.
-  const naturalSize = useMemo(() => kitBoxSize(frameGeometry), [frameGeometry]);
-  const groundY = useMemo(() => kitGroundOffset(frameGeometry), [frameGeometry]);
-  const hole = useMemo(() => doorHoleMetrics(leafGeometry), [leafGeometry]);
-  const layout = useMemo(
-    () => doorPieceLayout(gate.aabb, naturalSize, groundY, hole),
-    [gate.aabb, naturalSize, groundY, hole],
-  );
-  const isKeyDoor = gate.id.endsWith('-key');
-
-  return (
-    <mesh
-      geometry={leafGeometry}
       material={isKeyDoor ? doorKeyLeafMaterial : kitWarmMaterial}
-      position={layout.position}
-      rotation={[0, layout.rotationY, 0]}
-      scale={layout.scale}
+      position={[(minX + maxX) / 2, groundY * heightScale, (minY + maxY) / 2]}
+      rotation={[0, horizontal ? 0 : Math.PI / 2, 0]}
+      scale={[gapWidth / leafSize.x, heightScale, gapThickness / leafSize.z]}
       castShadow
       receiveShadow
     />
@@ -851,10 +743,10 @@ function findGateForConnection(world: World, connectionIndex: number): Obstacle 
 }
 
 /**
- * Todas las puertas de la mazmorra: marco por CONEXIÓN (estático, se calcula
- * una vez) + hoja por conexión CERRADA (se recalcula cuando
- * `world.wallVersion` cambia — abrir una puerta, evento raro; mismo sondeo
- * barato por frame que ya usaba el `DoorGates` al que sustituye este bloque).
+ * Puertas de la mazmorra: una hoja por conexión CERRADA. Se recalcula cuando
+ * `world.wallVersion` cambia (abrir una puerta, evento raro) con el mismo
+ * sondeo barato por frame que ya usaba el `DoorGates` original. Las conexiones
+ * abiertas no pintan nada: el vano que dejan los módulos de muro ES el paso.
  */
 function DoorStructures({ world }: { world: World }) {
   const [version, setVersion] = useState(world.wallVersion);
@@ -868,12 +760,9 @@ function DoorStructures({ world }: { world: World }) {
 
   return (
     <>
-      {dungeon.connections.map((conn, i) => (
-        <DoorFrame key={`door-frame-${i}`} conn={conn} />
-      ))}
-      {dungeon.connections.map((conn, i) => {
+      {dungeon.connections.map((_conn, i) => {
         const gate = findGateForConnection(world, i);
-        return gate ? <DoorLeaf key={`door-leaf-${i}`} conn={conn} gate={gate} /> : null;
+        return gate ? <DoorLeaf key={`door-leaf-${i}`} gate={gate} /> : null;
       })}
     </>
   );
@@ -918,7 +807,7 @@ function DungeonStructureView({ world }: { world: World }) {
           originX={placed.origin.x}
           originY={placed.origin.y}
           roomId={placed.room.id}
-          familyName={pickFloorFamily(placed.room.id, placed.room.tags)}
+          familyName={pickFloorFamily(placed.room)}
         />
       ))}
       {dungeon.connections.map((conn, i) => (
@@ -979,7 +868,7 @@ function SingleRoomView({ world }: { world: World }) {
         originX={0}
         originY={0}
         roomId={world.room.id}
-        familyName={pickFloorFamily(world.room.id, world.room.tags)}
+        familyName={pickFloorFamily(world.room)}
       />
       <RoomWalls spans={wallSpans} roomId={world.room.id} />
       <CornerColumns halfW={halfW} halfH={halfH} t={t} originX={0} originY={0} />
