@@ -68,3 +68,51 @@ export function kitXZCenterOffset(geometry: THREE.BufferGeometry): { x: number; 
   if (!box) throw new Error('geometría del kit sin boundingBox calculado (¿kit.ts no llamó a computeBoundingBox?)');
   return { x: -(box.min.x + box.max.x) / 2, z: -(box.min.z + box.max.z) / 2 };
 }
+
+/**
+ * Versión de una geometría del kit RECENTRADA en XZ (`kitXZCenterOffset`
+ * aplicado sobre una COPIA, una única vez), cacheada por referencia de
+ * geometría — `kitGeometry(name)`/`kitGeometryPart(...)` (kit.ts) devuelven
+ * siempre la MISMA instancia para un mismo nombre, así que recentrar la
+ * misma pieza dos veces desperdiciaría memoria de GPU (dos uploads del mismo
+ * buffer) sin motivo.
+ *
+ * MOTIVO de recentrar la GEOMETRÍA aquí, una vez, en vez de compensar el
+ * desfase en cada sitio donde una pieza se coloca por su centro
+ * (`WallModuleInstances`, `RockVariantInstances`, `CornerColumns`,
+ * `FloorTileInstances`... — ver RoomView.tsx): todas esas funciones colocan
+ * cada instancia con `position = centro deseado` dando por hecho que el
+ * origen local de la geometría YA es su centro — la mayoría de piezas del
+ * kit lo cumplen, pero no todas (medido en playtest 2026-08-06: `wall_half`
+ * tiene su X real en [0, 1.68] con centro en 0.84, no 0; `rocks`/
+ * `rocks_small`/`rocks_decorated` están descentradas ~0.1-0.13 u en X y/o Z —
+ * ver `RoomView.tsx::WallModuleInstances`/`RockVariantInstances` para las
+ * cifras exactas). Compensar ESE desfase en cada colocación obligaría a
+ * rehacer, para cada consumidor, la composición correcta de traslación +
+ * rotación + escala (con un ángulo y una escala por eje distintos entre
+ * tramos horizontales y verticales, p. ej.) — exactamente el tipo de
+ * matemática fácil de acertar una vez y romper la siguiente vez que alguien
+ * la toque. Recentrando la GEOMETRÍA una única vez, ANTES de que cualquier
+ * transform de instancia la toque, el resto de cada función sigue
+ * funcionando con la misma suposición de siempre ("el origen local es el
+ * centro") sin cambiar una sola línea de su matemática de posición/rotación/
+ * escala — la corrección vive en un solo sitio, funciona igual sin importar
+ * el ángulo de la instancia (se aplica en el eje LOCAL, antes de rotar), y no
+ * se puede olvidar en un consumidor nuevo. Mismo criterio que ya usa
+ * `DoorLeaf` (RoomView.tsx) para `wall_doorway`.
+ *
+ * Si la geometría YA está centrada (offset (0,0), el caso normal — column y
+ * todas las variantes de suelo, medido) se devuelve la MISMA referencia sin
+ * clonar: cero coste extra para las piezas que no lo necesitan.
+ */
+const xzCenteredGeometryCache = new WeakMap<THREE.BufferGeometry, THREE.BufferGeometry>();
+
+export function kitXZCenteredGeometry(geometry: THREE.BufferGeometry): THREE.BufferGeometry {
+  const cached = xzCenteredGeometryCache.get(geometry);
+  if (cached) return cached;
+  const { x, z } = kitXZCenterOffset(geometry);
+  const centered = x === 0 && z === 0 ? geometry : geometry.clone().translate(x, 0, z);
+  if (centered !== geometry) centered.computeBoundingBox();
+  xzCenteredGeometryCache.set(geometry, centered);
+  return centered;
+}

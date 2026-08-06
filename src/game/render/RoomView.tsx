@@ -39,13 +39,14 @@ import { useFrame } from '@react-three/fiber';
 import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { DOOR_WIDTH, WALL_THICKNESS } from '@/game/world/constants';
+import type { AABB } from '@/engine/geometry';
 import type { DoorConnection } from '@/game/features/dungeon/dungeon';
 import { QUEEN_COLUMN_ID_PREFIX } from '@/game/features/bosses/queen/constants';
 import { DOOR_GATE_ID_PREFIX } from '@/game/features/dungeon/dungeon-world';
 import type { Obstacle, World } from '@/game/world/types';
 import { kitGeometry, kitGeometryPart, kitMaterial, kitWarmMaterial } from './kit';
 import type { KitModelName } from './kit-models';
-import { kitBoxSize, kitGroundOffset, kitTopAlignOffset } from './kit-fit';
+import { kitBoxSize, kitGroundOffset, kitTopAlignOffset, kitXZCenteredGeometry } from './kit-fit';
 import { betterModuleLength, wallModuleLayout } from './wall-modules';
 
 /**
@@ -445,11 +446,27 @@ function wallPlacements(spans: WallSpan[], moduleLength: number): WallPlacement[
  * 0.5 — leer siempre el tamaño real es lo que mantiene el encaje exacto pieza
  * a pieza) y se aplica en el eje Z LOCAL del módulo (su profundidad antes de
  * rotar), igual que `scale` se aplica en su X local (longitud).
+ *
+ * Corrección de CENTRO (bug playtest 2026-08-06, con captura y medición: "la
+ * mitad izquierda [del hueco de puerta] se puede traspasar, la mitad derecha
+ * no" — el hueco dibujado no coincidía con el de colisión, desfasados ≈0.98
+ * u). Causa medida: `wall_half` no nace centrada en su origen local (su X
+ * real va de 0 a 1.68, centro en 0.84, no en 0) mientras que el resto de
+ * módulos de muro sí — y este componente coloca cada instancia por su CENTRO
+ * (`position = cx/cz` del tramo), dando por hecho que el origen local de la
+ * geometría YA es su centro. `kitXZCenteredGeometry` (kit-fit.ts) corrige
+ * esto de una vez para CUALQUIER geometría que se le pase (no solo
+ * `wall_half`: por si otro módulo de muro dejara de estar centrado el día de
+ * mañana), recentrando la geometría ANTES de que la rotación/escala de más
+ * abajo la toquen — así funciona igual en los tramos horizontales y en los
+ * verticales (girados 90°) sin que la matemática de posición/rotación/escala
+ * de aquí abajo tenga que saber nada del desfase.
  */
 function WallModuleInstances({ placements, geometry }: { placements: WallPlacement[]; geometry: THREE.BufferGeometry }) {
   const size = useMemo(() => kitBoxSize(geometry), [geometry]);
   const thicknessScale = useMemo(() => WALL_THICKNESS / size.z, [size]);
   const groundY = useMemo(() => kitGroundOffset(geometry), [geometry]);
+  const centeredGeometry = useMemo(() => kitXZCenteredGeometry(geometry), [geometry]);
   const meshRef = useRef<THREE.InstancedMesh>(null);
 
   useLayoutEffect(() => {
@@ -470,7 +487,7 @@ function WallModuleInstances({ placements, geometry }: { placements: WallPlaceme
 
   if (placements.length === 0) return null;
   // Sombras (playtest histórico, ver comentario largo de DoorFrame/DoorLeaf más abajo): muros castean y reciben.
-  return <instancedMesh ref={meshRef} args={[geometry, kitMaterial, placements.length]} castShadow receiveShadow />;
+  return <instancedMesh ref={meshRef} args={[centeredGeometry, kitMaterial, placements.length]} castShadow receiveShadow />;
 }
 
 /** Convierte los `Obstacle` de muro de UNA sala en tramos (`WallSpan`, eje largo = el más largo del AABB) — usado por el modo mazmorra; el modo sala única (`SingleRoomView`) ya conoce sus 4 tramos de memoria y no pasa por aquí. */
@@ -556,11 +573,25 @@ function pickRockVariant(id: string): RockVariant {
   return ROCK_VARIANTS[hashId(id) % ROCK_VARIANTS.length];
 }
 
-/** Instancias de UNA variante de roca (mismo geometry para todas: requisito de InstancedMesh). */
+/**
+ * Instancias de UNA variante de roca (mismo geometry para todas: requisito de InstancedMesh).
+ *
+ * Corrección de CENTRO (mismo bug que `wall_half`, ver comentario largo de
+ * `WallModuleInstances`; medido en playtest 2026-08-06: las 3 variantes de
+ * roca NO nacen centradas en su `boundingBox` — `rocks` ≈(-0.09, 0),
+ * `rocks_small` ≈(-0.12, -0.13), `rocks_decorated` ≈(0.12, -0.01) — a
+ * diferencia de `column` y de todas las variantes de suelo, que sí están
+ * centradas). Esta función coloca cada roca por el centro de su AABB y
+ * ESCALA su footprint para encajarlo — con la geometría descentrada, ese
+ * desfase se multiplica por el factor de escala y la roca dibujada queda
+ * corrida respecto a su volumen de colisión. `kitXZCenteredGeometry`
+ * (kit-fit.ts) lo corrige una vez, antes del escalado de más abajo.
+ */
 function RockVariantInstances({ rocks, variant }: { rocks: Obstacle[]; variant: RockVariant }) {
   const geometry = kitGeometry(variant);
   const footprint = useMemo(() => kitBoxSize(geometry), [geometry]);
   const groundY = useMemo(() => kitGroundOffset(geometry), [geometry]);
+  const centeredGeometry = useMemo(() => kitXZCenteredGeometry(geometry), [geometry]);
   const meshRef = useRef<THREE.InstancedMesh>(null);
 
   useLayoutEffect(() => {
@@ -584,7 +615,7 @@ function RockVariantInstances({ rocks, variant }: { rocks: Obstacle[]; variant: 
   }, [rocks, footprint, groundY]);
 
   if (rocks.length === 0) return null;
-  return <instancedMesh ref={meshRef} args={[geometry, kitMaterial, rocks.length]} castShadow receiveShadow />;
+  return <instancedMesh ref={meshRef} args={[centeredGeometry, kitMaterial, rocks.length]} castShadow receiveShadow />;
 }
 
 /** Reparte una lista de obstáculos-roca entre sus hasta 3 variantes (una InstancedMesh por variante presente). */
@@ -768,6 +799,70 @@ function DoorStructures({ world }: { world: World }) {
   );
 }
 
+// ── Deduplicado de muros compartidos entre salas contiguas ─────────────────
+
+/**
+ * Clave de un AABB redondeada a la milésima de unidad. Dos muros que
+ * describen el MISMO bloque físico pueden llegar con un `double` distinto en
+ * el último bit (cada uno se calcula sumando el `origin` de SU sala — con su
+ * propio camino de redondeo de coma flotante durante la colocación — más un
+ * offset fijo, ver `dungeon.ts::makeWallSegment`), así que comparar con
+ * igualdad estricta los dejaría pasar como "distintos" por puro ruido de
+ * coma flotante. La milésima de unidad sobra de margen: el propio grosor de
+ * muro es 0.42 u, tres órdenes de magnitud mayor que ese ruido.
+ */
+function aabbKey(aabb: AABB): string {
+  const round = (n: number) => Math.round(n * 1000);
+  return `${round(aabb.minX)}:${round(aabb.maxX)}:${round(aabb.minY)}:${round(aabb.maxY)}`;
+}
+
+/**
+ * Quita, de una lista de obstáculos-muro de TODA la mazmorra, los que
+ * comparten AABB exacto con uno ya visto — el bloque físico que dos salas
+ * contiguas dibujan cada una por su cuenta cuando `ROOM_GAP === WALL_THICKNESS`
+ * (ver `dungeon-world.ts::doorGateAabb`: "los muros de ambas salas coinciden
+ * en el mismo bloque de grosor t"). Sin deduplicar, ese bloque compartido se
+ * dibuja DOS VECES exactas — dos superficies coplanares idénticas, el
+ * parpadeo (z-fighting) medido en playtest 2026-08-06.
+ *
+ * Qué instancia "gana" cuando hay duplicado: la PRIMERA que aparece en
+ * `world.obstacles`, orden estable y determinista entre recargas (los muros
+ * son estáticos durante la run, nunca cambia entre frames). La sala que
+ * "pierde" su copia conserva intacto su `Obstacle` de colisión — esto es
+ * capa de render pura, `world.obstacles` no se toca — solo deja de dibujar
+ * una malla que habría sido idéntica a la que ya dibuja la otra sala.
+ *
+ * LÍMITE CONOCIDO, deliberado (ver informe de la tarea, no se resuelve aquí):
+ * esto solo detecta duplicados EXACTOS, que es el caso dominante medido (dos
+ * salas conectadas del mismo ancho comparten el tramo entero, o un tramo
+ * partido igual por la misma puerta a ambos lados). Cuando dos salas vecinas
+ * NO comparten el mismo tamaño en el eje del muro compartido — dos salas de
+ * anchos distintos unidas por una puerta, o dos salas que ni siquiera están
+ * conectadas por puerta pero cuya rejilla las deja tocándose en una esquina —
+ * cada una recorta su propio hueco de forma distinta y el solape es solo
+ * PARCIAL: un AABB no es idéntico al otro, así que esta función no lo
+ * detecta y esa franja parcial sigue parpadeando. Medido en el dungeon de
+ * este playtest: existen (∼20 pares, casi todos esquinas de 0.42×0.42 entre
+ * salas que ni siquiera están conectadas por puerta, más un puñado de tramos
+ * más largos entre salas de anchos distintos) pero son un caso minoritario y
+ * de área pequeña frente al de los duplicados exactos, que es el que se
+ * reportó y el que se pidió arreglar. Resolverlos exigiría recortar
+ * geométricamente los AABB de dos salas entre sí (una resta booleana 2D de
+ * rectángulos) — una capa de complejidad nueva que no compensa para un caso
+ * residual tan pequeño.
+ */
+function dedupeWallObstacles(walls: Obstacle[]): Obstacle[] {
+  const seen = new Set<string>();
+  const result: Obstacle[] = [];
+  for (const wall of walls) {
+    const key = aabbKey(wall.aabb);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(wall);
+  }
+  return result;
+}
+
 // ── Agrupación por sala (mazmorra) ─────────────────────────────────────────
 
 function groupByRoomId(obstacles: Obstacle[]): Map<string, Obstacle[]> {
@@ -785,9 +880,14 @@ function groupByRoomId(obstacles: Obstacle[]): Map<string, Obstacle[]> {
 function DungeonStructureView({ world }: { world: World }) {
   const dungeon = world.dungeon;
   // Muros y rocas son estáticos durante la run: se calculan una vez por mundo.
+  // `dedupeWallObstacles` quita los muros que dos salas contiguas dibujarían
+  // por duplicado exacto sobre el mismo bloque físico (ver su comentario:
+  // bug de z-fighting playtest 2026-08-06) — ANTES de agrupar por sala, para
+  // que la sala "perdedora" de un bloque compartido ya no lo tenga en su
+  // lista al llegar a `RoomWalls`.
   const staticBoxes = useMemo(() => {
     return {
-      walls: world.obstacles.filter(isWallObstacle),
+      walls: dedupeWallObstacles(world.obstacles.filter(isWallObstacle)),
       rocks: world.obstacles.filter((o) => !isWallObstacle(o) && !isGateObstacle(o) && !isQueenColumnObstacle(o)),
     };
   }, [world]);
