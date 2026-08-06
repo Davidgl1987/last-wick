@@ -40,3 +40,25 @@ export function wallModuleLayout(length: number, moduleLength: number): { count:
   const scale = length / (count * moduleLength);
   return { count, scale };
 }
+
+/**
+ * Elige, entre dos longitudes de módulo candidatas — la de la familia
+ * elegida para la sala (`wall`/`wall_cracked`/`wall_broken`/`wall_arched`,
+ * ~3.36 u) y la de `wall_half` (~1.68 u, su hermana de medio tamaño) —, cuál
+ * de las dos deja MENOS estirado/compresión al cubrir un tramo de `length`
+ * con `wallModuleLayout` (encargo F2 de David, 2026-08-06: "wall_half para
+ * tramos cortos"). Un resto de muro junto a una puerta o una esquina rara vez
+ * es múltiplo del módulo grande, y a veces el módulo de MEDIO tamaño lo cubre
+ * con mucho menos deformación que forzar el módulo grande a encogerse hasta
+ * una fracción de su tamaño natural.
+ *
+ * Devuelve la longitud de módulo elegida, no un nombre de modelo: quien llama
+ * (`RoomView.tsx::RoomWalls`) ya sabe qué geometría corresponde a cada una —
+ * este helper solo decide CUÁL de las dos encaja mejor, sigue sin saber nada
+ * de three.js ni del kit.
+ */
+export function betterModuleLength(length: number, fullModuleLength: number, halfModuleLength: number): number {
+  const fullDeviation = Math.abs(wallModuleLayout(length, fullModuleLength).scale - 1);
+  const halfDeviation = Math.abs(wallModuleLayout(length, halfModuleLength).scale - 1);
+  return halfDeviation < fullDeviation ? halfModuleLength : fullModuleLength;
+}

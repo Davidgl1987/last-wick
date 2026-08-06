@@ -6,10 +6,12 @@
  * `test.environment: 'node'`) precisamente porque no depende de un navegador.
  *
  * La lista sale de `ls public/models/kaykit/*.gltf` (F0 ya dejó los ficheros
- * en el repo): 46 modelos, cada uno con su `.gltf` + `.bin` hermano, todos
+ * en el repo, pack completo de 283 modelos): los que aquí se registran son
+ * los que el juego PRECARGA, cada uno con su `.gltf` + `.bin` hermano, todos
  * referenciando la misma `dungeon_texture.png` por URI relativa. El test de
  * este módulo (`kit-models.test.ts`) comprueba que esta lista y el contenido
- * real de la carpeta no diverjan.
+ * real de la carpeta no diverjan (y que siga siendo un subconjunto — bastante
+ * menor — del pack completo, ver ese test).
  */
 
 export const KIT_MODELS = [
@@ -18,7 +20,6 @@ export const KIT_MODELS = [
   'barrel_large',
   'barrel_large_decorated',
   'barrel_small',
-  'barrier',
   'barrier_column',
   'barrier_corner',
   'barrier_half',
@@ -37,10 +38,10 @@ export const KIT_MODELS = [
   'column',
   'crate_large',
   'crate_small',
+  'floor_dirt_large',
   'floor_foundation_corner',
   'floor_foundation_front',
   'floor_tile_big_spikes',
-  'floor_tile_grate',
   'floor_tile_large',
   'floor_tile_large_rocks',
   'floor_tile_small',
@@ -48,6 +49,7 @@ export const KIT_MODELS = [
   'floor_tile_small_broken_B',
   'floor_tile_small_weeds_A',
   'floor_tile_small_weeds_B',
+  'floor_wood_large',
   'keg',
   'key_gold',
   'pillar',
@@ -60,8 +62,13 @@ export const KIT_MODELS = [
   'sword_shield',
   'table_medium',
   'torch_mounted',
+  'wall',
+  'wall_arched',
+  'wall_broken',
+  'wall_cracked',
   'wall_doorway',
-  'wall_gated',
+  'wall_doorway_scaffold',
+  'wall_half',
 ] as const;
 
 export type KitModelName = (typeof KIT_MODELS)[number];

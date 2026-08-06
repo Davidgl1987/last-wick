@@ -53,12 +53,12 @@ describe('KIT_MODELS ↔ public/models/kaykit/', () => {
 
 describe('kitModelUrl', () => {
   it('compone la ruta con un baseUrl con barra final (caso típico de import.meta.env.BASE_URL)', () => {
-    expect(kitModelUrl('barrier', './')).toBe('./models/kaykit/barrier.gltf');
+    expect(kitModelUrl('wall', './')).toBe('./models/kaykit/wall.gltf');
     expect(kitModelUrl('column', '/')).toBe('/models/kaykit/column.gltf');
   });
 
   it('compone la ruta igual con un baseUrl sin barra final', () => {
-    expect(kitModelUrl('barrier', '.')).toBe('./models/kaykit/barrier.gltf');
+    expect(kitModelUrl('wall', '.')).toBe('./models/kaykit/wall.gltf');
     expect(kitModelUrl('column', '')).toBe('/models/kaykit/column.gltf');
   });
 });
