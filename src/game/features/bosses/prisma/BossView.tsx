@@ -21,6 +21,7 @@
 import type { RefObject } from 'react';
 import type { Mesh } from 'three';
 import { prismaCoreMaterial, prismaGemGeometry, prismaGemMaterial, WEAPON_COLOR } from '@/game/render/assets';
+import { makeSilhouetteMaterial } from '@/game/render/occlusion-silhouette';
 import type { Enemy, World } from '@/game/world/types';
 
 /** Velocidad angular del "tartamudeo" de color durante el telegraph de cambio (~10Hz, en rad/s: 2π×10). */
@@ -29,6 +30,19 @@ const PRISMA_COLOR_TELEGRAPH_BLINK_SPEED = 63;
 const PRISMA_OVERLAP_BLINK_SPEED = 25;
 /** Velocidad angular de la órbita visual de las gemas del Prisma. */
 const PRISMA_GEM_ORBIT_SPEED = 1.4;
+
+/**
+ * Silueta de oclusión del núcleo (occlusion-silhouette.ts): MUTABLE, a
+ * diferencia de los otros 3 jefes — el Prisma se identifica por su color de
+ * ARMA activa (GDD §15.4, "en cada momento el Prisma tiene UN color activo"),
+ * así que perder ese color al quedar tapado por un muro sería perder
+ * justo la información que el jugador necesita para saber con qué arma
+ * dañarlo. Se actualiza en `applyPrismaBossFrame` en el mismo punto donde ya
+ * se resuelve `prismaCoreMaterial.color` (mismo patrón que
+ * `heroSilhouetteMaterial` siguiendo al arma activa en HeroView.tsx).
+ * Arranca en el mismo color inicial que `prismaCoreMaterial`.
+ */
+export const prismaSilhouetteMaterial = makeSilhouetteMaterial(WEAPON_COLOR.body.clone());
 
 /** Mapea el gate de arma ('ram'|'arrow'|'spell') al mismo color que `WEAPON_COLOR` del héroe ('ram'→'body'). */
 export function prismaWeaponColor(weapon: string): (typeof WEAPON_COLOR)['body'] {
@@ -69,6 +83,12 @@ export function applyPrismaBossFrame(params: {
     } else {
       prismaCoreMaterial.color.copy(activeColor);
     }
+    // Silueta de oclusión (ver comentario de cabecera de
+    // `prismaSilhouetteMaterial`): sigue SIEMPRE el color recién resuelto del
+    // núcleo, sea cual sea la rama de arriba (tartamudeo, solape o color
+    // fijo) — un único punto de sincronización en vez de repetir el copy en
+    // las 3 ramas.
+    prismaSilhouetteMaterial.color.copy(prismaCoreMaterial.color);
   }
 
   // Gemas orbitando el núcleo (silueta propia, distinta de cuernos/corona).

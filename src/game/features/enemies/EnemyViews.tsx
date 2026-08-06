@@ -112,11 +112,12 @@ import { DummyMesh } from '@/game/features/enemies/dummy/Mesh';
 import { ShooterMesh } from '@/game/features/enemies/shooter/Mesh';
 import { SpikeMesh } from '@/game/features/enemies/spike/Mesh';
 import { TrailMesh } from '@/game/features/enemies/trail/Mesh';
-import { ENEMY_LIGHT_INTENSITY_BOSS, EnemyLightsRig } from '@/game/features/enemies/EnemyLights';
-import { applyGuardianBossFrame, GuardianBossExtras } from '@/game/features/bosses/guardian/BossView';
-import { applyQueenBossFrame, QueenBossExtras } from '@/game/features/bosses/queen/BossView';
-import { applyPrismaBossFrame, PrismaBossExtras } from '@/game/features/bosses/prisma/BossView';
-import { applyStormBossFrame, StormBossExtras } from '@/game/features/bosses/storm/BossView';
+import { ENEMY_LIGHT_COLOR, ENEMY_LIGHT_INTENSITY_BOSS, EnemyLightsRig } from '@/game/features/enemies/EnemyLights';
+import { makeSilhouetteMaterial, SILHOUETTE_RENDER_ORDER } from '@/game/render/occlusion-silhouette';
+import { applyGuardianBossFrame, GuardianBossExtras, guardianSilhouetteMaterial } from '@/game/features/bosses/guardian/BossView';
+import { applyQueenBossFrame, QueenBossExtras, queenSilhouetteMaterial } from '@/game/features/bosses/queen/BossView';
+import { applyPrismaBossFrame, PrismaBossExtras, prismaSilhouetteMaterial } from '@/game/features/bosses/prisma/BossView';
+import { applyStormBossFrame, StormBossExtras, stormSilhouetteMaterial } from '@/game/features/bosses/storm/BossView';
 
 const ENEMY_MATERIAL: Record<EnemyKind, Material> = {
   dummy: dummyMaterial,
@@ -125,6 +126,39 @@ const ENEMY_MATERIAL: Record<EnemyKind, Material> = {
   trail: trailMaterial,
   shooter: shooterMaterial,
   boss: bossBodyMaterial,
+};
+
+/**
+ * Silueta de oclusión por arquetipo (occlusion-silhouette.ts): NO clona el
+ * `.color` de `ENEMY_MATERIAL` (bug encontrado en verificación visual,
+ * 2026-08-06) — `assets-dark.ts` es el ÚNICO modo de render del juego hoy y
+ * oscurece el cuerpo Lambert de CASI todos los arquetipos a un tono casi
+ * negro (p. ej. `chaserMaterial` → `#0d0c12`, ver su cabecera: "figura alta y
+ * fina, CASI NEGRA"), a propósito, para que solo se lea bajo luz cercana. Si
+ * la silueta clonara ese color heredaría el mismo casi-negro y sería
+ * invisible sobre un muro oscuro — literalmente lo comprobado en pantalla:
+ * cero contraste. Lo que de verdad identifica a cada arquetipo hoy, GDD §14,
+ * es el EMISSIVE de sus ojos (`dummyEyeGlowMaterial`/`chaserEyeGlowMaterial`/
+ * etc., assets-dark.ts), que su propia cabecera documenta como "el mismo
+ * color que su charco" — es decir, exactamente `ENEMY_LIGHT_COLOR`
+ * (EnemyLights.tsx), ya exportado y usado por el charco/luz de cada
+ * arquetipo. Reutilizarlo aquí evita duplicar hex a mano y garantiza que
+ * silueta, ojos y charco cuenten siempre el mismo color. `trail` es la única
+ * excepción real: su cuerpo NO se oscurece (se aclara a `#cfc4e8`, ver
+ * assets-dark.ts), así que su `ENEMY_LIGHT_COLOR` (pálido violeta, mismo
+ * espíritu) sigue siendo válido. `boss` es el material GENÉRICO (jefe sin
+ * acento propio, p. ej. `test-boss`); los 4 jefes con composición propia
+ * (guardián/reina/prisma/tormenta) tienen el suyo, ver `silhouetteMaterialFor`
+ * más abajo. Un material por TIPO, creado una vez al cargar el módulo, nunca
+ * por instancia ni por frame (misma política que `ENEMY_MATERIAL`).
+ */
+const ENEMY_SILHOUETTE_MATERIAL: Record<EnemyKind, Material> = {
+  dummy: makeSilhouetteMaterial(ENEMY_LIGHT_COLOR.dummy),
+  chaser: makeSilhouetteMaterial(ENEMY_LIGHT_COLOR.chaser),
+  spike: makeSilhouetteMaterial(ENEMY_LIGHT_COLOR.spike),
+  trail: makeSilhouetteMaterial(ENEMY_LIGHT_COLOR.trail),
+  shooter: makeSilhouetteMaterial(ENEMY_LIGHT_COLOR.shooter),
+  boss: makeSilhouetteMaterial(ENEMY_LIGHT_COLOR.boss),
 };
 
 // Luz MÓVIL de enemigo (recorte de ~43 a 7 luces reales, rama
@@ -152,6 +186,25 @@ function restingBodyMaterial(kind: EnemyKind, bossId: BossId | undefined): Mater
   // stormReloadCoreMaterial mientras está en RELOAD (ver useFrame de abajo).
   if (kind === 'boss' && bossId === 'storm') return stormBodyMaterial;
   return ENEMY_MATERIAL[kind];
+}
+
+/**
+ * Silueta "en reposo" del cuerpo: mismo criterio de selección que
+ * `restingBodyMaterial` de arriba, pero devolviendo el material de SILUETA
+ * en vez del real. El Prisma es el único de los 4 jefes con silueta MUTABLE:
+ * `prismaSilhouetteMaterial` se actualiza cada frame dentro de
+ * `applyPrismaBossFrame` (bosses/prisma/BossView.tsx), igual que
+ * `heroSilhouetteMaterial` sigue al arma activa en HeroView.tsx — el resto
+ * (guardián/reina/tormenta) usa un color fijo, porque su cuerpo tampoco
+ * cambia de color de forma permanente (solo lo intercambian brevemente
+ * durante telegraph/recarga, que la silueta no necesita replicar).
+ */
+function silhouetteMaterialFor(kind: EnemyKind, bossId: BossId | undefined): Material {
+  if (kind === 'boss' && bossId === 'guardian') return guardianSilhouetteMaterial;
+  if (kind === 'boss' && bossId === 'queen') return queenSilhouetteMaterial;
+  if (kind === 'boss' && bossId === 'prisma') return prismaSilhouetteMaterial;
+  if (kind === 'boss' && bossId === 'storm') return stormSilhouetteMaterial;
+  return ENEMY_SILHOUETTE_MATERIAL[kind];
 }
 
 /** true si este id de enemigo es una larva de la Reina del Enjambre (GDD §15.3): mini-dummy, escala menor. */
@@ -484,7 +537,18 @@ function EnemyMesh({
         geometry={unitSphere}
         material={restingBodyMaterial(kind, bossId)}
         scale={bodyScaleForKind(kind)}
-      />
+      >
+        {/*
+          Silueta de oclusión (occlusion-silhouette.ts): MISMA geometría,
+          HIJA del cuerpo para heredar gratis su escala/deformaciones —
+          estática por arquetipo (bodyScaleForKind), mutada en useFrame para
+          jefe/larva (bodyRadius) o para el squash del Trail (TrailMesh
+          escribe directamente en bodyRef.scale) — sin replicar ninguna de
+          las tres a mano, mismo patrón que la silueta del héroe en
+          HeroView.tsx. Solo se ve donde algo tape al enemigo.
+        */}
+        <mesh geometry={unitSphere} material={silhouetteMaterialFor(kind, bossId)} renderOrder={SILHOUETTE_RENDER_ORDER} />
+      </mesh>
       <mesh
         ref={shadowRef}
         geometry={unitCircle}

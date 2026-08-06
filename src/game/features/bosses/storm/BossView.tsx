@@ -69,7 +69,26 @@ import {
 } from '@/game/features/bosses/storm/machine-constants';
 import { stormState } from '@/game/features/bosses/storm/pattern';
 import type { StormState } from '@/game/features/bosses/storm/patterns';
+import { ENEMY_LIGHT_COLOR } from '@/game/features/enemies/EnemyLights';
+import { makeSilhouetteMaterial } from '@/game/render/occlusion-silhouette';
 import type { Enemy, World } from '@/game/world/types';
+
+/**
+ * Silueta de oclusión de La Tormenta (occlusion-silhouette.ts): NO clona
+ * `stormBodyMaterial.color` (mismo bug de fondo documentado en
+ * EnemyViews.tsx) — `assets-dark.ts` oscurece el cuerpo a `#20242e`, casi
+ * negro, invisible sobre un muro oscuro. A diferencia del Guardián/Reina, La
+ * Tormenta NO tiene un acento emissive propio (ver comentario explícito en
+ * assets-dark.ts: "El Prisma y La Tormenta se quedan SIN acento emissive
+ * propio... a valorar aparte"), así que no hay un color "ya usado" más
+ * brillante al que recurrir sin inventar uno — se reutiliza el dorado
+ * genérico de jefe (`ENEMY_LIGHT_COLOR.boss`, EnemyLights.tsx, el mismo tono
+ * de su propia pointLight) en su lugar. La pose de recarga
+ * (`stormReloadCoreMaterial`, tono pálido) ya se lee por el halo verde
+ * uniforme que la acompaña, no hace falta que la silueta también cambie de
+ * color para esa misma señal.
+ */
+export const stormSilhouetteMaterial = makeSilhouetteMaterial(ENEMY_LIGHT_COLOR.boss);
 
 /**
  * Opacidad "plena" del halo por patrón durante telegraph/ejecución (índice =

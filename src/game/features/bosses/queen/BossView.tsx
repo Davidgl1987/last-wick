@@ -16,8 +16,28 @@
 
 import type { RefObject } from 'react';
 import type { Mesh } from 'three';
-import { queenCrownMaterial, queenCrownSpikeGeometry, queenSummonPulseMaterial, unitCircle } from '@/game/render/assets';
+import {
+  queenCrownMaterial,
+  queenCrownSpikeGeometry,
+  queenSummonPulseMaterial,
+  unitCircle,
+} from '@/game/render/assets';
+import { makeSilhouetteMaterial } from '@/game/render/occlusion-silhouette';
 import type { Enemy, World } from '@/game/world/types';
+
+/**
+ * Silueta de oclusión de la Reina (occlusion-silhouette.ts): NO clona
+ * `queenBodyMaterial.color` (mismo bug de fondo documentado en
+ * EnemyViews.tsx) — `assets-dark.ts` oscurece el cuerpo a `#221f2a`, casi
+ * negro, invisible sobre un muro oscuro. Lo que de verdad identifica a la
+ * Reina en la oscuridad hoy es el acento verdoso de su corona
+ * (`queenCrownMaterial`, `emissive: '#9fd65c'`, ver assets-dark.ts) — se
+ * clona ESE color en su lugar. Fija por el mismo motivo que el Guardián: sus
+ * intercambios de material (telegraph/carga de las larvas guardianas) son
+ * avisos temporales que ya se leen por sus propios efectos, no por el color
+ * del cuerpo de la propia Reina.
+ */
+export const queenSilhouetteMaterial = makeSilhouetteMaterial(queenCrownMaterial.emissive.clone());
 
 export function applyQueenBossFrame(params: {
   enemy: Enemy;

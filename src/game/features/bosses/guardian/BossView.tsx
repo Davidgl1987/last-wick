@@ -26,7 +26,24 @@ import {
   guardianStunStarMaterial,
   guardianTelegraphGlowMaterial,
 } from '@/game/render/assets';
+import { makeSilhouetteMaterial } from '@/game/render/occlusion-silhouette';
 import type { Enemy, World } from '@/game/world/types';
+
+/**
+ * Silueta de oclusión del Guardián (occlusion-silhouette.ts): NO clona
+ * `guardianBodyMaterial.color` (mismo bug de fondo que en EnemyViews.tsx,
+ * ver su comentario extenso) — `assets-dark.ts` oscurece el cuerpo pétreo a
+ * `#242229`, casi negro, así que una silueta de ese color sería invisible
+ * sobre un muro oscuro. Lo que de verdad identifica al Guardián en la
+ * oscuridad hoy es el ACENTO dorado de sus cuernos (`guardianHornMaterial`,
+ * `emissive: '#d9a531'`, ver assets-dark.ts) — se clona ESE color en su
+ * lugar. Fija: el brillo ámbar del telegraph (`guardianTelegraphGlowMaterial`)
+ * es un aviso TEMPORAL que ya cubre el anillo genérico de telegraph, no hace
+ * falta que la silueta también lo siga — mismo criterio de alcance que
+ * HeroView (que tampoco replica el parpadeo de i-frames en el color, solo en
+ * visibilidad, heredada gratis del padre).
+ */
+export const guardianSilhouetteMaterial = makeSilhouetteMaterial(guardianHornMaterial.emissive.clone());
 
 export function applyGuardianBossFrame(params: {
   enemy: Enemy;
