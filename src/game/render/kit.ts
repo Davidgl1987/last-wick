@@ -103,7 +103,30 @@ export const kitMaterial = new THREE.MeshLambertMaterial({ map: kitTexture, colo
  * Sin tinte a propósito (a diferencia de `kitMaterial`): estas piezas tienen
  * que destacar sobre la piedra, no fundirse con ella.
  */
-export const kitWarmMaterial = new THREE.MeshLambertMaterial({ map: loadKitAtlas('dungeon_texture_original.png') });
+const kitWarmTexture = loadKitAtlas('dungeon_texture_original.png');
+
+export const kitWarmMaterial = new THREE.MeshLambertMaterial({ map: kitWarmTexture });
+
+/**
+ * Variante AUTOILUMINADA del material cálido, para los objetos recogibles
+ * (moneda y poción). Concilia dos peticiones de playtest que a primera vista
+ * se pelean: "que tengan un poco de luz o sean emissive" y, después, "sin
+ * tinte, la misma paleta que el barril".
+ *
+ * La clave es `emissiveMap`: el emisivo se modula con la MISMA textura, así
+ * que cada pieza brilla en sus propios colores (el oro de la moneda sigue
+ * siendo oro) en vez de lavarse bajo una capa de color plano, que es lo que
+ * pasaría con un `emissive` a secas sobre una pieza multicolor.
+ *
+ * No ilumina nada a su alrededor — es autoiluminación, no una luz —, así que
+ * el presupuesto de 7 luces + 1 sombra sigue intacto.
+ */
+export const kitWarmGlowMaterial = new THREE.MeshLambertMaterial({
+  map: kitWarmTexture,
+  emissiveMap: kitWarmTexture,
+  emissive: new THREE.Color('#ffffff'),
+  emissiveIntensity: 0.4,
+});
 
 // ── Carga y caché de geometría ─────────────────────────────────────────
 

@@ -11,18 +11,32 @@
  *   `COIN_RADIUS` (no a `KIT_SCALE`: es un objeto de juego con tamaño propio
  *   ya ajustado a recogida/legibilidad, ART_KIT_PLAN.md §2). Sigue girando
  *   sobre su eje vertical con el tiempo del mundo (determinista).
- * - Poción (punto 10): `bottle_A_labeled_green` del kit en vez del frasco
- *   compuesto (esfera+cuello+tapón) de antes; escalada para ocupar
- *   exactamente la misma altura que el frasco que sustituye.
+ * - Poción (punto 10): frasco del kit (`POTION_MODEL`, el más ancho del pack)
+ *   en vez del frasco compuesto (esfera+cuello+tapón) de antes; escalado para
+ *   ocupar exactamente la misma altura que el que sustituye.
  * - Llave: `key_gold` del kit en vez del cubo dorado; necesita una corrección
  *   de geometría ÚNICA (ver `KeyShape`) porque nace pensada para colgar de
  *   un gancho, no para verse desde la cámara cenital del juego.
  *
- * Las tres formas usan la GEOMETRÍA del kit pero materiales PLANOS propios,
- * no el `kitMaterial` compartido: su color es información de juego y el atlas
- * NightA lo borraría (ver el bloque de materiales más abajo, con el porqué
- * completo). El tendero es F5 y sigue con sus materiales de `assets.ts`. El
- * grupo por item se muta en useFrame (posición de bob + rotación), cero
+ * Materiales, y son tres criterios distintos a propósito (ver el bloque de
+ * materiales más abajo): la LLAVE lleva material plano con su dorado de
+ * siempre, porque su color es información pura; la MONEDA y la POCIÓN llevan
+ * la paleta cálida del kit autoiluminada (`kitWarmGlowMaterial`), que les da
+ * su oro y su cristal reales y además las hace visibles lejos de la vela; y
+ * NINGUNA usa el `kitMaterial` azul de la arquitectura, que las volvería del
+ * mismo color que el suelo.
+ *
+ * Tendero (F5, ART_KIT_PLAN.md §5): el kit NO trae personajes (§1), así que el
+ * cono+esfera placeholder se sustituye por un PUESTO — `bartop_A_medium`
+ * (mostrador) + `shelves_decorated` (estantería detrás) + `chest_gold` (caja),
+ * ver `ShopkeeperShape`. Usa `kitWarmMaterial` (atlas ORIGINAL del pack,
+ * madera/dorados), no `kitMaterial`: con la paleta nocturna azul un mostrador
+ * de madera se fundía con el muro de detrás, mismo problema ya resuelto para
+ * el barril (`kitWarmMaterial` en render/kit.ts). El `GlowPuddle` a los pies
+ * del tendero vive en `TorchPropsView.tsx` (posicionado por `item.position`,
+ * independiente de esta geometría) y no se toca.
+ *
+ * El grupo por item se muta en useFrame (posición de bob + rotación), cero
  * asignaciones.
  */
 
@@ -32,9 +46,8 @@ import * as THREE from 'three';
 import type { Group } from 'three';
 import type { GameSession } from '@/game/session/session';
 import type { Item } from '@/game/world/types';
-import { shopkeeperHeadMaterial, shopkeeperRobeMaterial, unitCone, unitSphere } from '@/game/render/assets';
-import { kitGeometry } from '@/game/render/kit';
-import { kitBoxSize, kitGroundOffset } from '@/game/render/kit-fit';
+import { kitGeometry, kitWarmGlowMaterial, kitWarmMaterial } from '@/game/render/kit';
+import { kitBoxSize, kitGroundOffset, kitXZCenterOffset } from '@/game/render/kit-fit';
 
 const ITEM_HEIGHT: Record<Item['kind'], number> = { coin: 0.3, potion: 0.32, key: 0.3, shopkeeper: 0 };
 /** Radio visual de la moneda (antes diámetro del cilindro plano de assets.ts; se conserva igual con la pieza del kit). */
@@ -75,6 +88,16 @@ const POTION_BASE_OFFSET = -0.24;
 const KEY_SIZE = 0.4;
 
 /**
+ * Frasco de la poción: el MÁS ANCHO del pack (petición de David, 2026-08-05:
+ * "usar la que es más ancha"). `bottle_C_green` mide 0.74 de ancho frente a
+ * los 0.37 de `bottle_A_labeled_green`, que era el que llevaba desde F4 y se
+ * leía como un tubito desde la cámara cenital. Al escalarse por ALTURA (ver
+ * `PotionShape`), el frasco ancho ocupa la misma altura que antes pero el
+ * doble de huella en planta, que es justo lo que se ve desde arriba.
+ */
+const POTION_MODEL = 'bottle_C_green';
+
+/**
  * Materiales PLANOS (sin el atlas del kit) de los objetos recogibles — la
  * excepción al "un solo material para todo el kit" (`kitMaterial`), y por un
  * motivo de LEGIBILIDAD, no estético.
@@ -90,8 +113,9 @@ const KEY_SIZE = 0.4;
  * Y no vale con teñir un clon de `kitMaterial` (que es lo que hace el portón
  * de llave en RoomView.tsx): `material.color` MULTIPLICA el mapa, así que
  * puede oscurecer o desaturar lo que el atlas ya tiene, pero no puede añadir
- * un color que la textura no lleva — rosa × turquesa da barro, no rosa. Por
- * eso estos tres materiales renuncian al mapa y llevan el color plano.
+ * un color que la textura no lleva — rosa × turquesa da barro, no rosa. De ahí
+ * las dos salidas que se usan hoy: material plano (la llave) o el atlas
+ * ORIGINAL del pack, que sí trae oro y cristal (la moneda y la poción).
  *
  * Lo que se pierde con ello es menos de lo que parece: el atlas del kit es una
  * paleta de degradados planos (ART_KIT_PLAN §1), no una textura de detalle —
@@ -133,9 +157,19 @@ function flatItemMaterial(color: string): THREE.MeshLambertMaterial {
     emissiveIntensity: ITEM_EMISSIVE_INTENSITY,
   });
 }
-const coinKitMaterial = flatItemMaterial('#ffd166');
+/**
+ * La LLAVE sigue con material plano y su dorado de siempre: es el objeto más
+ * crítico de la mazmorra (sin él no se abre la puerta del jefe) y su color es
+ * información pura, no decoración.
+ *
+ * Moneda y poción, en cambio, pasan a la paleta CÁLIDA del kit (petición de
+ * David, 2026-08-05: "la moneda tampoco hace falta tintarla, se podría
+ * utilizar la misma paleta que con el barril" y "la poción podemos utilizarla
+ * sin tinte"): el atlas original del pack ya trae el oro de la moneda y el
+ * cristal del frasco, con más de un color por pieza — algo que un material
+ * plano no puede dar. Ver `kitWarmMaterial` en render/kit.ts.
+ */
 const keyKitMaterial = flatItemMaterial('#ffe082');
-const potionKitMaterial = flatItemMaterial('#ff6bcb');
 
 function CoinShape({ receiveShadow }: { receiveShadow: boolean }) {
   const geometry = kitGeometry('coin');
@@ -147,25 +181,111 @@ function CoinShape({ receiveShadow }: { receiveShadow: boolean }) {
   // sobre Z que aplica ItemMesh (canto visible al voltear) sigue
   // funcionando sin corregir nada en la geometría.
   const scale = (COIN_RADIUS * 2) / nativeSize.x;
-  return <mesh geometry={geometry} material={coinKitMaterial} scale={scale} receiveShadow={receiveShadow} />;
+  return <mesh geometry={geometry} material={kitWarmGlowMaterial} scale={scale} receiveShadow={receiveShadow} />;
 }
 
-/** Tendero placeholder (docs/plans/ECONOMY_PLAN.md F4): túnica cónica + cabeza esférica, estático (sin bob/giro). */
+/**
+ * Ancho objetivo (eje X, u de juego) del mostrador — el punto de partida de
+ * todo el resto de escalas del puesto (shelf y cofre se dimensionan relativos
+ * a él, ver más abajo). Elegido para que la HUELLA total del puesto (los tres
+ * props juntos, ver `ShopkeeperShape`) no supere el doble de área de la que
+ * ocupaba el placeholder cónico que sustituye — nunca el triple, que es el
+ * límite que puso David tras el playtest F5 ("no vale triplicar la superficie
+ * sólida aparente que la bola atraviesa"): el cono medía radio 0.35 (0.7 de
+ * diámetro, `unitCone` escalado [0.7,1.4,0.7] en el historial de este
+ * fichero); la huella rectangular de mostrador+estantería+cofre con estos
+ * tres anchos sale ≈1.13×0.72 u (≈0.81 u², frente a los ≈0.49 u² del cuadrado
+ * que envolvía el cono: ×1.66, no ×3) — verificado a mano contra el
+ * `boundingBox` real de las tres piezas, no una cifra de fábrica.
+ */
+const STALL_COUNTER_WIDTH = 0.85;
+/** Ancho objetivo de la estantería, ligeramente menor que el mostrador (se lee como fondo, no como pieza principal). */
+const STALL_SHELF_WIDTH = 0.8;
+/** Ancho objetivo del cofre — deliberadamente pequeño (una caja de cobros junto al mostrador, no el "tesoro" que sugiere su nombre de fábrica). */
+const STALL_CHEST_WIDTH = 0.4;
+/** Desplazamiento en Z del mostrador respecto al ancla del puesto (el punto de interacción, GDD/ECONOMY_PLAN F4): un pelín hacia +Z para dejar sitio a la estantería detrás sin que se toquen. */
+const STALL_COUNTER_OFFSET_Z = 0.15;
+/** Desplazamiento en Z de la estantería: detrás del mostrador (-Z), separada lo bastante para no solaparse con su profundidad. */
+const STALL_SHELF_OFFSET_Z = -0.32;
+/** Desplazamiento en X/Z del cofre: al lado del mostrador, a ras de suelo. */
+const STALL_CHEST_OFFSET_X = 0.5;
+const STALL_CHEST_OFFSET_Z = 0.05;
+
+/**
+ * Puesto del tendero (F5, ART_KIT_PLAN.md §5): el pack KayKit no trae
+ * personajes (§1), así que el cono+esfera de antes (ver historial de este
+ * fichero) se sustituye por un puesto de mercado sin figura humana —
+ * mostrador + estantería + cofre, los tres con `kitWarmMaterial` (madera y
+ * dorados; con la paleta nocturna del `kitMaterial` de piedra, un mostrador de
+ * madera se fundía con el muro de detrás, mismo problema que ya resolvió el
+ * barril explosivo, ver `kitWarmMaterial` en render/kit.ts).
+ *
+ * Estático (sin bob/giro, como el placeholder que sustituye): `ItemMesh` ya
+ * fuerza `rotation.set(0,0,0)` para `kind==='shopkeeper'`.
+ *
+ * `bartop_A_medium`/`shelves_decorated` NO nacen centradas en Z (pensadas
+ * para montarse contra una pared, con la cara de anclaje pegada a Z≈0 y el
+ * volumen sobresaliendo hacia un lado — verificado contra su `.gltf`):
+ * `kitXZCenterOffset` las recentra antes de aplicar los desplazamientos de
+ * `STALL_*_OFFSET_Z` de arriba, para que esos números coloquen el CENTRO real
+ * de cada pieza donde dicen, no un punto arbitrario de su malla.
+ *
+ * El punto de interacción (donde `stepShopkeeperContact` abre la tienda,
+ * features/items/items.ts) sigue siendo `item.position` sin cambios — el
+ * mostrador se centra ahí (con un pequeño offset hacia +Z, ver
+ * `STALL_COUNTER_OFFSET_Z`) para que "aquí se compra" se siga leyendo de un
+ * vistazo, igual que antes con el cono.
+ */
 function ShopkeeperShape({ receiveShadow }: { receiveShadow: boolean }) {
+  const counterGeometry = kitGeometry('bartop_A_medium');
+  const counterSize = useMemo(() => kitBoxSize(counterGeometry), [counterGeometry]);
+  const counterGroundY = useMemo(() => kitGroundOffset(counterGeometry), [counterGeometry]);
+  const counterCenter = useMemo(() => kitXZCenterOffset(counterGeometry), [counterGeometry]);
+  const counterScale = STALL_COUNTER_WIDTH / counterSize.x;
+
+  const shelfGeometry = kitGeometry('shelves_decorated');
+  const shelfSize = useMemo(() => kitBoxSize(shelfGeometry), [shelfGeometry]);
+  const shelfGroundY = useMemo(() => kitGroundOffset(shelfGeometry), [shelfGeometry]);
+  const shelfCenter = useMemo(() => kitXZCenterOffset(shelfGeometry), [shelfGeometry]);
+  const shelfScale = STALL_SHELF_WIDTH / shelfSize.x;
+
+  const chestGeometry = kitGeometry('chest_gold');
+  const chestSize = useMemo(() => kitBoxSize(chestGeometry), [chestGeometry]);
+  const chestGroundY = useMemo(() => kitGroundOffset(chestGeometry), [chestGeometry]);
+  const chestScale = STALL_CHEST_WIDTH / chestSize.x;
+
   return (
     <group>
       <mesh
-        geometry={unitCone}
-        material={shopkeeperRobeMaterial}
-        scale={[0.7, 1.4, 0.7]}
-        position={[0, 0.5, 0]}
+        geometry={counterGeometry}
+        material={kitWarmMaterial}
+        position={[
+          counterCenter.x * counterScale,
+          counterGroundY * counterScale,
+          STALL_COUNTER_OFFSET_Z + counterCenter.z * counterScale,
+        ]}
+        scale={counterScale}
+        castShadow
         receiveShadow={receiveShadow}
       />
       <mesh
-        geometry={unitSphere}
-        material={shopkeeperHeadMaterial}
-        scale={0.32}
-        position={[0, 1.35, 0]}
+        geometry={shelfGeometry}
+        material={kitWarmMaterial}
+        position={[
+          shelfCenter.x * shelfScale,
+          shelfGroundY * shelfScale,
+          STALL_SHELF_OFFSET_Z + shelfCenter.z * shelfScale,
+        ]}
+        scale={shelfScale}
+        castShadow
+        receiveShadow={receiveShadow}
+      />
+      <mesh
+        geometry={chestGeometry}
+        material={kitWarmMaterial}
+        position={[STALL_CHEST_OFFSET_X, chestGroundY * chestScale, STALL_CHEST_OFFSET_Z]}
+        scale={chestScale}
+        castShadow
         receiveShadow={receiveShadow}
       />
     </group>
@@ -173,7 +293,7 @@ function ShopkeeperShape({ receiveShadow }: { receiveShadow: boolean }) {
 }
 
 function PotionShape({ receiveShadow }: { receiveShadow: boolean }) {
-  const geometry = kitGeometry('bottle_A_labeled_green');
+  const geometry = kitGeometry(POTION_MODEL);
   const nativeSize = useMemo(() => kitBoxSize(geometry), [geometry]);
   const groundY = useMemo(() => kitGroundOffset(geometry), [geometry]);
   // Escala UNIFORME (mismo criterio que barrel_small/torch_mounted en
@@ -185,7 +305,7 @@ function PotionShape({ receiveShadow }: { receiveShadow: boolean }) {
   return (
     <mesh
       geometry={geometry}
-      material={potionKitMaterial}
+      material={kitWarmGlowMaterial}
       // `groundY` alinea la base REAL del frasco (su boundingBox, casi 0: el
       // modelo ya apoya en su propio min.y) con el ancla del grupo; sumar
       // `POTION_BASE_OFFSET` reproduce dónde caía esa base con la forma
