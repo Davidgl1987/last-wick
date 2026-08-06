@@ -25,6 +25,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import { Color, Quaternion, Vector3, type BufferGeometry, type Group, type Mesh } from 'three';
 import { dampAngleTowards } from '@/engine/geometry';
 import { kitGeometry } from '@/game/render/kit';
+import { makeSilhouetteMaterial, SILHOUETTE_RENDER_ORDER } from '@/game/render/occlusion-silhouette';
 import { HERO_RADIUS } from './constants';
 import { PIT_FALL_DURATION } from '@/game/features/hazards/constants';
 import { HERO_WAX_EMIT_DISTANCE } from '@/game/features/effects/wax';
@@ -50,6 +51,15 @@ import {
   HERO_WAX_COLOR,
 } from '@/game/render/assets-dark';
 import { boulderScaleFactor, cometStretchFactor, shieldBubbleOpacity, spikeCountForLevel } from './upgrade-visuals';
+
+/**
+ * Silueta del héroe a través de lo que lo tape (ver `occlusion-silhouette.ts`
+ * para el truco de `GreaterDepth`). Su color sigue al del arma activa, igual
+ * que la llama y el punto de puntería: si la silueta se quedara de un color
+ * fijo, sería la única pieza del héroe que no responde al arma, y el color de
+ * arma es justo lo que el jugador usa para saber con qué está disparando.
+ */
+const heroSilhouetteMaterial = makeSilhouetteMaterial(WEAPON_COLOR.body.clone());
 
 /** Frecuencia del parpadeo de invulnerabilidad (alternancias por segundo). */
 const IFRAME_BLINK_HZ = 12;
@@ -564,6 +574,7 @@ export function HeroView({ session }: { session: GameSession }) {
     const colorK = 1 - Math.exp(-WEAPON_COLOR_LERP_STIFFNESS * delta);
     candleFlameMaterial.emissive.lerp(targetColor, colorK);
     aimDotMaterial.color.lerp(targetColor, colorK);
+    heroSilhouetteMaterial.color.lerp(targetColor, colorK);
 
     // Cambio de arma: burst de partículas del color NUEVO alrededor del
     // héroe (feedback inmediato, independiente del lerp de color que sigue
@@ -789,6 +800,14 @@ export function HeroView({ session }: { session: GameSession }) {
     <>
       <group ref={candleTiltGroupRef}>
         <mesh ref={bodyRef} geometry={heroCandleGeometry} material={heroMaterial} scale={HERO_RADIUS}>
+          {/*
+            Silueta de oclusión: MISMA geometría, como HIJA del cuerpo para
+            heredar gratis su escala, su squash/stretch y su parpadeo de
+            i-frames — si viviera fuera habría que replicar los cuatro en cada
+            frame y podría desincronizarse. Solo se ve donde algo tapa al
+            héroe (ver occlusion-silhouette.ts).
+          */}
+          <mesh geometry={heroCandleGeometry} material={heroSilhouetteMaterial} renderOrder={SILHOUETTE_RENDER_ORDER} />
           {/* Pinchos del Erizo de Acero (F5): 12 pre-creados, visibilidad por nivel. */}
           {SPIKE_DIRECTIONS.map((_, i) => (
             <mesh
