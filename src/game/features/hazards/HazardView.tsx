@@ -43,7 +43,7 @@ import { pushEvent } from '@/engine/events';
 import { barrelInAir, type HazardSpawn, type World } from '@/game/world/types';
 import { blobShadowMaterial, boostMaterial, mudMaterial, pitMaterial, scorchMaterial, unitCircle, unitPlane } from '@/game/render/assets';
 import { kitGeometry, kitGeometryPart, kitMaterial, kitWarmMaterial } from '@/game/render/kit';
-import { kitBoxSize, kitGroundOffset } from '@/game/render/kit-fit';
+import { kitBoxSize, kitGroundOffset, kitTopAlignOffset } from '@/game/render/kit-fit';
 import { wallModuleLayout } from '@/game/render/wall-modules';
 
 const HAZARD_QUAD_Y = 0.03;
@@ -82,15 +82,21 @@ const SPIKES_TILE_SCALE = 0.4;
  * debajo del diámetro del héroe (`HERO_RADIUS`×2 = 0.48 u, la referencia que
  * dio David en el encargo), con cuerpo suficiente para leerse como una púa
  * real y no un simple bulto.
+ *
+ * Subida de 0.34 a 0.42 en la segunda ronda de este mismo playtest ("no se ven
+ * los pinchos salir"): 0.34 quedaba por debajo del umbral en el que el
+ * movimiento se aprecia desde la cámara cenital. Sigue bajo el diámetro del
+ * héroe, que es el techo que puso David.
  */
-const SPIKE_EXPOSED_HEIGHT = 0.34;
+const SPIKE_EXPOSED_HEIGHT = 0.42;
 
 /**
- * Cuánto se hunden las púas bajo el suelo (y=0) cuando están totalmente
- * escondidas (u). No basta con bajarlas justo hasta y=0 (la punta quedaría a
- * ras de la losa, aún visible por los agujeros): este margen adicional las
- * deja claramente por debajo de la cara inferior de la losa, invisibles del
- * todo mientras están retraídas.
+ * Cuánto se hunden las púas por debajo de la cara INFERIOR real de la losa
+ * (no de y=0 — ver `slabThickness` en `SpikesNeedles`, que mide esa cara)
+ * cuando están totalmente escondidas (u). No basta con bajarlas justo hasta
+ * esa cara (la punta quedaría a ras de los agujeros, aún visible): este
+ * margen adicional las deja claramente por debajo, invisibles del todo
+ * mientras están retraídas.
  */
 const SPIKE_HIDE_DEPTH = 0.15;
 
@@ -108,19 +114,6 @@ const SPIKE_RISE_DURATION = 0.1;
  * amenaza se retira de forma perceptible, no de golpe.
  */
 const SPIKE_RETRACT_DURATION = 0.3;
-
-/**
- * Tamaño de celda objetivo (u) para la rejilla PROPIA de las púas —
- * deliberadamente MÁS densa que `SPIKES_TILE_SCALE` (la de la losa, que sigue
- * igual). Al encoger cada púa uniformemente hasta `SPIKE_EXPOSED_HEIGHT` (ver
- * `SpikesNeedles`), su diámetro se encoge en la misma proporción — de ≈1.85 u
- * (natural) a ≈0.37 u —, así que una sola púa diminuta por celda de losa
- * (1.34 u) dejaría huecos de suelo desnudo entre matojos sueltos en vez de
- * leerse como un campo continuo. Con 0.55 u de celda y colocación centrada
- * (sin estirar la geometría, a diferencia de la losa) las púas quedan
- * bastante juntas sin llegar a solaparse.
- */
-const SPIKE_CELL_SIZE = 0.55;
 
 /**
  * Igual que el criterio de daño de la sim (`circleOverlapsHazardRect`,
@@ -192,12 +185,20 @@ function isHazardTriggered(hazard: HazardSpawn, world: Pick<World, 'hero' | 'ene
 function SpikesFloorSlab({ hazard }: { hazard: HazardSpawn }) {
   const geometry = kitGeometryPart('floor_tile_big_spikes', 'floor_tile_big_spikes');
   const tileSize = useMemo(() => kitBoxSize(geometry), [geometry]);
-  // La losa SÍ apoya en su min.y (a diferencia de floor_tile_large/floor_tile_small,
-  // ver comentario de kitTopAlignOffset en kit-fit.ts): verificado contra su
-  // .gltf, la base de la losa va de y=-0.1 a y=+0.1 (unidades Blender, antes
-  // de KIT_SCALE) — así que el offset correcto es kitGroundOffset (alinear
-  // el mínimo a 0), igual que el resto de piezas que apoyan por su base.
-  const groundY = useMemo(() => kitGroundOffset(geometry), [geometry]);
+  // BUG playtest 2026-08-06 ("los pinchos parecen un pegado encima del
+  // suelo"): esto usaba `kitGroundOffset` (apoyar el MÍNIMO en y=0), partiendo
+  // de un comentario que resultó incorrecto. Verificado contra el `.gltf`
+  // (accessor POSITION del nodo `floor_tile_big_spikes`): su malla va de
+  // y=-0.1 a y=+0.1 (unidades Blender, SIMÉTRICA respecto a su pivote, no
+  // apoyada en 0 como se afirmaba) — con `kitGroundOffset` la pieza entera
+  // sube +0.1 u (×`KIT_SCALE`=0.84 → +0.084 u) y su cara superior queda en
+  // +0.168 u, no en 0. El suelo de la sala (RoomView.tsx) alinea su cara
+  // superior a y=0 con `kitTopAlignOffset` — con la losa 0.168 u más arriba
+  // que ese plano, quedaba flotando como una plataforma pegada encima del
+  // suelo, exactamente lo que describe David. Mismo criterio que el suelo:
+  // `kitTopAlignOffset` (cara superior, la transitable, a y=0), para que la
+  // losa quede ENRASADA con la baldosa de suelo de alrededor, sin escalón.
+  const topAlignY = useMemo(() => kitTopAlignOffset(geometry), [geometry]);
   const targetSize = tileSize.x * SPIKES_TILE_SCALE; // pieza cuadrada de fábrica (4×4): mismo objetivo en X y en Z
   const nx = Math.max(1, Math.ceil(hazard.width / targetSize));
   const nz = Math.max(1, Math.ceil(hazard.height / targetSize));
@@ -217,7 +218,7 @@ function SpikesFloorSlab({ hazard }: { hazard: HazardSpawn }) {
       for (let iz = 0; iz < nz; iz++) {
         const localX = -hazard.width / 2 + (ix + 0.5) * tileW;
         const localZ = -hazard.height / 2 + (iz + 0.5) * tileH;
-        scratch.position.set(hazard.position.x + localX, groundY, hazard.position.y + localZ);
+        scratch.position.set(hazard.position.x + localX, topAlignY, hazard.position.y + localZ);
         scratch.scale.set(scaleX, 1, scaleZ);
         scratch.updateMatrix();
         mesh.setMatrixAt(index++, scratch.matrix);
@@ -225,7 +226,7 @@ function SpikesFloorSlab({ hazard }: { hazard: HazardSpawn }) {
     }
     mesh.count = count;
     mesh.instanceMatrix.needsUpdate = true;
-  }, [hazard.width, hazard.height, hazard.position.x, hazard.position.y, nx, nz, count, tileSize, groundY]);
+  }, [hazard.width, hazard.height, hazard.position.x, hazard.position.y, nx, nz, count, tileSize, topAlignY]);
 
   return <instancedMesh ref={meshRef} args={[geometry, kitMaterial, count]} castShadow receiveShadow />;
 }
@@ -237,17 +238,21 @@ function SpikesFloorSlab({ hazard }: { hazard: HazardSpawn }) {
  * área del hazard), con disparo rápido (`SPIKE_RISE_DURATION`) y retracción
  * más lenta (`SPIKE_RETRACT_DURATION`).
  *
- * Posiciones/escala de cada instancia se fijan UNA vez (`useLayoutEffect`,
- * igual que `SpikesFloorSlab`): la rejilla de púas es su PROPIA rejilla, más
- * densa que la de la losa (`SPIKE_CELL_SIZE`, ver comentario de la
- * constante) y SIN estirar la geometría a la celda (a diferencia de la losa)
- * — cada púa conserva su proporción natural de aguja, solo encogida
- * uniformemente. `nx`/`nz` se calculan con `floor` (no `ceil`, al revés que
- * la losa): así la celda real (`hazard.width / nx`) nunca es MENOR que
- * `SPIKE_CELL_SIZE`, que a su vez se eligió con margen sobre el diámetro ya
- * encogido de la púa (≈0.37 u) — garantiza que ninguna púa, centrada en su
- * celda, pueda sobresalir del rectángulo exacto del hazard (requisito
- * CRÍTICO, punto 5 del encargo).
+ * Comparte EXACTAMENTE la rejilla de `SpikesFloorSlab` (misma cuenta de
+ * baldosas, misma celda, mismo estirado en X/Z), y esa es la clave de que la
+ * trampa se lea. Antes cada una tenía su propia rejilla —la losa con celda
+ * ~1.34 u y las púas con celda 0.55 u— y el resultado en pantalla era que la
+ * placa enseñaba ~25 agujeros mientras asomaban 4 púas sueltas por en medio:
+ * el disparo se perdía como ruido sobre el relieve de la losa ("no se ven los
+ * pinchos salir", playtest de David 2026-08-06). Losa y púas son los DOS
+ * NODOS DEL MISMO MODELO, así que tileadas igual cada púa sale por SU agujero
+ * — que es como el artista las modeló, y lo que David propuso literalmente:
+ * "cada baldosa con pinchos podría utilizar los dos modelos".
+ *
+ * Ninguna púa puede salirse del rectángulo del hazard: el nodo `spikes` ocupa
+ * ±1.1 de los ±2.0 que ocupa la losa (55%), así que escalado con la MISMA
+ * celda queda siempre holgadamente dentro de su baldosa — y las baldosas
+ * cubren el rectángulo exacto (requisito CRÍTICO del encargo original).
  *
  * El disparo/retracción NO mueve cada instancia por separado: las `count`
  * instancias se fijan con Y local 0 al construir la rejilla, y CADA FRAME se
@@ -258,14 +263,31 @@ function SpikesFloorSlab({ hazard }: { hazard: HazardSpawn }) {
 function SpikesNeedles({ hazard, world }: { hazard: HazardSpawn; world: Pick<World, 'hero' | 'enemies'> }) {
   const geometry = kitGeometryPart('floor_tile_big_spikes', 'spikes');
   const naturalSize = useMemo(() => kitBoxSize(geometry), [geometry]);
-  // Escala UNIFORME (no por eje): encoge la púa entera (altura Y y diámetro
-  // XZ a la vez) hasta que su altura natural (≈1.68 u) coincide con el
-  // objetivo del encargo. Igual criterio que BarrelMesh (mismo fichero):
-  // estirar solo un eje rompería la silueta de aguja del modelo.
-  const scale = useMemo(() => SPIKE_EXPOSED_HEIGHT / naturalSize.y, [naturalSize]);
+  // Escala NO uniforme, a propósito y al revés que en BarrelMesh: en X/Z se
+  // usa la de la losa (para que cada púa caiga en su agujero, ver cabecera) y
+  // en Y la que deja la punta asomando `SPIKE_EXPOSED_HEIGHT`. La púa queda
+  // más rechoncha que de fábrica — que es justo lo que se quiere aquí: una
+  // trampa de suelo, no las lanzas de 1.68 u que David rechazó.
+  const heightScale = useMemo(() => SPIKE_EXPOSED_HEIGHT / naturalSize.y, [naturalSize]);
+  // Grosor real de la losa (nodo `floor_tile_big_spikes`, el mismo que dibuja
+  // `SpikesFloorSlab`) — leído de SU boundingBox, no hardcodeado: con
+  // `kitTopAlignOffset` la cara superior de la losa siempre queda en y=0 y su
+  // cara inferior en `-slabThickness` (≈0.168 u), así que el "debajo de la
+  // losa" que necesita el useFrame de más abajo depende del grosor real de
+  // ESTA pieza, no de un número fijo. Necesario tras el fix del suelo
+  // flotante (playtest 2026-08-06): antes la losa (con el bug) apoyaba su
+  // base en y=0, así que "escondida bajo y=0" coincidía por accidente con
+  // "escondida bajo la losa" — ahora que la losa cuelga por debajo de y=0,
+  // ambas cosas ya no son lo mismo y hay que sumar este grosor.
+  const slabGeometry = kitGeometryPart('floor_tile_big_spikes', 'floor_tile_big_spikes');
+  const slabThickness = useMemo(() => kitBoxSize(slabGeometry).y, [slabGeometry]);
 
-  const nx = Math.max(1, Math.floor(hazard.width / SPIKE_CELL_SIZE));
-  const nz = Math.max(1, Math.floor(hazard.height / SPIKE_CELL_SIZE));
+  // MISMA rejilla que la losa: se calcula con el tamaño natural de la LOSA y
+  // el mismo `SPIKES_TILE_SCALE`/`ceil` que usa `SpikesFloorSlab`.
+  const slabSize = useMemo(() => kitBoxSize(slabGeometry), [slabGeometry]);
+  const targetTile = slabSize.x * SPIKES_TILE_SCALE;
+  const nx = Math.max(1, Math.ceil(hazard.width / targetTile));
+  const nz = Math.max(1, Math.ceil(hazard.height / (slabSize.z * SPIKES_TILE_SCALE)));
   const count = nx * nz;
   const meshRef = useRef<THREE.InstancedMesh>(null);
   // Fracción [0,1] de "asomado": 0 = completamente escondida bajo la losa, 1
@@ -286,6 +308,10 @@ function SpikesNeedles({ hazard, world }: { hazard: HazardSpawn; world: Pick<Wor
     // sale de su celda ni, por tanto, del rectángulo exacto del hazard.
     const cellW = hazard.width / nx;
     const cellH = hazard.height / nz;
+    // Mismo estirado en X/Z que la losa (celda real / tamaño natural), para
+    // que el racimo de púas quede clavado sobre los agujeros de SU baldosa.
+    const scaleX = cellW / slabSize.x;
+    const scaleZ = cellH / slabSize.z;
     let index = 0;
     for (let ix = 0; ix < nx; ix++) {
       for (let iz = 0; iz < nz; iz++) {
@@ -295,14 +321,14 @@ function SpikesNeedles({ hazard, world }: { hazard: HazardSpawn; world: Pick<Wor
         // abajo escribiendo `mesh.position.y` (transform del InstancedMesh
         // entero), no la matriz de cada instancia.
         scratch.position.set(hazard.position.x + localX, 0, hazard.position.y + localZ);
-        scratch.scale.setScalar(scale);
+        scratch.scale.set(scaleX, heightScale, scaleZ);
         scratch.updateMatrix();
         mesh.setMatrixAt(index++, scratch.matrix);
       }
     }
     mesh.count = count;
     mesh.instanceMatrix.needsUpdate = true;
-  }, [hazard.width, hazard.height, hazard.position.x, hazard.position.y, nx, nz, count, scale]);
+  }, [hazard.width, hazard.height, hazard.position.x, hazard.position.y, nx, nz, count, heightScale, slabSize]);
 
   useFrame((_, delta) => {
     const mesh = meshRef.current;
@@ -314,15 +340,26 @@ function SpikesNeedles({ hazard, world }: { hazard: HazardSpawn; world: Pick<Wor
     const next = target > current ? Math.min(target, current + rate * delta) : Math.max(target, current - rate * delta);
     raisedRef.current = next;
     // next=0 (escondida del todo): el conjunto se hunde
-    // `SPIKE_EXPOSED_HEIGHT + SPIKE_HIDE_DEPTH` bajo el suelo, dejando la
-    // punta muy por debajo de la cara inferior de la losa (invisible por los
-    // agujeros). next=1 (afuera del todo): offset 0, la base queda a ras de
-    // suelo y la punta asoma exactamente `SPIKE_EXPOSED_HEIGHT` (ya fijado
-    // al construir las instancias, arriba).
-    mesh.position.y = -(SPIKE_EXPOSED_HEIGHT + SPIKE_HIDE_DEPTH) * (1 - next);
+    // `SPIKE_EXPOSED_HEIGHT + slabThickness + SPIKE_HIDE_DEPTH` bajo y=0 —
+    // los dos primeros términos bajan la punta hasta la cara INFERIOR real de
+    // la losa (que cuelga `slabThickness` por debajo de y=0 desde el fix de
+    // alineación, ver comentario de `slabThickness` arriba) y el tercero
+    // añade el margen de siempre por debajo de esa cara, para que quede
+    // invisible del todo y no a ras de los agujeros. next=1 (afuera del
+    // todo): offset 0, la base queda a ras de suelo (y de la cara superior de
+    // la losa, ambas en y=0) y la punta asoma exactamente
+    // `SPIKE_EXPOSED_HEIGHT` por encima (ya fijado al construir las
+    // instancias, arriba).
+    mesh.position.y = -(SPIKE_EXPOSED_HEIGHT + slabThickness + SPIKE_HIDE_DEPTH) * (1 - next);
   });
 
-  return <instancedMesh ref={meshRef} args={[geometry, kitMaterial, count]} castShadow receiveShadow />;
+  // Púas en `kitWarmMaterial` (atlas ORIGINAL del pack: metal), no en el azul
+  // de la piedra. Es el mismo arreglo que ya hizo falta con los barriles: bajo
+  // la paleta NightA una púa gris-azulada sobre una losa gris-azulada era casi
+  // invisible al salir — "no se ven los pinchos salir" (playtest de David,
+  // 2026-08-06). El acero cálido contra la piedra fría hace que el disparo se
+  // lea de un vistazo, que es justo lo que una trampa tiene que conseguir.
+  return <instancedMesh ref={meshRef} args={[geometry, kitWarmMaterial, count]} castShadow receiveShadow />;
 }
 
 /**
