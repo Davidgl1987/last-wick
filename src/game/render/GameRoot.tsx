@@ -31,6 +31,7 @@ import { WaxView } from '@/game/features/effects/WaxView';
 import { forceBossPhase } from '@/game/features/bosses/lifecycle';
 import { QueenColumnsView, QueenTethersView } from '@/game/features/bosses/queen/QueenColumnsView';
 import { TorchPropsView } from '@/game/features/dungeon/TorchPropsView';
+import { RoomPropsView } from '@/game/features/dungeon/RoomPropsView';
 import { EnemyViews } from '@/game/features/enemies/EnemyViews';
 import {
   advanceToNextDungeon,
@@ -179,6 +180,10 @@ export function GameRoot({
             solo funde los bordes lejanos de la sala, nunca el área de juego. */}
         <fog attach="fog" args={['#05050a', 20, 48]} />
         <RoomView world={session.world} />
+        {/* Atrezzo de sala (F5, ART_KIT_PLAN.md §5): decals de suelo + bulto de
+            esquina + banderas/candelabro de jefe/tienda, ver RoomPropsView.tsx.
+            Visual puro (sin colisión, sin luces): la sim no lo conoce. */}
+        <RoomPropsView world={session.world} />
         {/* Columnas de la Reina del Enjambre + sus cuerdas (GDD §15.3): no-op
             (return null) fuera de su sala, ver QueenColumnsView.tsx. */}
         <QueenColumnsView session={session} />
