@@ -5,17 +5,22 @@
  * BarrelViews, que sí lee la sim cada frame.
  *
  * Piezas del kit KayKit desde F3 (docs/plans/ART_KIT_PLAN.md §4/§5): el
- * barril y el campo de pinchos pasan a geometría real del kit; el foso
- * conserva su quad negro (legibilidad, ver más abajo) y gana un reborde de
- * piezas de fundación alrededor. Barro/acelerador se QUEDAN como quads
- * emisivos (no hay pieza equivalente en el kit, fuera de alcance de F3).
+ * barril y el campo de pinchos pasan a geometría real del kit; el foso se
+ * queda en su quad negro (legibilidad, ver más abajo). Barro/acelerador se
+ * QUEDAN como quads emisivos (no hay pieza equivalente en el kit, fuera de
+ * alcance de F3).
  *
  * Legibilidad (feedback de playtest):
  * - El foso (ronda 3, punto 6: "quita el borde al foso") es un único quad
  *   negro casi absoluto sobre el suelo claro: el contraste suelo/agujero ya
- *   es inconfundible por sí solo. El reborde que añade F3 (`PitRim`) se
- *   coloca POR FUERA del rectángulo exacto del hazard — jamás invade el quad
- *   negro — precisamente para no reabrir ese problema.
+ *   es inconfundible por sí solo. F3 le añadió un reborde de piezas de
+ *   fundación (`PitRim`, ya eliminado) pensado para quedar POR FUERA del
+ *   rectángulo del hazard y no invadir el quad — pero en pantalla se leía
+ *   igual que un bordillo de piedra levantado alrededor del agujero
+ *   (playtest de David, 2026-08-06: "para los fosos, ahora aparecen unos
+ *   bordes que no debería"), justo el ruido visual que el punto 6 de la
+ *   ronda 3 ya había pedido quitar una vez. Retirado sin sustituto: el foso
+ *   vuelve a ser exactamente el quad negro de antes de F3.
  * - El barril usa `barrel_small`/`barrel_large` del kit (elegido por el radio
  *   declarado del hazard); al explotar desaparece y deja una mancha
  *   chamuscada en el suelo, igual que antes.
@@ -44,7 +49,6 @@ import { barrelInAir, type HazardSpawn, type World } from '@/game/world/types';
 import { blobShadowMaterial, boostMaterial, mudMaterial, pitMaterial, scorchMaterial, unitCircle, unitPlane } from '@/game/render/assets';
 import { kitGeometry, kitGeometryPart, kitMaterial, kitWarmMaterial } from '@/game/render/kit';
 import { kitBoxSize, kitGroundOffset, kitTopAlignOffset } from '@/game/render/kit-fit';
-import { wallModuleLayout } from '@/game/render/wall-modules';
 
 const HAZARD_QUAD_Y = 0.03;
 /** Rebote visual del barril al aterrizar (GDD §15.2): altura y duración del pequeño arco tras tocar suelo. Puramente de render. */
@@ -378,11 +382,14 @@ function SpikesField({ hazard, world }: { hazard: HazardSpawn; world: Pick<World
 }
 
 /**
- * Foso (punto 6 de playtest ronda 3: "quita el borde al foso"): un único quad
- * negro casi absoluto sobre el suelo claro, sin reborde que INVADA el quad.
- * El contraste suelo-claro/agujero-negro ya es inconfundible por sí solo; el
- * reborde de piedra que añade `PitRim` (F3) queda por fuera del rectángulo,
- * así que no reabre el problema de ruido visual que motivó quitarlo.
+ * Foso (punto 6 de playtest ronda 3: "quita el borde al foso", y de nuevo
+ * playtest 2026-08-06: "para los fosos, ahora aparecen unos bordes que no
+ * debería"): un único quad negro casi absoluto sobre el suelo claro, SIN
+ * ningún reborde alrededor. El contraste suelo-claro/agujero-negro ya es
+ * inconfundible por sí solo — F3 le añadió un reborde de fundación
+ * (`PitRim`) que se leía en pantalla como un bordillo de piedra levantado
+ * alrededor del agujero, y se ha quitado sin sustituto (ver cabecera del
+ * fichero): el foso vuelve a ser exactamente este quad.
  */
 function PitQuad({ hazard }: { hazard: HazardSpawn }) {
   const x = hazard.position.x;
@@ -398,159 +405,9 @@ function PitQuad({ hazard }: { hazard: HazardSpawn }) {
   );
 }
 
-// ── Reborde del foso: fundación de piedra alrededor del agujero ──────────
-
-/** Tramo recto a cubrir con módulos de `floor_foundation_front` (mismo contrato que WallSpan de RoomView.tsx, redefinido aquí para no acoplar este fichero a esa vista). */
-interface RimSpan {
-  length: number;
-  cx: number;
-  cz: number;
-  horizontal: boolean;
-}
-
-/** Altura del reborde del foso: un simple bordillo bajo, muy por debajo del parapeto (WALL_HEIGHT≈0.9) para no competir con el negro del agujero — es un remate, no una pared. */
-const PIT_RIM_HEIGHT = 0.14;
-/** Cuánto sobresale el reborde hacia FUERA del borde del foso (perpendicular al filo): un bordillo visible pero modesto, no una plataforma. */
-const PIT_RIM_DEPTH = 0.35;
-
-/**
- * Reborde de piedra alrededor del foso (ART_KIT_PLAN §4/F3): se coloca POR
- * FUERA del rectángulo exacto del hazard (nunca invade el quad negro de
- * `PitQuad`) — 4 tramos rectos de `floor_foundation_front`, subdivididos con
- * el MISMO helper `wallModuleLayout` que usan los muros de RoomView.tsx (para
- * que cada tramo quede cubierto exacto sin huecos ni piezas colgando), más 4
- * esquinas de `floor_foundation_corner`. Mismo patrón de agrupación que
- * `BarrierModules`/`CornerColumns`: los tramos norte/sur sellan las esquinas
- * (`width + 2·PIT_RIM_DEPTH`) y este/oeste solo cubren el hueco entre ellos
- * (`height`), igual que los 4 tramos fijos de `SingleRoomView`.
- *
- * Aplastado a `PIT_RIM_HEIGHT` y recortado a `PIT_RIM_DEPTH` en el eje
- * perpendicular: la pieza nativa del kit es mucho más alta y profunda (está
- * pensada para verse desde dentro de un hueco 3D real), y este hazard NO
- * tiene un agujero de verdad (solo el quad negro) — aquí se usa como un
- * simple remate decorativo, no como una pared.
- */
-function PitRim({ hazard }: { hazard: HazardSpawn }) {
-  const frontGeometry = kitGeometry('floor_foundation_front');
-  const frontSize = useMemo(() => kitBoxSize(frontGeometry), [frontGeometry]);
-  const frontGroundY = useMemo(() => kitGroundOffset(frontGeometry), [frontGeometry]);
-  const cornerGeometry = kitGeometry('floor_foundation_corner');
-  const cornerSize = useMemo(() => kitBoxSize(cornerGeometry), [cornerGeometry]);
-  const cornerGroundY = useMemo(() => kitGroundOffset(cornerGeometry), [cornerGeometry]);
-
-  const heightScale = PIT_RIM_HEIGHT / frontSize.y;
-  const depthScale = PIT_RIM_DEPTH / frontSize.z;
-  const cornerHeightScale = PIT_RIM_HEIGHT / cornerSize.y;
-  // La esquina es aproximadamente cuadrada de fábrica (footprint ≈ frontSize.z
-  // en ambos ejes): se escala UNIFORMEMENTE en XZ al mismo `PIT_RIM_DEPTH` que
-  // los tramos rectos, para que el remate luzca de grosor constante en toda
-  // la vuelta.
-  const cornerFootprintScale = PIT_RIM_DEPTH / cornerSize.z;
-
-  const spans = useMemo<RimSpan[]>(
-    () => [
-      {
-        length: hazard.width + 2 * PIT_RIM_DEPTH,
-        cx: hazard.position.x,
-        cz: hazard.position.y - hazard.height / 2 - PIT_RIM_DEPTH / 2,
-        horizontal: true,
-      },
-      {
-        length: hazard.width + 2 * PIT_RIM_DEPTH,
-        cx: hazard.position.x,
-        cz: hazard.position.y + hazard.height / 2 + PIT_RIM_DEPTH / 2,
-        horizontal: true,
-      },
-      {
-        length: hazard.height,
-        cx: hazard.position.x - hazard.width / 2 - PIT_RIM_DEPTH / 2,
-        cz: hazard.position.y,
-        horizontal: false,
-      },
-      {
-        length: hazard.height,
-        cx: hazard.position.x + hazard.width / 2 + PIT_RIM_DEPTH / 2,
-        cz: hazard.position.y,
-        horizontal: false,
-      },
-    ],
-    [hazard.width, hazard.height, hazard.position.x, hazard.position.y],
-  );
-
-  const frontMeshRef = useRef<THREE.InstancedMesh>(null);
-  const totalCount = useMemo(
-    () => spans.reduce((sum, span) => sum + wallModuleLayout(span.length, frontSize.x).count, 0),
-    [spans, frontSize.x],
-  );
-
-  useLayoutEffect(() => {
-    const mesh = frontMeshRef.current;
-    if (!mesh) return;
-    const scratch = new THREE.Object3D();
-    let index = 0;
-    for (const span of spans) {
-      const { count, scale } = wallModuleLayout(span.length, frontSize.x);
-      const segmentLength = span.length / count;
-      for (let i = 0; i < count; i++) {
-        const offset = -span.length / 2 + (i + 0.5) * segmentLength;
-        if (span.horizontal) {
-          scratch.position.set(span.cx + offset, frontGroundY * heightScale, span.cz);
-          scratch.rotation.set(0, 0, 0);
-        } else {
-          scratch.position.set(span.cx, frontGroundY * heightScale, span.cz + offset);
-          scratch.rotation.set(0, Math.PI / 2, 0);
-        }
-        scratch.scale.set(scale, heightScale, depthScale);
-        scratch.updateMatrix();
-        mesh.setMatrixAt(index++, scratch.matrix);
-      }
-    }
-    mesh.count = totalCount;
-    mesh.instanceMatrix.needsUpdate = true;
-  }, [spans, frontSize.x, frontGroundY, heightScale, depthScale, totalCount]);
-
-  const cornerMeshRef = useRef<THREE.InstancedMesh>(null);
-  const corners = useMemo(
-    () => [
-      { dx: hazard.width / 2 + PIT_RIM_DEPTH / 2, dz: hazard.height / 2 + PIT_RIM_DEPTH / 2, rot: 0 },
-      { dx: -(hazard.width / 2 + PIT_RIM_DEPTH / 2), dz: hazard.height / 2 + PIT_RIM_DEPTH / 2, rot: Math.PI / 2 },
-      { dx: -(hazard.width / 2 + PIT_RIM_DEPTH / 2), dz: -(hazard.height / 2 + PIT_RIM_DEPTH / 2), rot: Math.PI },
-      { dx: hazard.width / 2 + PIT_RIM_DEPTH / 2, dz: -(hazard.height / 2 + PIT_RIM_DEPTH / 2), rot: -Math.PI / 2 },
-    ],
-    [hazard.width, hazard.height],
-  );
-
-  useLayoutEffect(() => {
-    const mesh = cornerMeshRef.current;
-    if (!mesh) return;
-    const scratch = new THREE.Object3D();
-    corners.forEach((c, i) => {
-      scratch.position.set(hazard.position.x + c.dx, cornerGroundY * cornerHeightScale, hazard.position.y + c.dz);
-      scratch.rotation.set(0, c.rot, 0);
-      scratch.scale.set(cornerFootprintScale, cornerHeightScale, cornerFootprintScale);
-      scratch.updateMatrix();
-      mesh.setMatrixAt(i, scratch.matrix);
-    });
-    mesh.count = corners.length;
-    mesh.instanceMatrix.needsUpdate = true;
-  }, [corners, hazard.position.x, hazard.position.y, cornerGroundY, cornerHeightScale, cornerFootprintScale]);
-
-  return (
-    <>
-      <instancedMesh ref={frontMeshRef} args={[frontGeometry, kitMaterial, totalCount]} castShadow receiveShadow />
-      <instancedMesh ref={cornerMeshRef} args={[cornerGeometry, kitMaterial, corners.length]} castShadow receiveShadow />
-    </>
-  );
-}
-
 function StaticHazardQuad({ hazard, world }: { hazard: HazardSpawn; world: Pick<World, 'hero' | 'enemies'> }) {
   if (hazard.kind === 'pit') {
-    return (
-      <>
-        <PitQuad hazard={hazard} />
-        <PitRim hazard={hazard} />
-      </>
-    );
+    return <PitQuad hazard={hazard} />;
   }
   if (hazard.kind === 'spikes') {
     return <SpikesField hazard={hazard} world={world} />;
