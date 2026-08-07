@@ -39,7 +39,7 @@ src/
       enemies/      #   steering + dummy/ chaser/ spike/ trail/ shooter/ (ai + constants + Mesh) + EnemyViews
       bosses/       #   types, lifecycle, movement, registry + test-boss/ guardian/ queen/ + BossHealthBar
       combat/       #   combat.ts (daño, knockback, i-frames, proyectiles) + ProjectileView + constantes de armas
-      hazards/      #   hazards.ts (foso, pinchos, barril, barro, boost, rastro) + HazardView, PuddleView
+      hazards/      #   hazards.ts (foso, pinchos, barril, rastro) + HazardView, PuddleView
       items/        #   items.ts + ItemView
       dungeon/      #   dungeon.ts (generación procedural), dungeon-world, room-format, rooms.ts, levels/*.json
       effects/      #   partículas, shake, hit-stop, estelas, haptics (consumen engine/events.ts)

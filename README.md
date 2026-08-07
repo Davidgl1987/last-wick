@@ -29,7 +29,7 @@ Una run entera encadena **una mazmorra por cada jefe**, en **orden fijo de dific
 3. **El Prisma** — el jefe de las 3 armas: escudo de color rotatorio (azul/amarillo/violeta) donde solo el arma del color activo hace daño de verdad. Examina dominar y alternar cuerpo/flecha/hechizo.
 4. **La Tormenta** — el jefe de esquive puro (bullet hell): tres patrones de balas (espiral, anillos, ráfaga radial) con pasillo siempre garantizado; cualquier arma le hace daño, el examen es sobrevivir. El más difícil, por eso cierra la run.
 
-Cuidado con los hazards: fosos (casi negros, con reborde de piedra), pinchos, **barriles explosivos** (la herramienta táctica estrella: embiste uno rodeado de enemigos), barro que frena y aceleradores. Cada enemigo tiene color y silueta propios; el botón de **pausa** (arriba a la derecha) muestra la leyenda completa y tus mejoras acumuladas.
+Cuidado con los hazards: fosos (casi negros, con reborde de piedra), pinchos y **barriles explosivos** (la herramienta táctica estrella: embiste uno rodeado de enemigos). Cada enemigo tiene color y silueta propios; el botón de **pausa** (arriba a la derecha) muestra la leyenda completa y tus mejoras acumuladas.
 
 Funciona igual con ratón en escritorio (Pointer Events unificados).
 
@@ -52,8 +52,8 @@ npm run dev        # dev server (Vite), se abre en la red local con --host
 
 En **`#/editor`** (enlace "✎ Editor" dentro del juego) vive el editor visual de salas:
 
-- Rejilla 1×1 con snap; coloca/arrastra/duplica el inicio, los 5 enemigos, los 6 hazards y los 3 objetos.
-- Propiedades por entidad (HP, radio, tamaño, dirección de púa/acelerador) y **destino de patrulla arrastrable** en el lienzo.
+- Rejilla 1×1 con snap; coloca/arrastra/duplica el inicio, los 5 enemigos, los 4 hazards y los 3 objetos.
+- Propiedades por entidad (HP, radio, tamaño, dirección de púa) y **destino de patrulla arrastrable** en el lienzo.
 - Huecos de puerta por lado (máx. 2), validaciones en vivo y autoguardado del borrador.
 - **▶ Probar**: playtest inmediato de la sala y vuelta al editor.
 - **Exportar/Importar** la sala como JSON; las salas exportadas entran al pool del generador procedural. En dev, "Guardar en src/levels" escribe el fichero directamente en el repo.

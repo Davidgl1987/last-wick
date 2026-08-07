@@ -17,8 +17,7 @@
     { "id": "chaser-1", "kind": "chaser", "position": { "x": 3, "y": -3 } }
   ],
   "hazards": [
-    { "id": "rock-1", "kind": "rock", "position": { "x": 0, "y": 0 }, "width": 1.4, "height": 1.4 },
-    { "id": "mud-1", "kind": "slow", "position": { "x": 3, "y": 3 }, "width": 2, "height": 2 }
+    { "id": "rock-1", "kind": "rock", "position": { "x": 0, "y": 0 }, "width": 1.4, "height": 1.4 }
   ],
   "items": [
     { "id": "coin-1", "kind": "coin", "position": { "x": -4, "y": 4 } },

@@ -1,7 +1,7 @@
 import type { DoorSide, EnemyKind, HazardKind, ItemKind, RoomTag } from '@/game/world/types';
 
 export const ENEMY_KINDS: EnemyKind[] = ['dummy', 'chaser', 'spike', 'trail', 'shooter'];
-export const HAZARD_KINDS: HazardKind[] = ['pit', 'spikes', 'barrel', 'rock', 'slow', 'boost'];
+export const HAZARD_KINDS: HazardKind[] = ['pit', 'spikes', 'barrel', 'rock'];
 export const ITEM_KINDS: ItemKind[] = ['coin', 'potion', 'key'];
 export const ALL_TAGS: RoomTag[] = ['inicio', 'combate', 'llave', 'recompensa', 'jefe'];
 export const SIDES: DoorSide[] = ['north', 'south', 'east', 'west'];
@@ -22,8 +22,6 @@ export const HAZARD_COLOR: Record<HazardKind, string> = {
   spikes: '#8d94ad',
   barrel: '#c0442b',
   rock: '#767d99',
-  slow: '#6b4a2f',
-  boost: '#3fd0ff',
 };
 export const ITEM_COLOR: Record<ItemKind, string> = {
   coin: '#ffd166',
@@ -36,11 +34,10 @@ export const ITEM_COLOR: Record<ItemKind, string> = {
 };
 export const SIDE_LABEL: Record<DoorSide, string> = { north: 'Norte', south: 'Sur', east: 'Este', west: 'Oeste' };
 
-/** Las 4 direcciones cardinales de los selectores de dirección del editor
- * (púa del enemigo `spike` en EnemyProperties, impulso del hazard `boost` en
- * HazardProperties): comparten un único icono `chevron` (apunta arriba, ver
- * src/ui/Icon.tsx) rotado por CSS con `rotate` en vez de registrar 4 iconos
- * casi idénticos en el kit. */
+/** Las 4 direcciones cardinales del selector de dirección del editor (púa del
+ * enemigo `spike` en EnemyProperties): comparten un único icono `chevron`
+ * (apunta arriba, ver src/ui/Icon.tsx) rotado por CSS con `rotate` en vez de
+ * registrar 4 iconos casi idénticos en el kit. */
 export const DIRECTIONS: { label: string; rotate: number; dir: { x: number; y: number } }[] = [
   { label: 'arriba', rotate: 0, dir: { x: 0, y: -1 } },
   { label: 'abajo', rotate: 180, dir: { x: 0, y: 1 } },
@@ -53,6 +50,4 @@ export const HAZARD_DEFAULT_SIZE: Record<HazardKind, { width: number; height: nu
   spikes: { width: 1.4, height: 1.4 },
   barrel: { width: 0.8, height: 0.8 },
   rock: { width: 1.2, height: 1.2 },
-  slow: { width: 2, height: 1.6 },
-  boost: { width: 1.2, height: 2 },
 };

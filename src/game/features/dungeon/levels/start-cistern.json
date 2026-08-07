@@ -14,7 +14,6 @@
   ],
   "enemies": [],
   "hazards": [
-    { "id": "mud-1", "kind": "slow", "position": { "x": 0, "y": 0 }, "width": 3.5, "height": 3 },
     { "id": "rock-1", "kind": "rock", "position": { "x": -2.5, "y": 2.5 }, "width": 1, "height": 1 },
     { "id": "rock-2", "kind": "rock", "position": { "x": 2.5, "y": -2.5 }, "width": 1, "height": 1 }
   ],

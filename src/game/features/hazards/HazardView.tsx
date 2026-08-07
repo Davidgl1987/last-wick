@@ -46,7 +46,7 @@ import {
 import type { GameSession } from '@/game/session/session';
 import { pushEvent } from '@/engine/events';
 import { barrelInAir, type HazardSpawn, type World } from '@/game/world/types';
-import { blobShadowMaterial, boostMaterial, mudMaterial, pitMaterial, scorchMaterial, unitCircle, unitPlane } from '@/game/render/assets';
+import { blobShadowMaterial, pitMaterial, scorchMaterial, unitCircle, unitPlane } from '@/game/render/assets';
 import { kitGeometry, kitGeometryPart, kitMaterial, kitWarmMaterial } from '@/game/render/kit';
 import { kitBoxSize, kitGroundOffset, kitTopAlignOffset } from '@/game/render/kit-fit';
 import { useKnownRoomIds } from '@/game/render/known-rooms';
@@ -406,6 +406,11 @@ function PitQuad({ hazard }: { hazard: HazardSpawn }) {
   );
 }
 
+/**
+ * `barrel`/`rock` nunca llegan aquí: `buildRoomEntities` (world/create.ts) los
+ * convierte en `Barrel`/`Obstacle` y no los añade a `world.hazards` — este
+ * componente solo ve `pit`/`spikes` en la práctica.
+ */
 function StaticHazardQuad({ hazard, world }: { hazard: HazardSpawn; world: Pick<World, 'hero' | 'enemies'> }) {
   if (hazard.kind === 'pit') {
     return <PitQuad hazard={hazard} />;
@@ -413,16 +418,7 @@ function StaticHazardQuad({ hazard, world }: { hazard: HazardSpawn; world: Pick<
   if (hazard.kind === 'spikes') {
     return <SpikesField hazard={hazard} world={world} />;
   }
-  const material = hazard.kind === 'slow' ? mudMaterial : boostMaterial;
-  return (
-    <mesh
-      geometry={unitPlane}
-      material={material}
-      rotation-x={-Math.PI / 2}
-      position={[hazard.position.x, HAZARD_QUAD_Y, hazard.position.y]}
-      scale={[hazard.width, hazard.height, 1]}
-    />
-  );
+  return null;
 }
 
 /**

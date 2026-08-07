@@ -49,7 +49,7 @@ export interface EnemySpawn {
   bossId?: BossId;
 }
 
-export type HazardKind = 'pit' | 'spikes' | 'barrel' | 'rock' | 'slow' | 'boost';
+export type HazardKind = 'pit' | 'spikes' | 'barrel' | 'rock';
 
 /** Hazard rectangular centrado en `position` (los circulares, ej. barril, usarán width=height). */
 export interface HazardSpawn {
@@ -58,8 +58,6 @@ export interface HazardSpawn {
   position: Vec2;
   width: number;
   height: number;
-  /** Dirección del acelerador (unitaria); por defecto (0,1). Ignorado en otros hazards. */
-  direction?: Vec2;
 }
 
 /**
@@ -453,7 +451,7 @@ export interface World {
   barrels: Barrel[];
   /** Estado opaco del jefe de la sala actual (`BossState`), o null si no hay jefe con estado propio. Cada jefe accede al suyo mediante su accessor tipado en `features/bosses/`; el core nunca inspecciona su forma. */
   bossState: BossState | null;
-  /** Hazards no-roca, no-barril (pit/spikes/slow/boost), estáticos durante la sala. */
+  /** Hazards no-roca, no-barril (pit/spikes), estáticos durante la sala. */
   hazards: HazardRuntime[];
   /** Última posición firme (fuera de fosos) del héroe, para respawn tras caer. */
   safePosition: Vec2;

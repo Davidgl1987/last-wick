@@ -2,11 +2,11 @@
  * Modo oscuro (antes experimento de la rama `estilo-oscuro`, hoy el ÚNICO
  * modo de render del juego — ver limpieza de flags de debug-params.ts/
  * GameRoot.tsx): materiales/geometrías de silueta (ojos, cirios, antorchas,
- * cera de la vela) y el tono oscurecido de los hazards autoemisivos
- * (charco/barro/acelerador), aplicados UNA sola vez al cargar este módulo —
- * ya no hay store ni parámetro de URL que los alterne en runtime, así que no
- * hace falta conservar snapshots del color "clásico" ni una función
- * idempotente reejecutable.
+ * cera de la vela) y el tono oscurecido de los hazards autoemisivos (charco),
+ * aplicados UNA sola vez al cargar este módulo — ya no hay store ni
+ * parámetro de URL que los alterne en runtime, así que no hace falta
+ * conservar snapshots del color "clásico" ni una función idempotente
+ * reejecutable.
  *
  * Dirección de dependencia ÚNICA (evita el ciclo): este módulo IMPORTA los
  * materiales base clásicos de `./assets` (los mismos objetos compartidos que
@@ -19,14 +19,12 @@ import * as THREE from 'three';
 import {
   arrowMaterial,
   bossBodyMaterial,
-  boostMaterial,
   chaserMaterial,
   coinMaterial,
   dummyMaterial,
   guardianBodyMaterial,
   guardianHornMaterial,
   heroMaterial,
-  mudMaterial,
   puddleMaterial,
   queenBodyMaterial,
   queenCrownMaterial,
@@ -73,13 +71,13 @@ import {
 // suelo bajo la vela (~20-30 en lineal).
 export const BLOOM_EMISSIVE_INTENSITY = 6;
 
-// ── Tono oscuro de hazards autoemisivos (charco/barro/acelerador) ─────────
+// ── Tono oscuro de hazards autoemisivos (charco) ───────────────────────────
 //
-// Los materiales Basic (charco/barro/acelerador) ignoran la iluminación de
-// escena — son autoemisivos de facto — así que en penumbra se les baja
-// directamente el COLOR en vez de depender de una luz que no reciben.
-// Aplicado UNA sola vez al cargar el módulo (más abajo), sin snapshot del
-// tono clásico: ya no existe ningún modo/parámetro que restaure el original.
+// El material Basic del charco ignora la iluminación de escena — es
+// autoemisivo de facto — así que en penumbra se le baja directamente el
+// COLOR en vez de depender de una luz que no recibe. Aplicado UNA sola vez
+// al cargar el módulo (más abajo), sin snapshot del tono clásico: ya no
+// existe ningún modo/parámetro que restaure el original.
 
 /**
  * Charco de la Lacrimera (punto 4 de playtest: "el trail debe dejar el
@@ -90,22 +88,10 @@ export const BLOOM_EMISSIVE_INTENSITY = 6;
  */
 const TONE_DARK_COLOR = {
   puddle: new THREE.Color('#3d3355'),
-  /**
-   * Plataformas de velocidad / barro (punto 3 de playtest: "las plataformas
-   * de velocidad siguen emitiendo luz"): tono MUY apagado, casi color de
-   * suelo — antes tenían un tono más visible condicionado a un grupo de
-   * `?glow=hazards` que ya no existe (David, playtest ronda 7: prefería la
-   * configuración con todos los grupos de glow apagados, que es la que
-   * queda como único comportamiento).
-   */
-  boost: new THREE.Color('#101b26'),
-  mud: new THREE.Color('#1a140f'),
 };
 
 function applyHazardTones(): void {
   puddleMaterial.color.copy(TONE_DARK_COLOR.puddle);
-  boostMaterial.color.copy(TONE_DARK_COLOR.boost);
-  mudMaterial.color.copy(TONE_DARK_COLOR.mud);
 }
 
 // ── Emissive de proyectiles (rama `luces-optimizadas`) ─────────────────────

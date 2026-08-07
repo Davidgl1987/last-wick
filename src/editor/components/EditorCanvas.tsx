@@ -89,16 +89,6 @@ export function EditorCanvas({
               stroke={selection?.type === 'hazard' && selection.id === h.id ? 'var(--ui-accent)' : 'none'}
               strokeWidth={0.08}
             />
-            {h.kind === 'boost' && h.direction && (
-              <line
-                x1={h.position.x}
-                y1={h.position.y}
-                x2={h.position.x + h.direction.x * 0.7}
-                y2={h.position.y + h.direction.y * 0.7}
-                stroke="#e8f6ff"
-                strokeWidth={0.1}
-              />
-            )}
           </g>
         ))}
         {/* Items */}

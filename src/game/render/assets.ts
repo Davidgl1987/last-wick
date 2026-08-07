@@ -581,16 +581,6 @@ export const scorchMaterial = new THREE.MeshBasicMaterial({
   opacity: 0.55,
   depthWrite: false,
 });
-export const mudMaterial = new THREE.MeshBasicMaterial({
-  color: '#6b4a2f',
-  transparent: true,
-  opacity: 0.85,
-});
-export const boostMaterial = new THREE.MeshBasicMaterial({
-  color: '#3fd0ff',
-  transparent: true,
-  opacity: 0.6,
-});
 export const puddleMaterial = new THREE.MeshBasicMaterial({
   color: '#4dd68a',
   transparent: true,

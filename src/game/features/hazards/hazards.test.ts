@@ -1,11 +1,10 @@
 /**
  * Tests de hazards (GDD §8): foso con margen de perdón 0.18 y respawn en
- * posición segura, enemigos que caen y mueren, pinchos, barro, acelerador y
- * barriles en cadena.
+ * posición segura, enemigos que caen y mueren, pinchos y barriles en cadena.
  */
 
 import { describe, expect, it } from 'vitest';
-import { BARREL_DAMAGE, MUD_SLOW_FACTOR_PER_TICK, PIT_FALL_DURATION, PIT_FORGIVENESS_MARGIN, SPIKES_ENEMY_DAMAGE_INTERVAL, SPIKES_PUSH_SPEED } from './constants';
+import { BARREL_DAMAGE, PIT_FALL_DURATION, PIT_FORGIVENESS_MARGIN, SPIKES_ENEMY_DAMAGE_INTERVAL, SPIKES_PUSH_SPEED } from './constants';
 import { HERO_IFRAME_DURATION } from '@/game/features/combat/constants';
 import { QUEEN_TRAIL_CROSS_SPEED, QUEEN_TRAIL_DOT_GRACE, QUEEN_TRAIL_SLOW_FACTOR } from '@/game/features/bosses/queen/constants';
 import { createEventQueue, drainEvents, type GameEvent } from '@/engine/events';
@@ -51,7 +50,7 @@ describe('foso: margen de perdón (0.18, decisión de diseño validada)', () => 
     // A 0.9 del centro: dentro del foso visual (±1) pero fuera del trigger (±0.82).
     world.hero.position.x = 1 - PIT_FORGIVENESS_MARGIN / 2;
     world.hero.position.y = 0;
-    stepHeroHazards(world, FIXED_DT, events);
+    stepHeroHazards(world, events);
     expect(world.fallingUntil).toBe(0);
     expect(world.hero.hp).toBe(5);
   });
@@ -61,7 +60,7 @@ describe('foso: margen de perdón (0.18, decisión de diseño validada)', () => 
     const events = createEventQueue(16);
     world.hero.position.x = 1 - PIT_FORGIVENESS_MARGIN - 0.05;
     world.hero.position.y = 0;
-    stepHeroHazards(world, FIXED_DT, events);
+    stepHeroHazards(world, events);
     expect(world.fallingUntil).toBeCloseTo(world.time + PIT_FALL_DURATION, 9);
     expect(world.hero.hp).toBe(4);
 
@@ -77,7 +76,7 @@ describe('foso: margen de perdón (0.18, decisión de diseño validada)', () => 
     const events = createEventQueue(16);
     world.hero.position.x = 1 - PIT_FORGIVENESS_MARGIN - 0.05;
     world.hero.position.y = 0;
-    stepHeroHazards(world, FIXED_DT, events);
+    stepHeroHazards(world, events);
 
     expect(world.hero.hp).toBe(world.hero.maxHp);
     expect(world.phase).toBe('playing');
@@ -162,7 +161,7 @@ describe('pinchos', () => {
     const events = createEventQueue(16);
     world.hero.position.x = 0.5;
     world.hero.position.y = 0;
-    stepHeroHazards(world, FIXED_DT, events);
+    stepHeroHazards(world, events);
     expect(world.hero.hp).toBe(4);
     expect(world.hero.velocity.x).toBeCloseTo(SPIKES_PUSH_SPEED, 5); // empuje +x (alejándose)
   });
@@ -173,7 +172,7 @@ describe('pinchos', () => {
     world.hero.position.x = 0.5;
     world.hero.position.y = 0;
     world.hero.modifiers.knockbackTakenMultiplier = 0.8;
-    stepHeroHazards(world, FIXED_DT, events);
+    stepHeroHazards(world, events);
     expect(world.hero.velocity.x).toBeCloseTo(SPIKES_PUSH_SPEED * 0.8, 5);
   });
 
@@ -194,57 +193,6 @@ describe('pinchos', () => {
     world.time += SPIKES_ENEMY_DAMAGE_INTERVAL;
     stepEnemyHazards(world, world.spikeDamageCooldowns, events);
     expect(enemy.hp).toBe(hp0 - 2);
-  });
-});
-
-describe('barro (slow)', () => {
-  it('frena al héroe multiplicando ×0.92 por tick mientras está dentro', () => {
-    const mud: HazardSpawn = { id: 'mud', kind: 'slow', position: { x: 0, y: 0 }, width: 3, height: 3 };
-    const world = makeWorld([mud]);
-    const events = createEventQueue(16);
-    world.hero.position.x = 0;
-    world.hero.position.y = 0;
-    world.hero.velocity.x = 5;
-    stepHeroHazards(world, FIXED_DT, events);
-    expect(world.hero.velocity.x).toBeCloseTo(5 * MUD_SLOW_FACTOR_PER_TICK, 9);
-  });
-});
-
-describe('acelerador (boost)', () => {
-  const BOOST: HazardSpawn = {
-    id: 'boost',
-    kind: 'boost',
-    position: { x: 0, y: 0 },
-    width: 2,
-    height: 2,
-    direction: { x: 1, y: 0 },
-  };
-
-  it('impulsa +8 u/s² en su dirección si el héroe se mueve', () => {
-    const world = makeWorld([BOOST]);
-    const events = createEventQueue(16);
-    world.hero.position.x = 0;
-    world.hero.position.y = 0;
-    world.hero.velocity.x = 1;
-    stepHeroHazards(world, FIXED_DT, events);
-    expect(world.hero.velocity.x).toBeCloseTo(1 + 8 * FIXED_DT, 6);
-  });
-
-  it('no hace nada con el héroe parado (vel ≤ 0.05)', () => {
-    const world = makeWorld([BOOST]);
-    const events = createEventQueue(16);
-    world.hero.position.x = 0;
-    world.hero.position.y = 0;
-    stepHeroHazards(world, FIXED_DT, events);
-    expect(world.hero.velocity.x).toBe(0);
-  });
-
-  it('no afecta a los enemigos', () => {
-    const world = makeWorld([BOOST], [{ id: 'e1', kind: 'chaser', position: { x: 0, y: 0 } }]);
-    const events = createEventQueue(16);
-    world.enemies[0].velocity.x = 1;
-    stepEnemyHazards(world, world.spikeDamageCooldowns, events);
-    expect(world.enemies[0].velocity.x).toBe(1); // sin impulso
   });
 });
 

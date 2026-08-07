@@ -278,7 +278,7 @@ export function stepWorld(world: World, events: EventQueue): void {
 
   stepProjectiles(world, FIXED_DT, events);
 
-  stepHeroHazards(world, FIXED_DT, events);
+  stepHeroHazards(world, events);
   stepEnemyHazards(world, world.spikeDamageCooldowns, events);
   stepPuddles(world, FIXED_DT, events);
   stepBarrels(world, events);

@@ -149,8 +149,6 @@ Cinco arquetipos, cada uno con silueta y color propios e inconfundibles. Todos r
 | **Pinchos (spikes)** | Zona de púas | 1 de daño + empujón fuerte hacia fuera | 1 de daño periódico si los pisan |
 | **Barril (barrel)** | Barril explosivo | Explota al contacto (tuyo, de un proyectil o de un enemigo): daño 3 en un área generosa (~2 u de radio) | Igual — herramienta táctica principal: lanzarse a un barril rodeado de enemigos |
 | **Roca (rock)** | Bloque sólido | Obstáculo: rebotas en él como en una pared | Lo rodean; también bloquea proyectiles |
-| **Barro (slow)** | Zona pegajosa | Frena drásticamente mientras estés dentro | Igual |
-| **Acelerador (boost)** | Flechas en el suelo | Te impulsa con fuerza en tu dirección de movimiento mientras lo cruzas | No les afecta |
 
 **Notas de diseño:**
 
@@ -280,8 +278,8 @@ Herramienta imprescindible del proyecto: las salas del juego se fabrican aquí.
 
 - Editor visual de salas accesible desde el propio juego (ruta propia).
 - Definir dimensiones de la sala (forzando mínimos y validez).
-- Colocar/mover/duplicar/borrar sobre una rejilla de 1×1: punto de inicio, los 5 tipos de enemigo, los 6 hazards, los 3 objetos.
-- Editar propiedades por entidad: vida, radio, tamaño (hazards rectangulares), dirección (púa del Spike, aceleradores), ruta de patrulla (punto objetivo).
+- Colocar/mover/duplicar/borrar sobre una rejilla de 1×1: punto de inicio, los 5 tipos de enemigo, los 4 hazards, los 3 objetos.
+- Editar propiedades por entidad: vida, radio, tamaño (hazards rectangulares), dirección (púa del Spike), ruta de patrulla (punto objetivo).
 - Definir huecos de puerta por lado (máx. 2 por lado, separación mínima), para que la sala sea conectable en la mazmorra procedural.
 - **Validaciones en vivo:** identificador y nombre obligatorios, inicio no encima de un hazard, IDs únicos, patrullas con destino, tamaño válido.
 - **Guardado persistente automático** del borrador (no perder trabajo al cerrar).
@@ -407,7 +405,7 @@ Herramienta imprescindible del proyecto: las salas del juego se fabrican aquí.
 
 **Enemigos:** Dummy 2 HP, patrulla 0.8, caza 1.7, detección 2.35, correa 2.2 · Chaser 3 HP, 2.35 (3.0 si apuntas) · Spike 3 HP, patrulla 0.95, cono peligroso trasero (solo daña por delante) · Trail 3–4 HP, 0.86, rastro cada 0.55 s (radio 0.45, vida 3.2 s) · Shooter 3–4 HP, caza 1.45, ciclo 1 s + 1 s, proyectil 6.6 u/s · knockback al golpe: empuje 2.4 u/s + 0.18 u
 
-**Hazards:** foso 1 daño, margen de perdón 0.18 u, caída ~1.05 s · pinchos 1 daño + empuje 5.2 u/s · barril daño 3, radio 2.0 · barro ×0.92/tick · boost +8 u/s²
+**Hazards:** foso 1 daño, margen de perdón 0.18 u, caída ~1.05 s · pinchos 1 daño + empuje 5.2 u/s · barril daño 3, radio 2.0
 
 **Mundo:** ~6 salas/mazmorra · puerta 2.0 u de ancho · muro 0.42 u · una mazmorra por jefe de la run, jefes en orden fijo de dificultad (Guardián → Reina → Prisma → Tormenta, playtest 2026-07-15), mazmorras entre jefes aleatorias
 

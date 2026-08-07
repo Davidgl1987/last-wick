@@ -1,5 +1,5 @@
 /**
- * Tuning de hazards (fosos, pinchos, barriles, barro, aceleradores, charcos)
+ * Tuning de hazards (fosos, pinchos, barriles, charcos)
  * — GDD, Apéndice. Valores validados por playtesting; no ajustar sin probar.
  */
 
@@ -16,12 +16,6 @@ export const BARREL_DAMAGE = 3;
 // enemigos "cerca" que quedaban fuera del radio; sube el área letal y las
 // partículas se acortan (burstTable) para que visual y mecánica coincidan.
 export const BARREL_BLAST_RADIUS = 2.4;
-/** Barro: factor multiplicativo de frenado aplicado por tick. */
-export const MUD_SLOW_FACTOR_PER_TICK = 0.92;
-/** Acelerador: impulso en la dirección de movimiento (u/s²). */
-export const BOOST_ACCELERATION = 8;
-/** Velocidad mínima para que el acelerador empuje (evita acelerar desde parado sin intención). */
-export const BOOST_MIN_SPEED = 0.05;
 /** Daño periódico de pinchos a enemigos y cadencia entre ticks (s). */
 export const SPIKES_ENEMY_DAMAGE_INTERVAL = 0.5;
 

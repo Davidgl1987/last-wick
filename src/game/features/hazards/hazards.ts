@@ -1,12 +1,12 @@
 /**
- * Hazards del escenario (GDD §8): foso, pinchos, barril, barro, acelerador.
+ * Hazards del escenario (GDD §8): foso, pinchos, barril.
  * Las rocas ya se resuelven como obstáculos sólidos en physics.ts/world.ts.
  *
  * Contrato de rendimiento: cero asignaciones por tick; recorre los arrays ya
  * existentes del mundo (hazards estáticos, barrels vivos).
  */
 
-import { BARREL_BLAST_RADIUS, BARREL_DAMAGE, BOOST_ACCELERATION, BOOST_MIN_SPEED, MUD_SLOW_FACTOR_PER_TICK, PIT_DAMAGE, PIT_FALL_DURATION, PIT_FORGIVENESS_MARGIN, SPIKES_ENEMY_DAMAGE_INTERVAL, SPIKES_DAMAGE, SPIKES_PUSH_SPEED } from './constants';
+import { BARREL_BLAST_RADIUS, BARREL_DAMAGE, PIT_DAMAGE, PIT_FALL_DURATION, PIT_FORGIVENESS_MARGIN, SPIKES_ENEMY_DAMAGE_INTERVAL, SPIKES_DAMAGE, SPIKES_PUSH_SPEED } from './constants';
 import { QUEEN_TRAIL_CROSS_SPEED, QUEEN_TRAIL_DOT_GRACE, QUEEN_TRAIL_SLOW_FACTOR } from '@/game/features/bosses/queen/constants';
 import { applyDamageToEnemy, applyDamageToHero, applyKnockbackToHero } from '@/game/features/combat/combat';
 import { pushEvent, type EventQueue } from '@/engine/events';
@@ -45,11 +45,11 @@ function circleOverlapsHazardRect(hazard: HazardSpawn, x: number, y: number, rad
 
 /**
  * Resuelve los hazards estáticos contra el héroe: foso (trigger por el
- * centro, con margen de perdón), pinchos (daño + empuje), barro (frenado),
- * acelerador (impulso). Actualiza `safePosition` cuando el héroe pisa suelo
- * firme y controlable (fuera de cualquier hazard, sin estar cayendo).
+ * centro, con margen de perdón), pinchos (daño + empuje). Actualiza
+ * `safePosition` cuando el héroe pisa suelo firme y controlable (fuera de
+ * cualquier hazard, sin estar cayendo).
  */
-export function stepHeroHazards(world: World, dt: number, events: EventQueue): void {
+export function stepHeroHazards(world: World, events: EventQueue): void {
   const hero = world.hero;
 
   // Animación de caída en curso: el héroe queda "congelado" (no se mueve por
@@ -98,26 +98,6 @@ export function stepHeroHazards(world: World, dt: number, events: EventQueue): v
         }
         break;
       }
-      case 'slow': {
-        if (pointInHazardRect(hazard, hero.position.x, hero.position.y, 0)) {
-          hero.velocity.x *= MUD_SLOW_FACTOR_PER_TICK;
-          hero.velocity.y *= MUD_SLOW_FACTOR_PER_TICK;
-        }
-        break;
-      }
-      case 'boost': {
-        if (pointInHazardRect(hazard, hero.position.x, hero.position.y, 0)) {
-          const speed = Math.hypot(hero.velocity.x, hero.velocity.y);
-          if (speed > BOOST_MIN_SPEED) {
-            const dirX = hazard.direction?.x ?? hero.velocity.x / speed;
-            const dirY = hazard.direction?.y ?? hero.velocity.y / speed;
-            const dirLen = Math.hypot(dirX, dirY) || 1;
-            hero.velocity.x += (dirX / dirLen) * BOOST_ACCELERATION * dt;
-            hero.velocity.y += (dirY / dirLen) * BOOST_ACCELERATION * dt;
-          }
-        }
-        break;
-      }
     }
   }
 
@@ -131,7 +111,7 @@ export function stepHeroHazards(world: World, dt: number, events: EventQueue): v
 
 /**
  * Resuelve hazards contra enemigos: caen en fosos y mueren al instante;
- * reciben daño periódico de pinchos; el barro les afecta igual que al héroe.
+ * reciben daño periódico de pinchos.
  * Usa un Map de cooldowns (id → world.time del último tick de pinchos) que
  * posee el llamador para no asignar memoria aquí.
  */
@@ -159,11 +139,6 @@ export function stepEnemyHazards(
             spikeCooldowns.set(enemy.id, world.time);
             applyDamageToEnemy(world, enemy, SPIKES_DAMAGE, 0, 0, events);
           }
-        }
-      } else if (hazard.kind === 'slow') {
-        if (pointInHazardRect(hazard, enemy.position.x, enemy.position.y, 0)) {
-          enemy.velocity.x *= MUD_SLOW_FACTOR_PER_TICK;
-          enemy.velocity.y *= MUD_SLOW_FACTOR_PER_TICK;
         }
       }
     }

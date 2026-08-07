@@ -88,7 +88,6 @@ export function EditorPage() {
           setSelection({ type: 'hazard', id });
           const size = HAZARD_DEFAULT_SIZE[placing.kind];
           const hazard: HazardSpawn = { id, kind: placing.kind, position: p, ...size };
-          if (placing.kind === 'boost') hazard.direction = { x: 0, y: -1 };
           return { ...r, hazards: [...r.hazards, hazard] };
         });
       } else {

@@ -21,7 +21,7 @@ export interface RoomParseResult {
 const ROOM_TAGS: readonly RoomTag[] = ['inicio', 'combate', 'llave', 'recompensa', 'jefe', 'tienda'];
 const DOOR_SIDES: readonly DoorSide[] = ['north', 'south', 'east', 'west'];
 const ENEMY_KINDS: readonly EnemyKind[] = ['dummy', 'chaser', 'spike', 'trail', 'shooter', 'boss'];
-const HAZARD_KINDS: readonly HazardKind[] = ['pit', 'spikes', 'barrel', 'rock', 'slow', 'boost'];
+const HAZARD_KINDS: readonly HazardKind[] = ['pit', 'spikes', 'barrel', 'rock'];
 const ITEM_KINDS: readonly ItemKind[] = ['coin', 'potion', 'key', 'shopkeeper'];
 const BOSS_IDS: readonly BossId[] = Object.keys(BOSS_DEFS) as BossId[];
 
@@ -174,7 +174,6 @@ export function parseRoomData(input: unknown): RoomParseResult {
         width: raw.width,
         height: raw.height,
       };
-      if (isVec2(raw.direction)) hazard.direction = raw.direction;
       hazards.push(hazard);
     }
   }
