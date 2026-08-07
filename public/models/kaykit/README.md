@@ -4,11 +4,19 @@ Origen: [KayKit — Dungeon Asset Pack](https://kaylousberg.com) de Kay Lousberg
 (CC0, ver `LICENSE-kaykit.txt` en este mismo directorio). Plan de integración:
 `docs/plans/ART_KIT_PLAN.md`.
 
-Están los **283 modelos del pack en glTF** (8.8 MB), no solo los que el juego
+Están los **283 modelos del pack en `.glb`** (8.0 MB), no solo los que el juego
 usa hoy — decisión de David (2026-08-05): *"deja el kit entero en public, y ya
 veremos qué usamos"*. Del pack original (40 MB) se descartan los formatos fbx y
-obj, que three.js no necesita. Cada `.gltf` viene con su `.bin` hermano, sin
-modificar.
+obj, que three.js no necesita.
+
+**Por qué `.glb` y no el `.gltf` + `.bin` del pack** (David, 2026-08-06:
+"elimina los archivos .bin si no se van a usar"): un `.gltf` es JSON de TEXTO y
+su `.bin` hermano guarda los vértices, así que el par no se puede separar —
+borrar los `.bin` dejaría los modelos inservibles. Pero sí se pueden FUSIONAR,
+y eso es exactamente un `.glb`. Se gana la mitad de ficheros, ni un `.bin`
+suelto, una petición de red por modelo en vez de dos, y que git los trate como
+BINARIOS: el pack deja de aparecer como decenas de miles de líneas de diff.
+La conversión la hace `scripts/gltf-a-glb.mjs` (sin dependencias).
 
 **Tener un modelo en esta carpeta NO significa que el juego lo cargue.** La
 lista de lo que se precarga es `KIT_MODELS` en

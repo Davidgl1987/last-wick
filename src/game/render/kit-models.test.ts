@@ -27,11 +27,15 @@ import { KIT_DIR, KIT_MODELS, kitModelUrl } from './kit-models';
 const KIT_ROOT = resolve(process.cwd(), 'public', KIT_DIR);
 
 describe('KIT_MODELS ↔ public/models/kaykit/', () => {
-  it('cada nombre de KIT_MODELS tiene su .gltf y su .bin en disco', () => {
+  it('cada nombre de KIT_MODELS tiene su .glb en disco', () => {
     for (const name of KIT_MODELS) {
-      expect(existsSync(resolve(KIT_ROOT, `${name}.gltf`))).toBe(true);
-      expect(existsSync(resolve(KIT_ROOT, `${name}.bin`))).toBe(true);
+      expect(existsSync(resolve(KIT_ROOT, `${name}.glb`))).toBe(true);
     }
+  });
+
+  it('no queda ningún .gltf/.bin suelto: el pack está empaquetado en .glb', () => {
+    const sueltos = readdirSync(KIT_ROOT).filter((f) => f.endsWith('.gltf') || f.endsWith('.bin'));
+    expect(sueltos, `sobran ficheros sin empaquetar: ${sueltos.join(', ')}`).toEqual([]);
   });
 
   it('KIT_MODELS no tiene nombres repetidos (un duplicado cargaría el mismo modelo dos veces)', () => {
@@ -39,11 +43,11 @@ describe('KIT_MODELS ↔ public/models/kaykit/', () => {
   });
 
   it('el catálogo precargado es un SUBCONJUNTO del pack en disco, y bastante menor', () => {
-    const gltfFilesOnDisk = readdirSync(KIT_ROOT).filter((file) => file.endsWith('.gltf'));
+    const glbFilesOnDisk = readdirSync(KIT_ROOT).filter((file) => file.endsWith('.glb'));
     // Menos de la mitad: si algún día se registra el pack casi entero, es señal
     // de que la precarga se ha desmadrado y toca revisar el arranque (GDD §14),
     // no de que este test sobre.
-    expect(KIT_MODELS.length).toBeLessThan(gltfFilesOnDisk.length / 2);
+    expect(KIT_MODELS.length).toBeLessThan(glbFilesOnDisk.length / 2);
   });
 
   it('la textura compartida dungeon_texture.png existe', () => {
@@ -53,12 +57,12 @@ describe('KIT_MODELS ↔ public/models/kaykit/', () => {
 
 describe('kitModelUrl', () => {
   it('compone la ruta con un baseUrl con barra final (caso típico de import.meta.env.BASE_URL)', () => {
-    expect(kitModelUrl('wall', './')).toBe('./models/kaykit/wall.gltf');
-    expect(kitModelUrl('column', '/')).toBe('/models/kaykit/column.gltf');
+    expect(kitModelUrl('wall', './')).toBe('./models/kaykit/wall.glb');
+    expect(kitModelUrl('column', '/')).toBe('/models/kaykit/column.glb');
   });
 
   it('compone la ruta igual con un baseUrl sin barra final', () => {
-    expect(kitModelUrl('wall', '.')).toBe('./models/kaykit/wall.gltf');
-    expect(kitModelUrl('column', '')).toBe('/models/kaykit/column.gltf');
+    expect(kitModelUrl('wall', '.')).toBe('./models/kaykit/wall.glb');
+    expect(kitModelUrl('column', '')).toBe('/models/kaykit/column.glb');
   });
 });

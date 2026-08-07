@@ -5,9 +5,9 @@
  * fichero se testea en el entorno `node` de vitest (ver `vite.config.ts`,
  * `test.environment: 'node'`) precisamente porque no depende de un navegador.
  *
- * La lista sale de `ls public/models/kaykit/*.gltf` (F0 ya dejó los ficheros
+ * La lista sale de `ls public/models/kaykit/*.glb` (F0 dejó los ficheros
  * en el repo, pack completo de 283 modelos): los que aquí se registran son
- * los que el juego PRECARGA, cada uno con su `.gltf` + `.bin` hermano, todos
+ * los que el juego PRECARGA. Cada modelo es un ÚNICO `.glb` (contenedor
  * referenciando la misma `dungeon_texture.png` por URI relativa. El test de
  * este módulo (`kit-models.test.ts`) comprueba que esta lista y el contenido
  * real de la carpeta no diverjan (y que siga siendo un subconjunto — bastante
@@ -99,7 +99,7 @@ export type KitModelName = (typeof KIT_MODELS)[number];
 export const KIT_DIR = 'models/kaykit/';
 
 /**
- * URL de un `.gltf` del kit a partir de una base servida (`baseUrl`), pasada
+ * URL de un `.glb` del kit a partir de una base servida (`baseUrl`), pasada
  * como PARÁMETRO en vez de leer `import.meta.env.BASE_URL` aquí dentro —
  * justo lo que mantiene este módulo puro y testeable en `node` (`kit.ts` es
  * quien conoce y pasa `import.meta.env.BASE_URL`, ver GDD del pipeline en
@@ -113,5 +113,5 @@ export const KIT_DIR = 'models/kaykit/';
  */
 export function kitModelUrl(name: KitModelName, baseUrl: string): string {
   const base = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
-  return `${base}${KIT_DIR}${name}.gltf`;
+  return `${base}${KIT_DIR}${name}.glb`;
 }
