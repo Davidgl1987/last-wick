@@ -313,6 +313,37 @@ function FloorGrid({
   );
 }
 
+/**
+ * `conn.center` (`DoorConnection.center`, dungeon.ts) NO es el centro del
+ * GROSOR del muro: es el punto en el borde INTERIOR de la sala A
+ * (`doorSlotLocalCenter`, dungeon.ts — para el lado norte, por ejemplo, es
+ * literalmente `y = -halfH`, el borde jugable, no `-halfH - t/2`). El
+ * centro real del tramo de muro que atraviesa la puerta (donde
+ * `buildRoomWallSegments` planta sus `sideDef.center`, y donde
+ * `WallModuleInstances` coloca cada módulo) está medio grosor de muro MÁS
+ * ALLÁ de ese borde, hacia FUERA de la sala — la misma corrección de `t/2`
+ * que ya aplicaba `DoorFloorPatch` (más abajo) antes de que existiera esta
+ * función: se factoriza aquí porque ahora también la necesitan
+ * `placementUnderDoor` (para comparar la línea de muro de un módulo contra la
+ * de una puerta) y `DoorFrame`/`DoorLeaf` (para plantar el marco donde de
+ * verdad está el muro, no medio grosor desplazado — bug medido en playtest:
+ * sin esta corrección el marco invadía 0.21 u, exactamente `t/2`, el tramo de
+ * muro vecino).
+ */
+function doorWallCenter(conn: DoorConnection): { x: number; z: number } {
+  const t = WALL_THICKNESS;
+  switch (conn.sideOnA) {
+    case 'north':
+      return { x: conn.center.x, z: conn.center.y - t / 2 };
+    case 'south':
+      return { x: conn.center.x, z: conn.center.y + t / 2 };
+    case 'east':
+      return { x: conn.center.x + t / 2, z: conn.center.y };
+    case 'west':
+      return { x: conn.center.x - t / 2, z: conn.center.y };
+  }
+}
+
 /** Parche de suelo bajo un hueco de puerta (el paso entre interiores): `floor_tile_small` estirada al hueco, mismo criterio de altura que `FloorGrid`. */
 function DoorFloorPatch({ conn }: { conn: DoorConnection }) {
   const geometry = kitGeometry('floor_tile_small');
@@ -320,9 +351,7 @@ function DoorFloorPatch({ conn }: { conn: DoorConnection }) {
   const topY = useMemo(() => kitTopAlignOffset(geometry), [geometry]);
   const t = WALL_THICKNESS;
   const horizontal = conn.sideOnA === 'east' || conn.sideOnA === 'west';
-  const dirSign = conn.sideOnA === 'east' || conn.sideOnA === 'south' ? 1 : -1;
-  const cx = conn.center.x + (horizontal ? (dirSign * t) / 2 : 0);
-  const cz = conn.center.y + (horizontal ? 0 : (dirSign * t) / 2);
+  const { x: cx, z: cz } = doorWallCenter(conn);
   const width = horizontal ? t : DOOR_WIDTH;
   const depth = horizontal ? DOOR_WIDTH : t;
 
@@ -507,6 +536,109 @@ function wallSpansFromObstacles(walls: Obstacle[]): WallSpan[] {
 }
 
 /**
+ * true si el lado de una conexión implica un muro cuyo eje LARGO es X
+ * (norte/sur, sin rotar) — false si es Z (este/oeste, el módulo rota 90°).
+ * Mismo criterio que `sideDef.horizontal` en `dungeon.ts::buildRoomWallSegments`
+ * y que `WallSpan.horizontal`/`WallPlacement.horizontal` de aquí arriba: los
+ * tres describen la MISMA propiedad (eje largo del muro que toca esa
+ * conexión), así que comparar `placement.horizontal` contra el resultado de
+ * esta función identifica sin ambigüedad si un módulo y una puerta están en
+ * muros con la misma orientación. La usan tanto `placementUnderDoor` (más
+ * abajo, para no dibujar muro bajo la puerta) como `DoorFrame`/`DoorLeaf` (más
+ * abajo del todo, para rotar la pieza igual que rotaría un módulo de muro en
+ * ese mismo sitio).
+ */
+function isConnectionWallHorizontal(conn: DoorConnection): boolean {
+  return conn.sideOnA === 'north' || conn.sideOnA === 'south';
+}
+
+/**
+ * Recorta de un tramo de muro los trozos que ocupan las piezas de puerta,
+ * devolviendo los sub-tramos que quedan a los lados.
+ *
+ * POR QUÉ ASÍ Y NO FILTRANDO MÓDULOS (bug de playtest, David 2026-08-06: "a
+ * las puertas les han salido huecos a los lados", con captura): el primer
+ * intento descartaba los MÓDULOS YA COLOCADOS cuyo centro caía bajo el marco.
+ * Un módulo mide hasta 3.36 u y el marco ocupa 4 u, así que quitar el módulo
+ * entero se llevaba por delante hasta metro y medio de muro que el marco no
+ * llegaba a tapar — de ahí los huecos negros a los lados de cada puerta.
+ *
+ * Restando ANTES de tilear, cada trozo de muro que sobrevive se vuelve a
+ * repartir en módulos que lo cubren EXACTO (`wallModuleLayout`), y como el
+ * reparto grande/pequeño (`betterModuleLength`) se decide por sub-tramo, los
+ * restos cortos junto a una puerta caen de forma natural en el módulo
+ * pequeño, que es justo para lo que está.
+ *
+ * Solo recorta puertas de la MISMA orientación y de la MISMA línea de muro
+ * (la coordenada perpendicular debe coincidir, margen de milésimas): una
+ * puerta del muro norte no puede recortar el muro sur aunque coincida su
+ * coordenada a lo largo del eje.
+ */
+function subtractDoorFootprints(
+  span: WallSpan,
+  connections: readonly DoorConnection[],
+  footprintHalfWidth: number,
+): WallSpan[] {
+  if (connections.length === 0 || footprintHalfWidth <= 0) return [span];
+
+  const along = span.horizontal ? span.cx : span.cz;
+  const perp = span.horizontal ? span.cz : span.cx;
+  const huecos: { min: number; max: number }[] = [];
+  for (const conn of connections) {
+    if (span.horizontal !== isConnectionWallHorizontal(conn)) continue;
+    const wallCenter = doorWallCenter(conn);
+    const doorPerp = span.horizontal ? wallCenter.z : wallCenter.x;
+    if (Math.abs(perp - doorPerp) > 0.01) continue;
+    const doorAlong = span.horizontal ? wallCenter.x : wallCenter.z;
+    huecos.push({ min: doorAlong - footprintHalfWidth, max: doorAlong + footprintHalfWidth });
+  }
+  if (huecos.length === 0) return [span];
+  huecos.sort((a, b) => a.min - b.min);
+
+  const inicioTramo = along - span.length / 2;
+  const finTramoRef = along + span.length / 2;
+
+  // Recorrido del eje dejando fuera cada hueco: lo que queda entre huecos (y
+  // en los extremos) son los sub-tramos de muro que sí se dibujan.
+  const trozos: WallSpan[] = [];
+  let cursor = inicioTramo;
+  const finTramo = finTramoRef;
+  const MINIMO = 0.05; // restos por debajo de esto son ruido de coma flotante, no muro
+  for (const hueco of huecos) {
+    // Una MISMA línea de muro puede tener varias puertas (dos salas contiguas
+    // comparten el bloque, y cada una pone las suyas), así que llegan aquí
+    // huecos que no tocan ESTE tramo. Ignorarlos es obligatorio, no una
+    // optimización: sin este descarte, un hueco posterior al final del tramo
+    // empujaba el cursor más allá del final y el "resto" salía con longitud
+    // NEGATIVA — que `wallModuleLayout` convierte en un módulo de escala
+    // negativa, dibujado justo encima del paso (bug medido: un módulo
+    // fantasma de 3 u tapando una puerta, playtest 2026-08-06).
+    if (hueco.max <= inicioTramo || hueco.min >= finTramo) continue;
+    if (hueco.min > cursor + MINIMO) {
+      const corte = Math.min(hueco.min, finTramo);
+      const centro = (cursor + corte) / 2;
+      trozos.push({
+        length: corte - cursor,
+        cx: span.horizontal ? centro : span.cx,
+        cz: span.horizontal ? span.cz : centro,
+        horizontal: span.horizontal,
+      });
+    }
+    cursor = Math.max(cursor, hueco.max);
+  }
+  if (finTramo > cursor + MINIMO) {
+    const centro = (cursor + finTramo) / 2;
+    trozos.push({
+      length: finTramo - cursor,
+      cx: span.horizontal ? centro : span.cx,
+      cz: span.horizontal ? span.cz : centro,
+      horizontal: span.horizontal,
+    });
+  }
+  return trozos;
+}
+
+/**
  * Muros de UNA sala. Dos repartos encadenados:
  *
  * 1. Por LONGITUD de tramo (`betterModuleLength`, wall-modules.ts): los tramos
@@ -517,20 +649,45 @@ function wallSpansFromObstacles(walls: Obstacle[]): WallSpan[] {
  *    acento (`pickWallModule`), y se agrupan por geometría porque un
  *    `InstancedMesh` solo admite una. Salen 2-4 mallas por sala en vez de una
  *    pieza suelta por módulo.
+ *
+ * `connections`/`doorFootprintHalfWidth` (opcionales, vacío/0 en modo sala
+ * única — ese modo no tiene puertas): la huella de cada pieza de puerta se
+ * RECORTA de los tramos antes de repartirlos en módulos
+ * (`subtractDoorFootprints`), así que el marco reemplaza exactamente el trozo
+ * de muro que ocupa, sin dejar hueco ni solapar. La pieza de puerta la pinta
+ * `DoorStructures` (sección de puertas más abajo).
  */
-function RoomWalls({ spans, roomId }: { spans: WallSpan[]; roomId: string }) {
+function RoomWalls({
+  spans,
+  roomId,
+  connections = [],
+  doorFootprintHalfWidth = 0,
+}: {
+  spans: WallSpan[];
+  roomId: string;
+  connections?: readonly DoorConnection[];
+  doorFootprintHalfWidth?: number;
+}) {
   const fullGeometry = kitGeometry(WALL_BASE_MODULE);
   const halfGeometry = kitGeometry('wall_half');
   const fullModuleLength = useMemo(() => kitBoxSize(fullGeometry).x, [fullGeometry]);
   const halfModuleLength = useMemo(() => kitBoxSize(halfGeometry).x, [halfGeometry]);
 
   const { fullGroups, halfPlacements } = useMemo(() => {
+    // 1) Recortar lo que ocupan las piezas de puerta ANTES de repartir en
+    //    módulos (ver `subtractDoorFootprints`: filtrar módulos ya colocados
+    //    dejaba huecos negros a los lados de cada puerta).
+    const recortados = spans.flatMap((span) => subtractDoorFootprints(span, connections, doorFootprintHalfWidth));
+
+    // 2) Cada sub-tramo elige módulo grande o pequeño según lo que le encaje.
     const fullSpans: WallSpan[] = [];
     const halfSpans: WallSpan[] = [];
-    for (const span of spans) {
+    for (const span of recortados) {
       const chosen = betterModuleLength(span.length, fullModuleLength, halfModuleLength);
       (chosen === halfModuleLength ? halfSpans : fullSpans).push(span);
     }
+
+    // 3) Los módulos grandes sortean además su variante decorativa.
     const byModel = new Map<KitModelName, WallPlacement[]>();
     const placements = wallPlacements(fullSpans, fullModuleLength);
     for (let i = 0; i < placements.length; i++) {
@@ -543,7 +700,7 @@ function RoomWalls({ spans, roomId }: { spans: WallSpan[]; roomId: string }) {
       fullGroups: [...byModel.entries()],
       halfPlacements: wallPlacements(halfSpans, halfModuleLength),
     };
-  }, [spans, roomId, fullModuleLength, halfModuleLength]);
+  }, [spans, roomId, fullModuleLength, halfModuleLength, connections, doorFootprintHalfWidth]);
 
   return (
     <>
@@ -689,33 +846,64 @@ function CornerColumns({
 // ── Puertas: marco (siempre) + hoja (solo si la conexión está cerrada) ─────
 
 /**
- * Puerta cerrada: la HOJA de `wall_doorway`, y SOLO la hoja.
+ * Marco + hoja de puerta: los dos nodos del `.gltf` `wall_doorway`
+ * (`wall_doorway` = el marco, `wall_doorway_door` = la hoja, hija del
+ * anterior — ver `kit.ts::cacheModelParts`, que cachea cada nodo por
+ * separado).
  *
- * Historia de dos intentos fallidos, porque el motivo de no usar el marco no
- * es evidente y sin él alguien lo reintentaría:
+ * Historia de TRES intentos, porque el motivo de los dos primeros fallos no
+ * es evidente y sin él alguien los reintentaría:
  *
  * 1. Primero se usó `wall_gated` (rastrillo de barrotes). David: quería una
  *    puerta, no una reja.
- * 2. Después, la pieza `wall_doorway` ENTERA como marco. Y ahí está la trampa:
- *    esa pieza no es un marco, es un MÓDULO DE MURO de 4 u con un hueco
- *    abierto — y el hueco además está descentrado (ocupa x[-0.18, 1.82] dentro
- *    de x[-2, 2]). Encajarla en un vano de 2 u la deja o comprimida o
- *    sobresaliendo por un lado, solapando el muro contiguo: "eso se supone que
- *    es una puerta..." (playtest 2026-08-06, con captura). No hay colocación
- *    buena: la pieza está pensada para SER un tramo de muro, no para meterse
- *    entre dos.
+ * 2. Después, la pieza `wall_doorway` ENTERA (marco+hoja fusionados,
+ *    `kitGeometry('wall_doorway')`) tratada como UN módulo de muro más,
+ *    colocada por SU PROPIO centro dentro del vano de `DOOR_WIDTH` (2 u) que
+ *    ya deja la sim. Y ahí está la trampa: esa pieza mide 3.36 u de fábrica
+ *    (un módulo de muro entero, no un marco estrecho) y su hueco NATURAL —
+ *    antes de cualquier escalado — no mide 2 u, mide 1.68 u. Forzar la pieza
+ *    ENTERA a encajar en un vano de 2 u la comprimía entera (marco incluido),
+ *    dejando el hueco visualmente pequeño y el marco desproporcionado
+ *    respecto al resto de módulos de muro: "eso se supone que es una
+ *    puerta..." (playtest 2026-08-06, con captura). Por eso el marco se quitó
+ *    y solo quedó la hoja, sola, estirada al vano — sin marco, y sin la
+ *    variedad de "el marco no aparece en algunas conexiones" que se reportó
+ *    después (la hoja sola siempre se pintaba bien, lo que faltaba era SIEMPRE
+ *    el marco).
  *
- * Lo que sí funciona es lo que se hace aquí: los módulos de muro ya dejan el
- * vano (la sim lo genera), así que la hoja sola, estirada al vano completo,
- * llena el hueco de lado a lado y de arriba abajo. Cerrada se lee como una
- * puerta de madera; abierta, el vano queda limpio. Cero solape, cero
- * asimetría, y ninguna pieza que la bola pueda atravesar sin motivo.
+ * La solución (intento 3, la de aquí) parte de dos medidas del propio
+ * `.gltf`, no de la pieza entera:
  *
- * La hoja nace descentrada respecto a su propio origen (hereda las
- * coordenadas del marco del que se recorta): se recentra UNA vez sobre una
- * copia, nunca mutando la geometría cacheada de `kitGeometryPart`.
+ * - El HUECO (boundingBox de la hoja, `wall_doorway_door`) mide 1.68 u de
+ *   ancho de fábrica — no 2 u. Así que `computeDoorFit` escala la pieza
+ *   ENTERA (marco Y hoja, con el MISMO factor: comparten el mismo espacio
+ *   local del `.gltf`, escalarlas por separado las desalinearía) en su eje
+ *   largo hasta que el hueco mide exactamente `DOOR_WIDTH` — nunca al revés
+ *   (forzar la pieza entera a una medida fija, que es lo que hizo el intento
+ *   2). El punto de referencia para centrar esa escala es el CENTRO DEL
+ *   HUECO, no el de la pieza (`centerOnDoorHole`) — en este modelo concreto
+ *   ambos centros coinciden en 0 una vez compuesta la transformación del
+ *   nodo (la hoja es hija del marco con una traslación que la re-centra), así
+ *   que en la práctica da igual, pero medirlo así en vez de asumir "la pieza
+ *   ya nace centrada" es lo que hace que otra variante de puerta del kit,
+ *   con otras proporciones, encajara sola sin tocar este código.
+ * - Al escalar el hueco hasta `DOOR_WIDTH`, las JAMBAS de piedra del marco
+ *   (la piedra a los lados del hueco, parte de la MISMA pieza) escalan con
+ *   él y acaban siendo más anchas que el propio hueco: el marco ya escalado
+ *   mide más que un módulo de muro (~4 u en vez de 3.36 u) y sobresale sobre
+ *   el tramo de muro vecino a cada lado del vano. Por eso el marco no se
+ *   PINTA ENTRE los módulos de muro que ya calcula `RoomWalls` (eso es lo que
+ *   falló en el intento 2): los REEMPLAZA. `placementUnderDoor` (sección de
+ *   Muros, más arriba) descarta, de la lista de `WallPlacement` ya calculada,
+ *   los módulos cuyo centro cae bajo la huella del marco YA escalado
+ *   (`footprintHalfWidth`), y el marco se pinta ahí en su lugar. Cero solape
+ *   coplanar, cero desplazamiento tramposo, muro visualmente continuo.
+ *
+ * El marco se pinta SIEMPRE (puerta abierta o cerrada: es piedra fija, parte
+ * del muro); la hoja de madera solo cuando la conexión sigue cerrada
+ * (`DoorStructures` sondea `world.wallVersion`, igual que antes).
  */
-const DOOR_LEAF_MODEL = 'wall_doorway';
+const DOOR_MODULE_MODEL = 'wall_doorway';
 
 /**
  * Hoja de la puerta que exige LLAVE: clon dorado del material cálido. La
@@ -726,40 +914,109 @@ const DOOR_LEAF_MODEL = 'wall_doorway';
 const doorKeyLeafMaterial = kitWarmMaterial.clone();
 doorKeyLeafMaterial.color = new THREE.Color('#d9a531');
 
-/** Alto del vano = alto del módulo de muro: la hoja se estira hasta taparlo entero (si no, quedaría un hueco abierto por encima de la puerta). */
-function doorOpeningHeight(): number {
-  return kitBoxSize(kitGeometry(WALL_BASE_MODULE)).y;
+/**
+ * Geometrías de `wall_doorway` (marco y hoja) recentradas para que el CENTRO
+ * DEL HUECO — no el de la pieza, ver comentario largo de arriba — caiga en su
+ * origen local. Cacheada por geometría de ENTRADA (marco y hoja tienen cada
+ * una su propia entrada, la caché nunca las confunde): `kitGeometryPart`
+ * devuelve siempre la MISMA instancia para un mismo nodo, así que recentrar
+ * dos veces desperdiciaría memoria de GPU sin motivo — mismo patrón que
+ * `kitXZCenteredGeometry` (kit-fit.ts), pero deliberadamente NO es esa
+ * función: `kitXZCenteredGeometry` centra una geometría por SU PROPIA caja,
+ * y aquí hacen falta DOS geometrías (marco y hoja) recentradas por la MISMA
+ * referencia externa (el hueco, medido solo sobre la hoja) para que sigan
+ * encajando entre sí exactamente igual que en el modelo original.
+ */
+const doorHoleCenteredCache = new WeakMap<THREE.BufferGeometry, THREE.BufferGeometry>();
+
+function centerOnDoorHole(geometry: THREE.BufferGeometry, holeCenter: { x: number; z: number }): THREE.BufferGeometry {
+  const cached = doorHoleCenteredCache.get(geometry);
+  if (cached) return cached;
+  const centered = geometry.clone().translate(-holeCenter.x, 0, -holeCenter.z);
+  centered.computeBoundingBox();
+  doorHoleCenteredCache.set(geometry, centered);
+  return centered;
 }
 
-function DoorLeaf({ gate }: { gate: Obstacle }) {
-  const geometry = useMemo(() => {
-    const source = kitGeometryPart(DOOR_LEAF_MODEL, `${DOOR_LEAF_MODEL}_door`);
-    const box = source.boundingBox;
-    if (!box) throw new Error('la hoja de puerta del kit no trae boundingBox calculado');
-    const centered = source.clone().translate(-(box.max.x + box.min.x) / 2, 0, -(box.max.z + box.min.z) / 2);
-    centered.computeBoundingBox();
-    return centered;
-  }, []);
-  const leafSize = useMemo(() => kitBoxSize(geometry), [geometry]);
-  const groundY = useMemo(() => kitGroundOffset(geometry), [geometry]);
-  const openingHeight = useMemo(() => doorOpeningHeight(), []);
-  const isKeyDoor = gate.id.endsWith('-key');
+/** Ajuste geométrico del módulo `wall_doorway`, igual para TODAS las puertas de la mazmorra (misma pieza) — se calcula una única vez, ver `computeDoorFit`. */
+interface DoorFit {
+  /** Geometría del marco, recentrada por el hueco (ver `centerOnDoorHole`). Se pinta siempre. */
+  frameGeometry: THREE.BufferGeometry;
+  /** Geometría de la hoja, recentrada por el MISMO punto que el marco. Solo se pinta si la conexión sigue cerrada. */
+  leafGeometry: THREE.BufferGeometry;
+  /** Factor de escala en X (eje largo del muro) para que el hueco mida exactamente `DOOR_WIDTH`. Se aplica IGUAL a marco y hoja. */
+  scaleX: number;
+  /** Factor de escala en Z (grosor) para que el marco mida `WALL_THICKNESS` — mismo cálculo que `WallModuleInstances.thicknessScale` para `wall`. Se aplica IGUAL a marco y hoja. */
+  scaleZ: number;
+  /** Offset en Y para apoyar el marco en el suelo (min.y del boundingBox del marco, ya recentrado en XZ — recentrar no toca Y). */
+  groundY: number;
+  /** Mitad del ancho TOTAL que ocupa el marco ya escalado (jambas incluidas) a lo largo del eje del muro — el radio de exclusión que usa `placementUnderDoor`. */
+  footprintHalfWidth: number;
+}
 
-  const { minX, minY, maxX, maxY } = gate.aabb;
-  const width = maxX - minX;
-  const depth = maxY - minY;
-  const horizontal = width >= depth;
-  const gapWidth = horizontal ? width : depth;
-  const gapThickness = horizontal ? depth : width;
-  const heightScale = openingHeight / leafSize.y;
+/**
+ * Calcula `DoorFit` leyendo el `boundingBox` real del kit — nunca a mano, así
+ * si el modelo cambiara de proporciones esto se sigue ajustando solo (mismo
+ * principio que el resto de `kit-fit.ts`). Se llama UNA vez por montaje de
+ * `DungeonStructureView` (la pieza es la misma para todas las puertas de la
+ * mazmorra) y el resultado se reparte a `RoomWalls` (necesita
+ * `footprintHalfWidth` para filtrar) y `DoorStructures` (necesita el resto
+ * para pintar marco y hoja).
+ */
+function computeDoorFit(): DoorFit {
+  const leafRaw = kitGeometryPart(DOOR_MODULE_MODEL, `${DOOR_MODULE_MODEL}_door`);
+  const frameRaw = kitGeometryPart(DOOR_MODULE_MODEL, DOOR_MODULE_MODEL);
+  const holeBox = leafRaw.boundingBox;
+  if (!holeBox) throw new Error('la hoja de puerta del kit no trae boundingBox calculado');
+  const holeCenter = { x: (holeBox.min.x + holeBox.max.x) / 2, z: (holeBox.min.z + holeBox.max.z) / 2 };
+  const holeWidth = holeBox.max.x - holeBox.min.x;
+  const frameSize = kitBoxSize(frameRaw);
+  const scaleX = DOOR_WIDTH / holeWidth;
+  const scaleZ = WALL_THICKNESS / frameSize.z;
+  const frameGeometry = centerOnDoorHole(frameRaw, holeCenter);
+  const leafGeometry = centerOnDoorHole(leafRaw, holeCenter);
+  return {
+    frameGeometry,
+    leafGeometry,
+    scaleX,
+    scaleZ,
+    groundY: kitGroundOffset(frameGeometry),
+    footprintHalfWidth: (frameSize.x * scaleX) / 2,
+  };
+}
 
+/** Marco de UNA conexión: piedra, SIEMPRE visible (puerta abierta o cerrada). */
+function DoorFrame({ conn, fit }: { conn: DoorConnection; fit: DoorFit }) {
+  const horizontal = isConnectionWallHorizontal(conn);
+  // `doorWallCenter`, no `conn.center` crudo — ver su comentario largo (más
+  // arriba, junto a `DoorFloorPatch`): `conn.center` es el borde interior de
+  // la sala, medio grosor de muro más cerca de lo que hace falta.
+  const { x, z } = doorWallCenter(conn);
   return (
     <mesh
-      geometry={geometry}
-      material={isKeyDoor ? doorKeyLeafMaterial : kitWarmMaterial}
-      position={[(minX + maxX) / 2, groundY * heightScale, (minY + maxY) / 2]}
+      geometry={fit.frameGeometry}
+      material={kitMaterial}
+      position={[x, fit.groundY, z]}
       rotation={[0, horizontal ? 0 : Math.PI / 2, 0]}
-      scale={[gapWidth / leafSize.x, heightScale, gapThickness / leafSize.z]}
+      scale={[fit.scaleX, 1, fit.scaleZ]}
+      castShadow
+      receiveShadow
+    />
+  );
+}
+
+/** Hoja de UNA conexión CERRADA: madera (o dorada si exige llave), con la MISMA transformación que `DoorFrame` para que encaje justo en su hueco. */
+function DoorLeaf({ conn, gate, fit }: { conn: DoorConnection; gate: Obstacle; fit: DoorFit }) {
+  const horizontal = isConnectionWallHorizontal(conn);
+  const isKeyDoor = gate.id.endsWith('-key');
+  const { x, z } = doorWallCenter(conn);
+  return (
+    <mesh
+      geometry={fit.leafGeometry}
+      material={isKeyDoor ? doorKeyLeafMaterial : kitWarmMaterial}
+      position={[x, fit.groundY, z]}
+      rotation={[0, horizontal ? 0 : Math.PI / 2, 0]}
+      scale={[fit.scaleX, 1, fit.scaleZ]}
       castShadow
       receiveShadow
     />
@@ -774,12 +1031,13 @@ function findGateForConnection(world: World, connectionIndex: number): Obstacle 
 }
 
 /**
- * Puertas de la mazmorra: una hoja por conexión CERRADA. Se recalcula cuando
- * `world.wallVersion` cambia (abrir una puerta, evento raro) con el mismo
- * sondeo barato por frame que ya usaba el `DoorGates` original. Las conexiones
- * abiertas no pintan nada: el vano que dejan los módulos de muro ES el paso.
+ * Puertas de la mazmorra: un marco por CADA conexión (siempre) y una hoja por
+ * conexión que sigue CERRADA. La hoja se recalcula cuando `world.wallVersion`
+ * cambia (abrir una puerta, evento raro) con el mismo sondeo barato por frame
+ * que ya usaba el `DoorGates` original; el marco no depende de ese estado, se
+ * pinta igual abierta o cerrada.
  */
-function DoorStructures({ world }: { world: World }) {
+function DoorStructures({ world, fit }: { world: World; fit: DoorFit }) {
   const [version, setVersion] = useState(world.wallVersion);
 
   useFrame(() => {
@@ -791,9 +1049,12 @@ function DoorStructures({ world }: { world: World }) {
 
   return (
     <>
-      {dungeon.connections.map((_conn, i) => {
+      {dungeon.connections.map((conn, i) => (
+        <DoorFrame key={`door-frame-${i}`} conn={conn} fit={fit} />
+      ))}
+      {dungeon.connections.map((conn, i) => {
         const gate = findGateForConnection(world, i);
-        return gate ? <DoorLeaf key={`door-leaf-${i}`} gate={gate} /> : null;
+        return gate ? <DoorLeaf key={`door-leaf-${i}`} conn={conn} gate={gate} fit={fit} /> : null;
       })}
     </>
   );
@@ -893,6 +1154,9 @@ function DungeonStructureView({ world }: { world: World }) {
   }, [world]);
   const wallsByRoom = useMemo(() => groupByRoomId(staticBoxes.walls), [staticBoxes.walls]);
   const rocksByRoom = useMemo(() => groupByRoomId(staticBoxes.rocks), [staticBoxes.rocks]);
+  // Ajuste del módulo `wall_doorway` (marco+hoja): UNA vez para toda la
+  // mazmorra, todas las puertas comparten la misma pieza — ver `computeDoorFit`.
+  const doorFit = useMemo(() => computeDoorFit(), []);
 
   if (!dungeon) return null;
   const t = WALL_THICKNESS;
@@ -918,6 +1182,8 @@ function DungeonStructureView({ world }: { world: World }) {
           key={`walls-${placed.room.id}`}
           spans={wallSpansFromObstacles(wallsByRoom.get(placed.room.id) ?? [])}
           roomId={placed.room.id}
+          connections={dungeon.connections}
+          doorFootprintHalfWidth={doorFit.footprintHalfWidth}
         />
       ))}
       {dungeon.rooms.map((placed) => (
@@ -933,7 +1199,7 @@ function DungeonStructureView({ world }: { world: World }) {
           originY={placed.origin.y}
         />
       ))}
-      <DoorStructures world={world} />
+      <DoorStructures world={world} fit={doorFit} />
     </group>
   );
 }
