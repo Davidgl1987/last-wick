@@ -51,6 +51,7 @@ import { unitCone } from '@/game/render/assets';
 import { bossCandleFlameMaterial } from '@/game/render/assets-dark';
 import { TORCH_LIGHT_COLOR } from '@/game/features/dungeon/torch-placements';
 import { GlowPuddle } from '@/game/render/GlowPuddle';
+import { FLOOR_FAMILIES, pickFloorFamily, type FloorFamilyName } from '@/game/render/floor-families';
 import { kitGeometry, kitMaterial, kitWarmMaterial } from '@/game/render/kit';
 import { kitBoxSize, kitGroundOffset, kitTopAlignOffset, kitXZCenterOffset } from '@/game/render/kit-fit';
 import { useKnownRoomIds } from '@/game/render/known-rooms';
@@ -64,29 +65,66 @@ import {
 // ── Decals de suelo ─────────────────────────────────────────────────────────
 
 /**
- * `floor_tile_large_rocks` es la ÚNICA variante de fábrica 4×4 del catálogo de
- * `room-props.ts` (el resto ya nace 2×2, que a `KIT_SCALE` cae justo en el
- * tamaño de UNA celda de `FloorGrid`, RoomView.tsx: por eso esas 4 variantes
- * no necesitan escala aparte). Este factor la reduce al mismo tamaño de celda
- * — mismo valor y mismo motivo que `FLOOR_TILE_SCALE` en RoomView.tsx, para
- * que las 5 variantes se lean siempre como "esta baldosa en concreto está rota/
- * cubierta", nunca como un parche de tamaño suelto.
+ * Cuánto se levanta el decal sobre la altura EXACTA de la losa (ver
+ * `FloorScatterMesh` más abajo): a esa altura exacta, la cara de la losa
+ * quedaría COPLANAR con el suelo de la sala — mismo plano, dos superficies —
+ * que es justo el z-fighting (parpadeo) reportado por David y medido en
+ * playtest 2026-08-07. Este epsilon desempata la profundidad a favor del
+ * decal sin que se note: 0.5 cm es lo mínimo para ganar el z-test de forma
+ * consistente entre frames y, a la vez, demasiado poco para leerse como una
+ * losa flotando sobre el suelo (el canto seguiría pareciendo a ras).
  */
-const FLOOR_SCATTER_LARGE_ROCKS_SCALE = 0.5;
+const FLOOR_SCATTER_LIFT = 0.005;
 
-function FloorScatterMesh({ x, z, variant, rotationY }: FloorScatterPlacement) {
+/**
+ * Decal de suelo suelto (baldosa rota/con hierbajos/con rocas encima) de la
+ * FAMILIA real de la sala (`familyName`, prop nueva de `RoomPropsGroup` —
+ * `computeRoomProps` ya solo puede devolver variantes del catálogo de esa
+ * familia, ver `room-props.ts`/`floor-families.ts`, así que aquí no hace
+ * falta comprobar nada, solo usar la familia para la altura y la escala).
+ *
+ * ALTURA: se impone el `topY` de la baldosa BASE de la familia
+ * (`FLOOR_FAMILIES[familyName].base`), NUNCA el de la propia geometría del
+ * decal — mismo criterio que ya resolvía este problema en `FloorGrid`
+ * (RoomView.tsx): si cada variante se alineara por su PROPIO max.y, las que
+ * llevan relieve por encima de la losa (hierbajos, rocas) hundirían la losa
+ * varios centímetros bajo el suelo real, porque su max.y es la punta de la
+ * planta/roca, no la cara de la losa (medido: floor_tile_small_weeds_A/B caían
+ * 0.122 u por debajo del suelo real, floor_tile_large_rocks 0.204 u — la causa
+ * exacta del parpadeo bajo el héroe en `start-hall` que reportó David). El
+ * offset de la base se multiplica por `scale` (ver abajo) porque, a diferencia
+ * de `FloorGrid` (que solo estira X/Z, nunca Y), aquí SÍ se aplica una escala
+ * UNIFORME a la malla entera — la Y local de la losa se contrae con el resto
+ * de la pieza, así que el offset de mundo tiene que contraerse con ella.
+ *
+ * ESCALA: por MEDIDA, no por lista de nombres (encargo de David: "hazlo por
+ * MEDIDA, no por lista de nombres"). Antes solo `floor_tile_large_rocks` era
+ * 4×4 de fábrica y se reducía con una constante a mano; ahora `tierra` también
+ * tiene una variante grande (`floor_dirt_large_rocky`), así que se compara el
+ * ancho real (`kitBoxSize(geometry).x`) contra el de la baldosa base de la
+ * familia y se escala para que el decal ocupe exactamente UNA celda de
+ * `FloorGrid` — funciona igual si el kit añadiera mañana otra variante grande
+ * sin tocar esta función. Las variantes que ya nacen del tamaño de la base
+ * (broken/weeds, 2×2) dan `scale ≈ 1` y no se tocan.
+ */
+function FloorScatterMesh({
+  x,
+  z,
+  variant,
+  rotationY,
+  familyName,
+}: FloorScatterPlacement & { familyName: FloorFamilyName }) {
   const geometry = kitGeometry(variant);
-  // Mismo criterio que `FloorGrid`/`SpikesField` (RoomView.tsx/HazardView.tsx):
-  // las variantes de `floor_tile_large`/`floor_tile_small` apoyan por su cara
-  // SUPERIOR (max.y), no por min.y — alinear por min.y las hundiría bajo el
-  // plano y=0 donde vive el resto del juego.
-  const topY = useMemo(() => kitTopAlignOffset(geometry), [geometry]);
-  const scale = variant === 'floor_tile_large_rocks' ? FLOOR_SCATTER_LARGE_ROCKS_SCALE : 1;
+  const baseGeometry = kitGeometry(FLOOR_FAMILIES[familyName].base);
+  const baseTopY = useMemo(() => kitTopAlignOffset(baseGeometry), [baseGeometry]);
+  const baseWidth = useMemo(() => kitBoxSize(baseGeometry).x, [baseGeometry]);
+  const decalWidth = useMemo(() => kitBoxSize(geometry).x, [geometry]);
+  const scale = baseWidth / decalWidth;
   return (
     <mesh
       geometry={geometry}
       material={kitMaterial}
-      position={[x, topY * scale, z]}
+      position={[x, baseTopY * scale + FLOOR_SCATTER_LIFT, z]}
       rotation={[0, rotationY, 0]}
       scale={scale}
       receiveShadow
@@ -278,25 +316,36 @@ function RoomPropsGroup({
   bounds,
   tags,
   hazards,
+  floorFamily,
 }: {
   roomId: string;
   bounds: AABB;
   tags: readonly RoomTag[];
   hazards: readonly HazardRuntime[];
+  /**
+   * Familia de suelo REAL de la sala — la calcula quien llama con
+   * `pickFloorFamily`, la MISMA función y el MISMO argumento que
+   * `DungeonStructureView` (RoomView.tsx) usa para elegir la rejilla de
+   * baldosas de esta sala, para que decal y suelo no puedan divergir nunca
+   * (ver `floor-families.ts`). Fija el catálogo de `floorScatterPlacements`
+   * (`FLOOR_FAMILIES[floorFamily].scatter`) y la altura/escala con la que se
+   * pinta cada decal (`FloorScatterMesh`).
+   */
+  floorFamily: FloorFamilyName;
 }) {
   const featured = tags.includes('jefe') || tags.includes('tienda');
   // La mazmorra no cambia de layout durante la partida (mismo criterio que
   // `TorchPropsView`/`collectTorchEmitters`): se calcula una sola vez por
   // sala, no en cada frame.
   const props = useMemo(
-    () => computeRoomProps(roomId, bounds, featured, hazards),
-    [roomId, bounds, featured, hazards],
+    () => computeRoomProps(roomId, bounds, featured, hazards, FLOOR_FAMILIES[floorFamily].scatter),
+    [roomId, bounds, featured, hazards, floorFamily],
   );
 
   return (
     <>
       {props.floorScatter.map((p, i) => (
-        <FloorScatterMesh key={`floor-${i}`} {...p} />
+        <FloorScatterMesh key={`floor-${i}`} {...p} familyName={floorFamily} />
       ))}
       {props.wallClutter.map((p, i) => (
         <WallClutterMesh key={`clutter-${i}`} {...p} />
@@ -344,11 +393,26 @@ export function RoomPropsView({ world }: { world: World }) {
               bounds={placed.bounds}
               tags={placed.room.tags}
               hazards={hazardsByRoom.get(placed.room.id) ?? []}
+              // Misma llamada que `DungeonStructureView` (RoomView.tsx) usa
+              // para elegir la rejilla de suelo de esta sala: decal y suelo
+              // nunca pueden divergir porque los dos parten del mismo
+              // `pickFloorFamily(placed.room)`.
+              floorFamily={pickFloorFamily(placed.room)}
             />
           ))}
       </>
     );
   }
 
-  return <RoomPropsGroup roomId={world.room.id} bounds={world.bounds} tags={world.room.tags} hazards={world.hazards} />;
+  return (
+    <RoomPropsGroup
+      roomId={world.room.id}
+      bounds={world.bounds}
+      tags={world.room.tags}
+      hazards={world.hazards}
+      // Mismo criterio que `SingleRoomView` (RoomView.tsx): sala única del
+      // playtest del editor, misma llamada a `pickFloorFamily`.
+      floorFamily={pickFloorFamily(world.room)}
+    />
+  );
 }

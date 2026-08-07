@@ -48,6 +48,7 @@ export const KIT_MODELS = [
   'crate_large',
   'crate_small',
   'floor_dirt_large',
+  'floor_dirt_large_rocky',
   'floor_dirt_small_A',
   'floor_dirt_small_B',
   'floor_dirt_small_C',

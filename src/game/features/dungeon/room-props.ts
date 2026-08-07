@@ -24,7 +24,10 @@
  *   suelo, nunca como obstáculo) — pueden ir en cualquier punto del interior,
  *   evitando solo los hazards (para no "brotar" de un foso o un campo de
  *   pinchos) y un margen junto al muro (para no quedar bajo un poste de
- *   esquina). Cualquier sala puede llevarlas.
+ *   esquina). Cualquier sala puede llevarlas, pero el CATÁLOGO de variantes lo
+ *   decide la familia de suelo real de la sala (`FLOOR_FAMILIES[...].scatter`,
+ *   `@/game/render/floor-families.ts`) y llega aquí ya resuelto como parámetro
+ *   — este módulo no sabe de familias, solo coloca lo que le pasan.
  * - `wallClutterPlacements`: escombros/cajas/cajones CON volumen, así que
  *   caen en la categoría (c) — solo en las esquinas del interior, dentro de
  *   la huella que ya ocupan el muro y el poste (nunca sueltos en mitad de la
@@ -42,6 +45,7 @@
 
 import type { AABB } from '@/engine/geometry';
 import { createRng, type Rng } from '@/engine/rng';
+import type { KitModelName } from '@/game/render/kit-models';
 import type { HazardSpawn } from '@/game/world/types';
 
 // ── Hash de id de sala → semilla determinista ──────────────────────────────
@@ -62,20 +66,11 @@ function hashRoomId(id: string): number {
 
 // ── Escombros/hierbajos de suelo (categoría (a): plano, en cualquier punto) ─
 
-export const FLOOR_SCATTER_VARIANTS = [
-  'floor_tile_small_broken_A',
-  'floor_tile_small_broken_B',
-  'floor_tile_small_weeds_A',
-  'floor_tile_small_weeds_B',
-  'floor_tile_large_rocks',
-] as const;
-export type FloorScatterVariant = (typeof FLOOR_SCATTER_VARIANTS)[number];
-
 export interface FloorScatterPlacement {
   x: number;
   z: number;
-  variant: FloorScatterVariant;
-  /** Múltiplo de 90°: las 5 variantes son losas más o menos cuadradas, un giro discreto basta para variar la lectura sin dejar ninguna junta rara. */
+  variant: KitModelName;
+  /** Múltiplo de 90°: las variantes de decal son losas más o menos cuadradas, un giro discreto basta para variar la lectura sin dejar ninguna junta rara. */
   rotationY: number;
 }
 
@@ -118,8 +113,30 @@ function tooCloseToPlaced(x: number, z: number, placed: readonly { x: number; z:
  * acotada a `[FLOOR_SCATTER_MIN, FLOOR_SCATTER_MAX]`; si un candidato no
  * encuentra hueco válido tras `PLACEMENT_ATTEMPTS`, se descarta ESE decal (la
  * cuenta final puede salir por debajo del objetivo, nunca por encima).
+ *
+ * `variants` la decide QUIEN LLAMA (`FLOOR_FAMILIES[familia].scatter`, ver
+ * `floor-families.ts`) — este módulo ya no sabe qué familia tiene la sala, así
+ * que no puede inventarse un catálogo propio. Bug corregido con esto (playtest
+ * 2026-08-07, medido): antes `floorScatterPlacements` siempre sorteaba entre
+ * las 5 variantes de PIEDRA sin mirar la familia real, así que una sala de
+ * MADERA (segura, sin enemigos) podía salir con escombros de piedra en mitad
+ * del suelo — parpadeando además, por mal alineados (ver `RoomPropsView.tsx`).
+ *
+ * Lista vacía (familia sin decals, hoy solo `madera`) ⇒ `[]` inmediato, ANTES
+ * de leer un solo número del `rng` compartido con `wallClutterPlacements`/
+ * `wallDecorPlacements` (`computeRoomProps`, más abajo): así el resto del
+ * atrezzo de la sala (esquinas, parapeto) no cambia de sitio solo porque le
+ * tocó una familia sin catálogo de suelo — decisión tomada a propósito, no la
+ * opción "consumir igual" que también habría sido válida.
  */
-export function floorScatterPlacements(bounds: AABB, rng: Rng, hazards: readonly HazardSpawn[]): FloorScatterPlacement[] {
+export function floorScatterPlacements(
+  bounds: AABB,
+  rng: Rng,
+  hazards: readonly HazardSpawn[],
+  variants: readonly KitModelName[],
+): FloorScatterPlacement[] {
+  if (variants.length === 0) return [];
+
   const width = bounds.maxX - bounds.minX;
   const height = bounds.maxY - bounds.minY;
   const targetCount = Math.min(
@@ -141,7 +158,7 @@ export function floorScatterPlacements(bounds: AABB, rng: Rng, hazards: readonly
       const z = innerMinZ + rng() * (innerMaxZ - innerMinZ);
       if (overlapsHazard(x, z, hazards)) continue;
       if (tooCloseToPlaced(x, z, placements, FLOOR_SCATTER_MIN_GAP)) continue;
-      const variant = FLOOR_SCATTER_VARIANTS[Math.floor(rng() * FLOOR_SCATTER_VARIANTS.length)];
+      const variant = variants[Math.floor(rng() * variants.length)];
       const rotationY = Math.floor(rng() * 4) * (Math.PI / 2);
       placements.push({ x, z, variant, rotationY });
       break;
@@ -278,6 +295,16 @@ export interface RoomPropsResult {
  * (banderas/candelabro): el resto de salas de combate no las llevan, solo
  * decals de suelo + bulto de esquina.
  *
+ * `floorScatterVariants` la calcula QUIEN LLAMA a partir de la familia de
+ * suelo real de la sala (`FLOOR_FAMILIES[pickFloorFamily(room)].scatter`, ver
+ * `floor-families.ts`) y se pasa tal cual a `floorScatterPlacements` — este
+ * fichero no importa nada de `render/` a propósito (es tipo puro, ver cabecera
+ * del fichero, `KitModelName` es solo un tipo y no acopla nada en tiempo de
+ * ejecución) para no decidir aquí qué familia le toca a una sala: esa decisión
+ * vive en un único sitio (`RoomView.tsx`/`RoomPropsView.tsx` llaman a
+ * `pickFloorFamily` con el mismo criterio) para que suelo y decal nunca puedan
+ * divergir.
+ *
  * Un ÚNICO `rng` (creado de la semilla de esta sala) alimenta las tres
  * categorías EN ORDEN (suelo → esquinas → parapeto): sigue siendo 100%
  * determinista por `roomId` sea cual sea el orden, y evita tener que inventar
@@ -288,9 +315,10 @@ export function computeRoomProps(
   bounds: AABB,
   featured: boolean,
   hazards: readonly HazardSpawn[],
+  floorScatterVariants: readonly KitModelName[],
 ): RoomPropsResult {
   const rng = createRng(hashRoomId(roomId));
-  const floorScatter = floorScatterPlacements(bounds, rng, hazards);
+  const floorScatter = floorScatterPlacements(bounds, rng, hazards, floorScatterVariants);
   const wallClutter = wallClutterPlacements(bounds, rng, hazards);
   const wallDecor = featured ? wallDecorPlacements(bounds, rng) : [];
   return { floorScatter, wallClutter, wallDecor };

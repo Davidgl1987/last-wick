@@ -7,6 +7,7 @@
 
 import { describe, expect, it } from 'vitest';
 import type { AABB } from '@/engine/geometry';
+import type { KitModelName } from '@/game/render/kit-models';
 import type { HazardSpawn } from '@/game/world/types';
 import {
   computeRoomProps,
@@ -14,12 +15,25 @@ import {
   wallClutterPlacements,
   wallDecorPlacements,
   WALL_CLUTTER_KINDS,
-  FLOOR_SCATTER_VARIANTS,
 } from './room-props';
 import { createRng } from '@/engine/rng';
 
 const SMALL_ROOM: AABB = { minX: -4.5, maxX: 4.5, minY: -4.5, maxY: 4.5 }; // 9×9
 const BOSS_ROOM: AABB = { minX: -7.5, maxX: 7.5, minY: -7.5, maxY: 7.5 }; // 15×15
+
+// Catálogo de decals que antes vivía en `room-props.ts` como
+// `FLOOR_SCATTER_VARIANTS` (piedra fija) y ahora lo aporta la familia de
+// suelo real de la sala (`FLOOR_FAMILIES[...].scatter`, ver
+// `@/game/render/floor-families.ts`) — aquí se usa una lista de prueba propia
+// para no acoplar este test a `render/` (que además no está disponible en el
+// entorno `node` de vitest sin `three`, ver cabecera del fichero probado).
+const STONE_VARIANTS: readonly KitModelName[] = [
+  'floor_tile_small_broken_A',
+  'floor_tile_small_broken_B',
+  'floor_tile_small_weeds_A',
+  'floor_tile_small_weeds_B',
+  'floor_tile_large_rocks',
+];
 
 function seedFor(roomId: string) {
   // Mismo hash que usa internamente room-props.ts, reconstruido aquí solo
@@ -32,30 +46,58 @@ function seedFor(roomId: string) {
 
 describe('floorScatterPlacements', () => {
   it('determinista: misma sala (mismo rng fresco) produce exactamente los mismos decals', () => {
-    const a = floorScatterPlacements(SMALL_ROOM, seedFor('room-a'), []);
-    const b = floorScatterPlacements(SMALL_ROOM, seedFor('room-a'), []);
+    const a = floorScatterPlacements(SMALL_ROOM, seedFor('room-a'), [], STONE_VARIANTS);
+    const b = floorScatterPlacements(SMALL_ROOM, seedFor('room-a'), [], STONE_VARIANTS);
     expect(a).toEqual(b);
   });
 
   it('la cuenta respeta el mínimo/máximo y crece con el área de la sala', () => {
-    const small = floorScatterPlacements(SMALL_ROOM, seedFor('s'), []);
-    const big = floorScatterPlacements(BOSS_ROOM, seedFor('s'), []);
+    const small = floorScatterPlacements(SMALL_ROOM, seedFor('s'), [], STONE_VARIANTS);
+    const big = floorScatterPlacements(BOSS_ROOM, seedFor('s'), [], STONE_VARIANTS);
     expect(small.length).toBeGreaterThanOrEqual(1);
     expect(small.length).toBeLessThanOrEqual(4);
     expect(big.length).toBeLessThanOrEqual(4); // tope duro (FLOOR_SCATTER_MAX)
     expect(big.length).toBeGreaterThanOrEqual(small.length);
   });
 
-  it('todas las variantes elegidas pertenecen al catálogo declarado', () => {
-    const placements = floorScatterPlacements(BOSS_ROOM, seedFor('variantes'), []);
+  it('todas las variantes elegidas salen de la lista que se pasó', () => {
+    const placements = floorScatterPlacements(BOSS_ROOM, seedFor('variantes'), [], STONE_VARIANTS);
+    expect(placements.length).toBeGreaterThan(0); // si esto no genera nada, el resto del test no prueba nada
     for (const p of placements) {
-      expect(FLOOR_SCATTER_VARIANTS).toContain(p.variant);
+      expect(STONE_VARIANTS).toContain(p.variant);
     }
+  });
+
+  it('con OTRA lista de variantes (tierra, distinta de la de piedra), las elegidas salen de ESA lista', () => {
+    const dirtVariants: readonly KitModelName[] = ['floor_dirt_small_weeds', 'floor_dirt_large_rocky'];
+    const placements = floorScatterPlacements(BOSS_ROOM, seedFor('variantes-tierra'), [], dirtVariants);
+    expect(placements.length).toBeGreaterThan(0);
+    for (const p of placements) {
+      expect(dirtVariants).toContain(p.variant);
+      expect(STONE_VARIANTS).not.toContain(p.variant);
+    }
+  });
+
+  it('lista de variantes VACÍA (familia madera, sin decals de suelo): ningún decal, sea cual sea el tamaño de la sala', () => {
+    expect(floorScatterPlacements(SMALL_ROOM, seedFor('madera-1'), [], [])).toEqual([]);
+    expect(floorScatterPlacements(BOSS_ROOM, seedFor('madera-2'), [], [])).toEqual([]);
+  });
+
+  it('lista vacía: no se consume ni un número del rng (el resto del atrezzo de la sala no debe moverse por la familia)', () => {
+    const rng = seedFor('madera-consumo');
+    const before = rng();
+    // Rebobinar con la MISMA semilla y volver a leer el primer número: si
+    // `floorScatterPlacements` hubiera consumido algo antes de rendirse,
+    // este segundo `rng()` ya no devolvería el mismo valor que `before`.
+    const rngOtraVez = seedFor('madera-consumo');
+    floorScatterPlacements(BOSS_ROOM, rngOtraVez, [], []);
+    const afterEmptyScatter = rngOtraVez();
+    expect(afterEmptyScatter).toBe(before);
   });
 
   it('nunca coloca un decal dentro (ni cerca) del rectángulo de un hazard', () => {
     const hazard: HazardSpawn = { id: 'pit-1', kind: 'pit', position: { x: 0, y: 0 }, width: 4, height: 4 };
-    const placements = floorScatterPlacements(BOSS_ROOM, seedFor('con-hazard'), [hazard]);
+    const placements = floorScatterPlacements(BOSS_ROOM, seedFor('con-hazard'), [hazard], STONE_VARIANTS);
     for (const p of placements) {
       const insideMarginedHazard = Math.abs(p.x - 0) < 4 / 2 + 0.6 && Math.abs(p.z - 0) < 4 / 2 + 0.6;
       expect(insideMarginedHazard).toBe(false);
@@ -63,7 +105,7 @@ describe('floorScatterPlacements', () => {
   });
 
   it('respeta el margen de muro: ningún decal cae fuera de bounds ni pegado al borde', () => {
-    const placements = floorScatterPlacements(SMALL_ROOM, seedFor('margen'), []);
+    const placements = floorScatterPlacements(SMALL_ROOM, seedFor('margen'), [], STONE_VARIANTS);
     for (const p of placements) {
       expect(p.x).toBeGreaterThan(SMALL_ROOM.minX);
       expect(p.x).toBeLessThan(SMALL_ROOM.maxX);
@@ -74,7 +116,7 @@ describe('floorScatterPlacements', () => {
 
   it('sala demasiado pequeña para dejar margen por los 4 lados: ningún decal (mejor ninguno que uno pegado al muro)', () => {
     const tiny: AABB = { minX: -1, maxX: 1, minY: -1, maxY: 1 }; // 2×2, menor que 2×FLOOR_SCATTER_WALL_MARGIN
-    expect(floorScatterPlacements(tiny, seedFor('tiny'), [])).toEqual([]);
+    expect(floorScatterPlacements(tiny, seedFor('tiny'), [], STONE_VARIANTS)).toEqual([]);
   });
 });
 
@@ -156,21 +198,38 @@ describe('wallDecorPlacements', () => {
 
 describe('computeRoomProps', () => {
   it('determinista de punta a punta por roomId: dos llamadas con los mismos argumentos son idénticas', () => {
-    const a = computeRoomProps('sala-1', BOSS_ROOM, true, []);
-    const b = computeRoomProps('sala-1', BOSS_ROOM, true, []);
+    const a = computeRoomProps('sala-1', BOSS_ROOM, true, [], STONE_VARIANTS);
+    const b = computeRoomProps('sala-1', BOSS_ROOM, true, [], STONE_VARIANTS);
     expect(a).toEqual(b);
   });
 
   it('featured=false nunca añade bandera/candelabro; featured=true siempre añade exactamente 2', () => {
-    const combate = computeRoomProps('sala-combate', BOSS_ROOM, false, []);
+    const combate = computeRoomProps('sala-combate', BOSS_ROOM, false, [], STONE_VARIANTS);
     expect(combate.wallDecor).toEqual([]);
-    const jefe = computeRoomProps('sala-jefe', BOSS_ROOM, true, []);
+    const jefe = computeRoomProps('sala-jefe', BOSS_ROOM, true, [], STONE_VARIANTS);
     expect(jefe.wallDecor).toHaveLength(2);
   });
 
+  it('lista de variantes de suelo vacía (familia madera): floorScatter vacío, pero el resto del atrezzo sigue en pie', () => {
+    const sinDecals = computeRoomProps('sala-madera', BOSS_ROOM, true, [], []);
+    expect(sinDecals.floorScatter).toEqual([]);
+    // featured=true sigue añadiendo bandera/candelabro: la ausencia de
+    // decals de suelo es SOLO de esa categoría, no un cortocircuito de todo
+    // `computeRoomProps`.
+    expect(sinDecals.wallDecor).toHaveLength(2);
+  });
+
+  it('todos los decals de suelo de la sala salen de la lista de variantes que se pasó', () => {
+    const dirtVariants: readonly KitModelName[] = ['floor_dirt_small_weeds', 'floor_dirt_large_rocky'];
+    const { floorScatter } = computeRoomProps('sala-tierra', BOSS_ROOM, false, [], dirtVariants);
+    for (const p of floorScatter) {
+      expect(dirtVariants).toContain(p.variant);
+    }
+  });
+
   it('ids de sala distintos producen (típicamente) atrezzo distinto: no es una constante global', () => {
-    const a = computeRoomProps('room-alpha', BOSS_ROOM, false, []);
-    const b = computeRoomProps('room-beta', BOSS_ROOM, false, []);
+    const a = computeRoomProps('room-alpha', BOSS_ROOM, false, [], STONE_VARIANTS);
+    const b = computeRoomProps('room-beta', BOSS_ROOM, false, [], STONE_VARIANTS);
     expect(a).not.toEqual(b);
   });
 });
