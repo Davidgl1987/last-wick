@@ -17,6 +17,11 @@
 export const KIT_MODELS = [
   'banner_blue',
   'banner_red',
+  'banner_shield_blue',
+  'banner_shield_brown',
+  'banner_shield_green',
+  'banner_shield_white',
+  'banner_shield_yellow',
   'barrel_large',
   'barrel_large_decorated',
   'barrel_small',

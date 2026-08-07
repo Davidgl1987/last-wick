@@ -43,7 +43,7 @@ import type { AABB } from '@/engine/geometry';
 import type { DoorConnection } from '@/game/features/dungeon/dungeon';
 import { QUEEN_COLUMN_ID_PREFIX } from '@/game/features/bosses/queen/constants';
 import { DOOR_GATE_ID_PREFIX } from '@/game/features/dungeon/dungeon-world';
-import type { Obstacle, World } from '@/game/world/types';
+import type { BossId, Obstacle, World } from '@/game/world/types';
 import { kitGeometry, kitGeometryPart, kitMaterial, kitWarmMaterial } from './kit';
 import type { KitModelName } from './kit-models';
 import { kitBoxSize, kitGroundOffset, kitTopAlignOffset, kitXZCenteredGeometry } from './kit-fit';
@@ -1037,6 +1037,118 @@ function findGateForConnection(world: World, connectionIndex: number): Obstacle 
  * que ya usaba el `DoorGates` original; el marco no depende de ese estado, se
  * pinta igual abierta o cerrada.
  */
+// ── Puerta de jefe: escudo y estandartes ──────────────────────────────────
+
+/**
+ * Estandarte con escudo de cada jefe. Cada uno lleva el MISMO color con el que
+ * el juego ya lo identifica en todas partes (su emisivo de acento, el que usan
+ * también sus siluetas de oclusión): dorado el Guardián por sus cuernos, verde
+ * la Reina por su corona, azul la Tormenta, y blanco el Prisma por ser el que
+ * cambia de color y no tiene uno propio. La pieza del pack ya trae el escudo
+ * incorporado sobre el paño, así que la lectura "esto es la puerta de ALGUIEN"
+ * sale de fábrica.
+ *
+ * Encargo de David (2026-08-06): "para las puertas de los jefes quiero que se
+ * distingan de alguna manera, podrías ponerle un escudo en la puerta, y
+ * estandartes de colores a los lados de la puerta. Cada jefe tendrá los
+ * estandartes de un color distinto."
+ */
+const BOSS_BANNER: Record<BossId, KitModelName> = {
+  guardian: 'banner_shield_yellow',
+  queen: 'banner_shield_green',
+  storm: 'banner_shield_blue',
+  prisma: 'banner_shield_white',
+  'test-boss': 'banner_shield_brown',
+};
+
+/**
+ * Escala del estandarte. A tamaño de fábrica (1.87 × 2.69 u tras `KIT_SCALE`)
+ * dos de ellos flanqueando un vano de 2 u tapaban media pared; a 0.7 se leen
+ * como estandartes colgados y no como telones.
+ */
+const BOSS_BANNER_SCALE = 0.7;
+
+/**
+ * Altura extra a la que se cuelga el estandarte. Su borde inferior de fábrica
+ * cae en 0.45 u y, ya encogido, en 0.31 — por debajo de la altura del héroe
+ * (0.48 de diámetro). Sin subirlo quedaría un volumen visible A LA ALTURA DE
+ * JUEGO que la bola atraviesa, que es justo la mentira que el atrezzo tiene
+ * prohibida (ver `room-props.ts`). Colgado más alto, la bola pasa por debajo y
+ * el estandarte se lee como lo que es: decoración de pared.
+ */
+const BOSS_BANNER_LIFT = 0.5;
+
+/** Separación del centro del vano a cada estandarte: medio hueco de puerta + medio estandarte + un dedo de aire. */
+const BOSS_BANNER_SPREAD = DOOR_WIDTH / 2 + 0.75;
+
+/** Escala del escudo montado en la hoja: cabe holgado en un vano de 2 u sin comerse el arco. */
+const BOSS_SHIELD_SCALE = 0.45;
+
+/**
+ * Hacia dónde MIRA la decoración: al lado desde el que se llega, nunca al
+ * interior de la sala del jefe (que además está cerrada hasta tener la llave).
+ * El signo sale de qué sala de la conexión es la del jefe: `sideOnA` nombra el
+ * lado de la sala A, así que si el jefe es la sala B se mira desde A y
+ * viceversa.
+ */
+function bossDoorApproachYaw(conn: DoorConnection, bossIsRoomB: boolean): number {
+  const haciaB = { north: Math.PI, south: 0, east: Math.PI / 2, west: -Math.PI / 2 }[conn.sideOnA];
+  return bossIsRoomB ? haciaB + Math.PI : haciaB;
+}
+
+/** Decoración de la puerta de un jefe: dos estandartes de su color flanqueando el vano y, si sigue cerrada, un escudo en la hoja. */
+function BossDoorDecor({
+  conn,
+  bossId,
+  bossIsRoomB,
+  closed,
+}: {
+  conn: DoorConnection;
+  bossId: BossId;
+  bossIsRoomB: boolean;
+  closed: boolean;
+}) {
+  const bannerGeometry = kitGeometry(BOSS_BANNER[bossId]);
+  const shieldGeometry = kitGeometry('sword_shield');
+  const { x: cx, z: cz } = doorWallCenter(conn);
+  const yaw = bossDoorApproachYaw(conn, bossIsRoomB);
+  const horizontal = isConnectionWallHorizontal(conn);
+
+  // Los dos estandartes salen a lado y lado a lo largo del eje del muro.
+  const lados = [-1, 1];
+
+  return (
+    <>
+      {lados.map((lado) => (
+        <mesh
+          key={lado}
+          geometry={bannerGeometry}
+          material={kitWarmMaterial}
+          position={[
+            cx + (horizontal ? lado * BOSS_BANNER_SPREAD : 0),
+            BOSS_BANNER_LIFT,
+            cz + (horizontal ? 0 : lado * BOSS_BANNER_SPREAD),
+          ]}
+          rotation={[0, yaw, 0]}
+          scale={BOSS_BANNER_SCALE}
+          castShadow
+          receiveShadow
+        />
+      ))}
+      {closed && (
+        <mesh
+          geometry={shieldGeometry}
+          material={kitWarmMaterial}
+          position={[cx, 1.3, cz]}
+          rotation={[0, yaw, 0]}
+          scale={BOSS_SHIELD_SCALE}
+          castShadow
+        />
+      )}
+    </>
+  );
+}
+
 function DoorStructures({ world, fit }: { world: World; fit: DoorFit }) {
   const [version, setVersion] = useState(world.wallVersion);
 
@@ -1055,6 +1167,26 @@ function DoorStructures({ world, fit }: { world: World; fit: DoorFit }) {
       {dungeon.connections.map((conn, i) => {
         const gate = findGateForConnection(world, i);
         return gate ? <DoorLeaf key={`door-leaf-${i}`} conn={conn} gate={gate} fit={fit} /> : null;
+      })}
+      {dungeon.connections.map((conn, i) => {
+        // La decoración marca la puerta de UN JEFE, así que se busca cuál de
+        // las dos salas de la conexión lo es. Se pinta aunque la puerta esté
+        // abierta: sirve de señal permanente de "aquí vive algo", igual que un
+        // escudo colgado sobre una entrada.
+        const salaA = dungeon.rooms.find((r) => r.room.id === conn.roomAId);
+        const salaB = dungeon.rooms.find((r) => r.room.id === conn.roomBId);
+        const bossIsRoomB = Boolean(salaB?.room.boss);
+        const bossId = bossIsRoomB ? salaB?.room.boss : salaA?.room.boss;
+        if (!bossId) return null;
+        return (
+          <BossDoorDecor
+            key={`boss-door-${i}`}
+            conn={conn}
+            bossId={bossId}
+            bossIsRoomB={bossIsRoomB}
+            closed={findGateForConnection(world, i) !== undefined}
+          />
+        );
       })}
     </>
   );
