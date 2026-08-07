@@ -53,6 +53,7 @@ import { TORCH_LIGHT_COLOR } from '@/game/features/dungeon/torch-placements';
 import { GlowPuddle } from '@/game/render/GlowPuddle';
 import { kitGeometry, kitMaterial, kitWarmMaterial } from '@/game/render/kit';
 import { kitBoxSize, kitGroundOffset, kitTopAlignOffset, kitXZCenterOffset } from '@/game/render/kit-fit';
+import { useKnownRoomIds } from '@/game/render/known-rooms';
 import {
   computeRoomProps,
   type FloorScatterPlacement,
@@ -319,23 +320,32 @@ function groupHazardsByRoom(hazards: readonly HazardRuntime[]): Map<string, Haza
   return map;
 }
 
-/** Atrezzo de TODA la mazmorra (dungeon) o de la sala única (playtest del editor) — mismo split de modo que `RoomView.tsx`. */
+/**
+ * Atrezzo de TODA la mazmorra (dungeon) o de la sala única (playtest del
+ * editor) — mismo split de modo que `RoomView.tsx`. En modo mazmorra, mismo
+ * filtro de salas CONOCIDAS que `DungeonStructureView` (`known-rooms.ts`,
+ * encargo de playtest 2026-08-06): el atrezzo de una sala oculta no se monta
+ * hasta que la sala se vuelve conocida.
+ */
 export function RoomPropsView({ world }: { world: World }) {
   const dungeon = world.dungeon;
+  const knownRoomIds = useKnownRoomIds(world);
   const hazardsByRoom = useMemo(() => groupHazardsByRoom(world.hazards), [world]);
 
   if (dungeon) {
     return (
       <>
-        {dungeon.rooms.map((placed) => (
-          <RoomPropsGroup
-            key={placed.room.id}
-            roomId={placed.room.id}
-            bounds={placed.bounds}
-            tags={placed.room.tags}
-            hazards={hazardsByRoom.get(placed.room.id) ?? []}
-          />
-        ))}
+        {dungeon.rooms
+          .filter((placed) => knownRoomIds.has(placed.room.id))
+          .map((placed) => (
+            <RoomPropsGroup
+              key={placed.room.id}
+              roomId={placed.room.id}
+              bounds={placed.bounds}
+              tags={placed.room.tags}
+              hazards={hazardsByRoom.get(placed.room.id) ?? []}
+            />
+          ))}
       </>
     );
   }

@@ -49,6 +49,7 @@ import { barrelInAir, type HazardSpawn, type World } from '@/game/world/types';
 import { blobShadowMaterial, boostMaterial, mudMaterial, pitMaterial, scorchMaterial, unitCircle, unitPlane } from '@/game/render/assets';
 import { kitGeometry, kitGeometryPart, kitMaterial, kitWarmMaterial } from '@/game/render/kit';
 import { kitBoxSize, kitGroundOffset, kitTopAlignOffset } from '@/game/render/kit-fit';
+import { useKnownRoomIds } from '@/game/render/known-rooms';
 
 const HAZARD_QUAD_Y = 0.03;
 /** Rebote visual del barril al aterrizar (GDD §15.2): altura y duración del pequeño arco tras tocar suelo. Puramente de render. */
@@ -426,18 +427,28 @@ function StaticHazardQuad({ hazard, world }: { hazard: HazardSpawn; world: Pick<
 
 /**
  * `world` amplía su tipo mínimo previo (`{ hazards }`) a `hazards` + `hero` +
- * `enemies`: las púas retráctiles (`SpikesNeedles`) necesitan leer la
- * posición del héroe y de los enemigos cada frame para decidir si asoman.
- * `GameRoot.tsx` ya llama a este componente con `world={session.world}` (el
- * `World` completo), así que ampliar lo que este componente EXIGE no le pide
- * ningún cambio a ese llamador — sigue pasando lo mismo.
+ * `enemies` + lo que pide `useKnownRoomIds` (`dungeon`/`roomRuntimes`/
+ * `wallVersion`/`currentRoomId`, known-rooms.ts): las púas retráctiles
+ * (`SpikesNeedles`) necesitan leer la posición del héroe y de los enemigos
+ * cada frame para decidir si asoman, y el filtro de sala CONOCIDA (encargo de
+ * playtest 2026-08-06) necesita el resto. `GameRoot.tsx` ya llama a este
+ * componente con `world={session.world}` (el `World` completo), así que
+ * ampliar lo que este componente EXIGE no le pide ningún cambio a ese
+ * llamador — sigue pasando lo mismo.
  */
-export function HazardViews({ world }: { world: Pick<World, 'hazards' | 'hero' | 'enemies'> }) {
+export function HazardViews({
+  world,
+}: {
+  world: Pick<World, 'hazards' | 'hero' | 'enemies' | 'dungeon' | 'roomRuntimes' | 'wallVersion' | 'currentRoomId'>;
+}) {
+  const knownRoomIds = useKnownRoomIds(world);
   return (
     <>
-      {world.hazards.map((hazard) => (
-        <StaticHazardQuad key={hazard.id} hazard={hazard} world={world} />
-      ))}
+      {world.hazards
+        .filter((hazard) => hazard.roomId === undefined || knownRoomIds.has(hazard.roomId))
+        .map((hazard) => (
+          <StaticHazardQuad key={hazard.id} hazard={hazard} world={world} />
+        ))}
     </>
   );
 }
@@ -592,11 +603,16 @@ export function BarrelViews({ session }: { session: GameSession }) {
   useFrame(() => {
     if (session.world.barrels.length !== count) setCount(session.world.barrels.length);
   });
+  // Sala CONOCIDA (`known-rooms.ts`, encargo de playtest 2026-08-06): mismo
+  // filtro que ItemViews/EnemyViews.
+  const knownRoomIds = useKnownRoomIds(session.world);
   return (
     <>
-      {session.world.barrels.map((barrel) => (
-        <BarrelMesh key={barrel.id} session={session} barrelId={barrel.id} />
-      ))}
+      {session.world.barrels
+        .filter((barrel) => barrel.roomId === undefined || knownRoomIds.has(barrel.roomId))
+        .map((barrel) => (
+          <BarrelMesh key={barrel.id} session={session} barrelId={barrel.id} />
+        ))}
     </>
   );
 }

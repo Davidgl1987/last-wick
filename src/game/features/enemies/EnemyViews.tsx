@@ -114,6 +114,7 @@ import { SpikeMesh } from '@/game/features/enemies/spike/Mesh';
 import { TrailMesh } from '@/game/features/enemies/trail/Mesh';
 import { ENEMY_LIGHT_COLOR, ENEMY_LIGHT_INTENSITY_BOSS, EnemyLightsRig } from '@/game/features/enemies/EnemyLights';
 import { makeSilhouetteMaterial, SILHOUETTE_RENDER_ORDER } from '@/game/render/occlusion-silhouette';
+import { useKnownRoomIds } from '@/game/render/known-rooms';
 import { applyGuardianBossFrame, GuardianBossExtras, guardianSilhouetteMaterial } from '@/game/features/bosses/guardian/BossView';
 import { applyQueenBossFrame, QueenBossExtras, queenSilhouetteMaterial } from '@/game/features/bosses/queen/BossView';
 import { applyPrismaBossFrame, PrismaBossExtras, prismaSilhouetteMaterial } from '@/game/features/bosses/prisma/BossView';
@@ -620,12 +621,22 @@ function EnemyMesh({
   );
 }
 
+/**
+ * Filtra a los enemigos de salas CONOCIDAS (`known-rooms.ts`, encargo de
+ * playtest 2026-08-06): un enemigo de una sala aún oculta sigue vivo y
+ * simulado igual (la sim no pasa por aquí, ver `world/step.ts`), solo no se
+ * monta su mesh hasta que su sala se descubre. `roomId === undefined` es el
+ * modo sala única (tests/editor, sin mazmorra): sin filtro, como siempre.
+ */
 export function EnemyViews({ session }: { session: GameSession }) {
+  const knownRoomIds = useKnownRoomIds(session.world);
   return (
     <>
-      {session.world.enemies.map((enemy) => (
-        <EnemyMesh key={enemy.id} session={session} enemyId={enemy.id} kind={enemy.kind} bossId={enemy.bossId} />
-      ))}
+      {session.world.enemies
+        .filter((enemy) => enemy.roomId === undefined || knownRoomIds.has(enemy.roomId))
+        .map((enemy) => (
+          <EnemyMesh key={enemy.id} session={session} enemyId={enemy.id} kind={enemy.kind} bossId={enemy.bossId} />
+        ))}
     </>
   );
 }

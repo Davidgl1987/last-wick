@@ -60,6 +60,7 @@ import { ItemViews } from '@/game/features/items/ItemView';
 import { ProjectileViews } from '@/game/features/combat/ProjectileView';
 import { PuddleViews } from '@/game/features/hazards/PuddleView';
 import { RoomView } from './RoomView';
+import { RoomRevealView } from './RoomRevealView';
 import { SceneLights } from './SceneLights';
 import { TorchLightPool } from './TorchLightPool';
 import { useGameLoop } from './useGameLoop';
@@ -184,6 +185,11 @@ export function GameRoot({
             esquina + banderas/candelabro de jefe/tienda, ver RoomPropsView.tsx.
             Visual puro (sin colisión, sin luces): la sim no lo conoce. */}
         <RoomPropsView world={session.world} />
+        {/* Velo de revelado (encargo de playtest 2026-08-06, ver
+            RoomRevealView.tsx): plano oscuro que se desvanece sobre una sala
+            recién descubierta por RoomView/RoomPropsView de arriba — solo
+            existe durante esa transición, nunca niebla permanente. */}
+        <RoomRevealView world={session.world} />
         {/* Columnas de la Reina del Enjambre + sus cuerdas (GDD §15.3): no-op
             (return null) fuera de su sala, ver QueenColumnsView.tsx. */}
         <QueenColumnsView session={session} />
@@ -225,12 +231,7 @@ export function GameRoot({
           de 9 a 11 en ESE mismo frame). three.js compila el programa de
           shader de un material la PRIMERA vez que uno de sus objetos pasa el
           frustum culling y se renderiza de verdad — no al montar el
-          componente de React. Como toda la mazmorra se monta de golpe desde
-          el arranque de la run (ver cabecera de RoomView.tsx: "renderiza
-          TODAS las salas colocadas en el plano"), los materiales de salas que
-          el héroe aún no ha visitado (antorchas del jefe, luz/geometría del
-          tendero, etc.) quedan sin compilar hasta que la cámara los enfoca
-          por primera vez — de ahí el tirón de golpe al cruzar la puerta.
+          componente de React.
 
           `<Preload all />` (drei) hace, en un único `useLayoutEffect` que
           corre UNA vez al montar este árbol: hace visible temporalmente todo
@@ -245,6 +246,21 @@ export function GameRoot({
           probablemente aún en transición/carga) en lugar de repartirse en
           tirones de decenas de ms cada vez que el héroe entra en una sala con
           materiales nuevos — que es precisamente lo que no molesta.
+
+          MATIZ desde que RoomView/RoomPropsView ocultan las salas aún no
+          conocidas (known-rooms.ts, encargo de playtest 2026-08-06): este
+          `<Preload all />` solo alcanza lo que YA está montado en el grafo en
+          ese primer frame (sala inicial + vecinas ya abiertas), no la
+          mazmorra entera como antes. En la práctica el riesgo es bajo — el
+          kit comparte un único material por familia (kitMaterial/
+          kitWarmMaterial, ver kit.ts) y ya se usa en la sala inicial en las
+          mismas combinaciones (InstancedMesh de muro/suelo, mesh suelto de
+          puerta) que las salas lejanas reutilizarán — pero NO se ha medido
+          si queda algún tirón residual al revelar una sala con una pieza
+          realmente nueva (p. ej. el primer estandarte de jefe de la run). Si
+          algún día se nota, la solución es la misma idea con más alcance:
+          antes de al Preload, montar temporalmente (`visible={false}`) un
+          representante de cada combinación pieza+material del kit.
         */}
         <Preload all />
       </Canvas>

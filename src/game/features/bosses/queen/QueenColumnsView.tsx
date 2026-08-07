@@ -48,6 +48,7 @@
 import { useFrame } from '@react-three/fiber';
 import { useMemo, useRef } from 'react';
 import * as THREE from 'three';
+import { isPointInKnownRoom, useKnownRoomIds } from '@/game/render/known-rooms';
 import type { GameSession } from '@/game/session/session';
 import { kitGeometry, kitMaterial } from '@/game/render/kit';
 import { kitBoxSize, kitGroundOffset } from '@/game/render/kit-fit';
@@ -123,6 +124,11 @@ function kitXZCenterOffset(geometry: THREE.BufferGeometry): { x: number; z: numb
 }
 
 export function QueenColumnsView({ session }: { session: GameSession }) {
+  // Las columnas de la Reina viven en el estado del jefe, no en una sala, así
+  // que se resuelven por posición: si su sala todavía está oculta no se pintan
+  // (si no, quedarían flotando en negro y delatarían dónde está el jefe antes
+  // de que el jugador pueda llegar).
+  const known = useKnownRoomIds(session.world);
   const intactRef = useRef<THREE.InstancedMesh>(null);
   const crackedLightRef = useRef<THREE.InstancedMesh>(null);
   const crackedRef = useRef<THREE.InstancedMesh>(null);
@@ -244,7 +250,16 @@ export function QueenColumnsView({ session }: { session: GameSession }) {
     debris.instanceMatrix.needsUpdate = true;
   });
 
-  if (count === 0) return null;
+  // Corte por sala: la primera columna basta para situar la sala del jefe (todas
+  // viven en la misma). Se prefiere su `roomId` y solo se cae a la posición si
+  // no lo trae (el modo sala única de los tests no lo rellena).
+  const primera = queenState(session.world).columns[0];
+  const salaConocida =
+    primera === undefined ||
+    (primera.roomId !== undefined
+      ? known.has(primera.roomId)
+      : isPointInKnownRoom(session.world, known, primera.position.x, primera.position.y));
+  if (count === 0 || !salaConocida) return null;
 
   return (
     <>
@@ -292,6 +307,9 @@ function setTetherMatrix(mesh: THREE.InstancedMesh, i: number, ax: number, ay: n
 }
 
 export function QueenTethersView({ session }: { session: GameSession }) {
+  // Mismo criterio que `QueenColumnsView`: los tirantes cuelgan de columnas de
+  // una sala que puede estar aún oculta.
+  const known = useKnownRoomIds(session.world);
   const meshRef = useRef<THREE.InstancedMesh>(null);
   const count = queenState(session.world).columns.length;
   // Timestamp (world.time) en que cada columna se rompió, para animar su
@@ -341,6 +359,15 @@ export function QueenTethersView({ session }: { session: GameSession }) {
     mesh.instanceMatrix.needsUpdate = true;
   });
 
-  if (count === 0) return null;
+  // Corte por sala: la primera columna basta para situar la sala del jefe (todas
+  // viven en la misma). Se prefiere su `roomId` y solo se cae a la posición si
+  // no lo trae (el modo sala única de los tests no lo rellena).
+  const primera = queenState(session.world).columns[0];
+  const salaConocida =
+    primera === undefined ||
+    (primera.roomId !== undefined
+      ? known.has(primera.roomId)
+      : isPointInKnownRoom(session.world, known, primera.position.x, primera.position.y));
+  if (count === 0 || !salaConocida) return null;
   return <instancedMesh ref={meshRef} args={[queenTetherGeometry, queenTetherMaterial, count]} frustumCulled={false} />;
 }

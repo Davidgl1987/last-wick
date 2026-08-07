@@ -7,8 +7,17 @@
  * Modo sala única (world.dungeon === null, playtest del editor): suelo, 4
  * paredes, postes de esquina y rocas.
  *
- * Modo mazmorra (GDD §10): renderiza TODAS las salas colocadas en el plano —
- * un suelo por sala (rejilla de `floor_tile_large` + parches de
+ * Modo mazmorra (GDD §10): renderiza las salas CONOCIDAS del plano — hasta
+ * playtest 2026-08-06 se montaban las 6-7 salas ENTERAS desde el frame 0
+ * (~145 módulos de muro + 22 piezas de puerta de toda la mazmorra a la vez,
+ * aunque el héroe no hubiera llegado ni de lejos); ahora `known-rooms.ts`
+ * decide qué sala se pinta (visitada, sala de arranque, o alguna de sus
+ * conexiones ya abierta) y esta vista filtra por ese Set antes de montar
+ * nada — el resto de la mazmorra sigue existiendo igual en la sim
+ * (`world.obstacles`/`world.roomRuntimes`), solo no se dibuja todavía. La
+ * transición al volverse conocida (velo oscuro que se desvanece) la pinta
+ * `RoomRevealView.tsx`, montado aparte en GameRoot.tsx.
+ * Por sala conocida: un suelo (rejilla de `floor_tile_large` + parches de
  * `floor_tile_small` bajo los huecos de puerta), muros/rocas instanciados Y
  * AGRUPADOS POR SALA (antes se dibujaba la mazmorra entera en 2 InstancedMesh
  * globales; agrupar por sala devuelve el frustum culling automático de
@@ -48,6 +57,7 @@ import { kitGeometry, kitGeometryPart, kitMaterial, kitWarmMaterial } from './ki
 import type { KitModelName } from './kit-models';
 import { kitBoxSize, kitGroundOffset, kitTopAlignOffset, kitXZCenteredGeometry } from './kit-fit';
 import { betterModuleLength, wallModuleLayout } from './wall-modules';
+import { useKnownRoomIds } from './known-rooms';
 
 /**
  * Hash de cadena a entero no negativo — multiplicador primo 31, sin
@@ -1178,7 +1188,15 @@ function BossDoorDecor({
   );
 }
 
-function DoorStructures({ world, fit }: { world: World; fit: DoorFit }) {
+/**
+ * Puertas de la mazmorra, filtradas a las que tocan al menos una sala
+ * CONOCIDA (`known-rooms.ts`): una conexión entre dos salas todavía ocultas
+ * no tiene nada alrededor que la necesite. Si solo una de las dos es
+ * conocida, el marco/hoja SÍ se pinta — es la puerta cerrada que se ve desde
+ * el lado de la sala ya descubierta, la señal normal de "aquí hay más
+ * mazmorra, pero todavía no".
+ */
+function DoorStructures({ world, fit, knownRoomIds }: { world: World; fit: DoorFit; knownRoomIds: ReadonlySet<string> }) {
   const [version, setVersion] = useState(world.wallVersion);
 
   useFrame(() => {
@@ -1188,16 +1206,20 @@ function DoorStructures({ world, fit }: { world: World; fit: DoorFit }) {
   const dungeon = world.dungeon;
   if (!dungeon) return null;
 
+  const visibleConnections = dungeon.connections
+    .map((conn, i) => ({ conn, i }))
+    .filter(({ conn }) => knownRoomIds.has(conn.roomAId) || knownRoomIds.has(conn.roomBId));
+
   return (
     <>
-      {dungeon.connections.map((conn, i) => (
+      {visibleConnections.map(({ conn, i }) => (
         <DoorFrame key={`door-frame-${i}`} conn={conn} fit={fit} />
       ))}
-      {dungeon.connections.map((conn, i) => {
+      {visibleConnections.map(({ conn, i }) => {
         const gate = findGateForConnection(world, i);
         return gate ? <DoorLeaf key={`door-leaf-${i}`} conn={conn} gate={gate} fit={fit} /> : null;
       })}
-      {dungeon.connections.map((conn, i) => {
+      {visibleConnections.map(({ conn, i }) => {
         // La decoración marca la puerta de UN JEFE, así que se busca cuál de
         // las dos salas de la conexión lo es. Se pinta aunque la puerta esté
         // abierta: sirve de señal permanente de "aquí vive algo", igual que un
@@ -1298,9 +1320,18 @@ function groupByRoomId(obstacles: Obstacle[]): Map<string, Obstacle[]> {
   return map;
 }
 
-/** Mazmorra completa: suelos, parches de puerta, muros/rocas/postes AGRUPADOS POR SALA (frustum culling, ver cabecera) y portones. */
+/**
+ * Mazmorra completa: suelos, parches de puerta, muros/rocas/postes AGRUPADOS
+ * POR SALA (frustum culling, ver cabecera) y portones — pero SOLO de las
+ * salas CONOCIDAS (`known-rooms.ts`, encargo de playtest 2026-08-06: ocultar
+ * las salas a las que el héroe todavía no puede llegar). El resto de la
+ * mazmorra existe igual en la sim (`world.obstacles`/`world.roomRuntimes` no
+ * se tocan, esto es capa de render pura) — simplemente no se monta ni un
+ * mesh suyo hasta que se vuelve conocida.
+ */
 function DungeonStructureView({ world }: { world: World }) {
   const dungeon = world.dungeon;
+  const knownRoomIds = useKnownRoomIds(world);
   // Muros y rocas son estáticos durante la run: se calculan una vez por mundo.
   // `dedupeWallObstacles` quita los muros que dos salas contiguas dibujarían
   // por duplicado exacto sobre el mismo bloque físico (ver su comentario:
@@ -1318,13 +1349,20 @@ function DungeonStructureView({ world }: { world: World }) {
   // Ajuste del módulo `wall_doorway` (marco+hoja): UNA vez para toda la
   // mazmorra, todas las puertas comparten la misma pieza — ver `computeDoorFit`.
   const doorFit = useMemo(() => computeDoorFit(), []);
+  // Salas que de verdad se dibujan. `dungeon.rooms` no cambia de tamaño
+  // durante la run (mazmorra estática), así que este filtro solo repite
+  // trabajo cuando cambia el Set de salas conocidas, no en cada frame.
+  const knownRooms = useMemo(
+    () => (dungeon ? dungeon.rooms.filter((placed) => knownRoomIds.has(placed.room.id)) : []),
+    [dungeon, knownRoomIds],
+  );
 
   if (!dungeon) return null;
   const t = WALL_THICKNESS;
 
   return (
     <group>
-      {dungeon.rooms.map((placed) => (
+      {knownRooms.map((placed) => (
         <FloorGrid
           key={`floor-${placed.room.id}`}
           width={placed.room.width}
@@ -1335,10 +1373,15 @@ function DungeonStructureView({ world }: { world: World }) {
           familyName={pickFloorFamily(placed.room)}
         />
       ))}
-      {dungeon.connections.map((conn, i) => (
-        <DoorFloorPatch key={`door-floor-${i}`} conn={conn} />
-      ))}
-      {dungeon.rooms.map((placed) => (
+      {dungeon.connections.map((conn, i) =>
+        // El parche de suelo bajo el vano solo hace falta si al menos una de
+        // las dos salas que conecta se está dibujando (si las dos son
+        // desconocidas, no hay nada alrededor que lo necesite).
+        knownRoomIds.has(conn.roomAId) || knownRoomIds.has(conn.roomBId) ? (
+          <DoorFloorPatch key={`door-floor-${i}`} conn={conn} />
+        ) : null,
+      )}
+      {knownRooms.map((placed) => (
         <RoomWalls
           key={`walls-${placed.room.id}`}
           spans={wallSpansFromObstacles(wallsByRoom.get(placed.room.id) ?? [])}
@@ -1347,10 +1390,10 @@ function DungeonStructureView({ world }: { world: World }) {
           doorFootprintHalfWidth={doorFit.footprintHalfWidth}
         />
       ))}
-      {dungeon.rooms.map((placed) => (
+      {knownRooms.map((placed) => (
         <RoomRocks key={`rocks-${placed.room.id}`} rocks={rocksByRoom.get(placed.room.id) ?? []} />
       ))}
-      {dungeon.rooms.map((placed) => (
+      {knownRooms.map((placed) => (
         <CornerColumns
           key={`columns-${placed.room.id}`}
           halfW={placed.room.width / 2}
@@ -1360,7 +1403,7 @@ function DungeonStructureView({ world }: { world: World }) {
           originY={placed.origin.y}
         />
       ))}
-      <DoorStructures world={world} fit={doorFit} />
+      <DoorStructures world={world} fit={doorFit} knownRoomIds={knownRoomIds} />
     </group>
   );
 }

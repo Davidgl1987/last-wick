@@ -48,6 +48,7 @@ import type { GameSession } from '@/game/session/session';
 import type { Item } from '@/game/world/types';
 import { kitGeometry, kitWarmGlowMaterial, kitWarmMaterial } from '@/game/render/kit';
 import { kitBoxSize, kitGroundOffset, kitXZCenterOffset } from '@/game/render/kit-fit';
+import { useKnownRoomIds } from '@/game/render/known-rooms';
 
 const ITEM_HEIGHT: Record<Item['kind'], number> = { coin: 0.3, potion: 0.32, key: 0.3, shopkeeper: 0 };
 /** Radio visual de la moneda (antes diámetro del cilindro plano de assets.ts; se conserva igual con la pieza del kit). */
@@ -415,11 +416,17 @@ export function ItemViews({ session }: { session: GameSession }) {
   useFrame(() => {
     if (session.world.items.length !== count) setCount(session.world.items.length);
   });
+  // Sala CONOCIDA (`known-rooms.ts`, encargo de playtest 2026-08-06): un item
+  // de una sala aún oculta sigue existiendo en la sim, solo no se monta su
+  // mesh. `roomId === undefined` es el modo sala única (tests/editor).
+  const knownRoomIds = useKnownRoomIds(session.world);
   return (
     <>
-      {session.world.items.map((item) => (
-        <ItemMesh key={item.id} session={session} itemId={item.id} />
-      ))}
+      {session.world.items
+        .filter((item) => item.roomId === undefined || knownRoomIds.has(item.roomId))
+        .map((item) => (
+          <ItemMesh key={item.id} session={session} itemId={item.id} />
+        ))}
     </>
   );
 }

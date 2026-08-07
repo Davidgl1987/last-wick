@@ -48,6 +48,7 @@ import type { GameSession } from '@/game/session/session';
 import { collectTorchEmitters, TORCH_LIGHT_COLOR } from '@/game/features/dungeon/torch-placements';
 import { WallTorch } from '@/game/features/dungeon/TorchView';
 import { GlowPuddle } from '@/game/render/GlowPuddle';
+import { isPointInKnownRoom, useKnownRoomIds } from '@/game/render/known-rooms';
 
 /**
  * Charco de luz falso a los pies del tendero — mismo criterio que el de
@@ -78,13 +79,18 @@ export function TorchPropsView({ session }: { session: GameSession }) {
   const world = session.world;
   // La mazmorra no cambia de layout durante la partida: se calcula una sola vez al montar (mismo criterio que TorchLightPool.tsx).
   const emitters = useMemo(() => collectTorchEmitters(world), [world]);
+  // Una antorcha de una sala todavía oculta delataría dónde está el jefe antes
+  // de tiempo — y flotando en negro, además. Los emisores no llevan `roomId`
+  // (son una lista plana de posiciones, ver `collectTorchEmitters`), así que se
+  // resuelven por posición contra las salas conocidas.
+  const known = useKnownRoomIds(world);
 
   if (emitters.length === 0) return null;
 
   return (
     <>
       {emitters.map((e, i) =>
-        e.kind === 'shopkeeper' ? (
+        !isPointInKnownRoom(world, known, e.x, e.z) ? null : e.kind === 'shopkeeper' ? (
           <ShopkeeperGlow key={i} x={e.x} z={e.z} />
         ) : (
           <WallTorch key={i} x={e.x} z={e.z} dirX={e.dirX} dirZ={e.dirZ} index={i} />
