@@ -1040,13 +1040,18 @@ function findGateForConnection(world: World, connectionIndex: number): Obstacle 
 // ── Puerta de jefe: escudo y estandartes ──────────────────────────────────
 
 /**
- * Estandarte con escudo de cada jefe. Cada uno lleva el MISMO color con el que
- * el juego ya lo identifica en todas partes (su emisivo de acento, el que usan
- * también sus siluetas de oclusión): dorado el Guardián por sus cuernos, verde
- * la Reina por su corona, azul la Tormenta, y blanco el Prisma por ser el que
- * cambia de color y no tiene uno propio. La pieza del pack ya trae el escudo
- * incorporado sobre el paño, así que la lectura "esto es la puerta de ALGUIEN"
- * sale de fábrica.
+ * Estandarte LISO de cada jefe, sin emblema: el escudo va aparte, en el centro
+ * de la hoja (encargo de David, 2026-08-06, corrigiendo la primera versión
+ * que usaba los estandartes CON escudo del pack: "me refería a poner un escudo
+ * como los de los lados, en el centro de la puerta, y los estandartes sin
+ * escudo a los lados"). Así el escudo es uno solo y manda, en vez de repetirse
+ * tres veces y competir consigo mismo.
+ *
+ * Cada jefe lleva el MISMO color con el que el juego ya lo identifica en todas
+ * partes (su emisivo de acento, el que usan también sus siluetas de oclusión):
+ * dorado el Guardián por sus cuernos, verde la Reina por su corona, azul la
+ * Tormenta, y blanco el Prisma por ser el que cambia de color y no tiene uno
+ * propio.
  *
  * Encargo de David (2026-08-06): "para las puertas de los jefes quiero que se
  * distingan de alguna manera, podrías ponerle un escudo en la puerta, y
@@ -1054,19 +1059,20 @@ function findGateForConnection(world: World, connectionIndex: number): Obstacle 
  * estandartes de un color distinto."
  */
 const BOSS_BANNER: Record<BossId, KitModelName> = {
-  guardian: 'banner_shield_yellow',
-  queen: 'banner_shield_green',
-  storm: 'banner_shield_blue',
-  prisma: 'banner_shield_white',
-  'test-boss': 'banner_shield_brown',
+  guardian: 'banner_yellow',
+  queen: 'banner_green',
+  storm: 'banner_blue',
+  prisma: 'banner_white',
+  'test-boss': 'banner_brown',
 };
 
 /**
- * Escala del estandarte. A tamaño de fábrica (1.87 × 2.69 u tras `KIT_SCALE`)
- * dos de ellos flanqueando un vano de 2 u tapaban media pared; a 0.7 se leen
- * como estandartes colgados y no como telones.
+ * Escala del estandarte. El liso ya es más estrecho que el que lleva escudo
+ * (1.26 u de ancho tras `KIT_SCALE` frente a 1.87), así que se le deja algo
+ * más de tamaño que a aquel: sigue leyéndose como paño colgado y no como
+ * telón, pero acompaña al escudo en vez de desaparecer a su lado.
  */
-const BOSS_BANNER_SCALE = 0.7;
+const BOSS_BANNER_SCALE = 0.85;
 
 /**
  * Altura extra a la que se cuelga el estandarte. Su borde inferior de fábrica
@@ -1081,8 +1087,25 @@ const BOSS_BANNER_LIFT = 0.5;
 /** Separación del centro del vano a cada estandarte: medio hueco de puerta + medio estandarte + un dedo de aire. */
 const BOSS_BANNER_SPREAD = DOOR_WIDTH / 2 + 0.75;
 
-/** Escala del escudo montado en la hoja: cabe holgado en un vano de 2 u sin comerse el arco. */
-const BOSS_SHIELD_SCALE = 0.45;
+/**
+ * Escala del escudo de la hoja. Sube de 0.45 a 0.8 al quedarse SOLO (antes
+ * competía con los dos emblemas de los estandartes): a 0.8 mide ~1.5 u de
+ * ancho sobre un vano de 2, que es lo que hace que se lea como el emblema de
+ * la puerta y no como un adorno pequeño.
+ */
+const BOSS_SHIELD_SCALE = 0.8;
+
+/**
+ * Cuánto se separa el escudo del plano de la hoja, en la dirección desde la
+ * que se llega. Sin este empujón, la mitad del escudo queda EMBEBIDA dentro de
+ * la madera (el modelo ocupa de -0.08 a 0.25 en su propio eje de profundidad),
+ * y desde la cámara se lee como una mancha en la puerta en vez de como una
+ * pieza colgada de ella.
+ */
+const BOSS_SHIELD_LIFT_OFF_DOOR = 0.28;
+
+/** Altura del centro del escudo: a media hoja, donde cae la mirada al acercarse. */
+const BOSS_SHIELD_HEIGHT = 1.45;
 
 /**
  * Hacia dónde MIRA la decoración: al lado desde el que se llega, nunca al
@@ -1139,7 +1162,13 @@ function BossDoorDecor({
         <mesh
           geometry={shieldGeometry}
           material={kitWarmMaterial}
-          position={[cx, 1.3, cz]}
+          // Separado del plano de la hoja hacia el lado de aproximación: el
+          // `yaw` ya apunta a ese lado, así que su seno/coseno da el vector.
+          position={[
+            cx + Math.sin(yaw) * BOSS_SHIELD_LIFT_OFF_DOOR,
+            BOSS_SHIELD_HEIGHT,
+            cz + Math.cos(yaw) * BOSS_SHIELD_LIFT_OFF_DOOR,
+          ]}
           rotation={[0, yaw, 0]}
           scale={BOSS_SHIELD_SCALE}
           castShadow
