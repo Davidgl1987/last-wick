@@ -49,6 +49,8 @@ import type { Item } from '@/game/world/types';
 import { kitGeometry, kitWarmGlowMaterial, kitWarmMaterial } from '@/game/render/kit';
 import { kitBoxSize, kitGroundOffset, kitXZCenterOffset } from '@/game/render/kit-fit';
 import { useKnownRoomIds } from '@/game/render/known-rooms';
+import { coinMaterial, keyMaterial } from '@/game/render/assets';
+import { makeSilhouetteMaterial, SILHOUETTE_RENDER_ORDER } from '@/game/render/occlusion-silhouette';
 
 const ITEM_HEIGHT: Record<Item['kind'], number> = { coin: 0.3, potion: 0.32, key: 0.3, shopkeeper: 0 };
 /** Radio visual de la moneda (antes diámetro del cilindro plano de assets.ts; se conserva igual con la pieza del kit). */
@@ -172,6 +174,37 @@ function flatItemMaterial(color: string): THREE.MeshLambertMaterial {
  */
 const keyKitMaterial = flatItemMaterial('#ffe082');
 
+/**
+ * Siluetas de oclusión de los items (playtest, 2026-08-08: "deberían verse
+ * las siluetas de las monedas y pociones también", igual que ya pasa con el
+ * héroe y los enemigos — ver `occlusion-silhouette.ts`). La llave entra
+ * aunque David solo nombrara moneda/poción: es el objetivo de la sala, y
+ * perderla de vista tras un muro es peor que perder una moneda. El tendero
+ * (`ShopkeeperShape`) queda FUERA a propósito: es un NPC estático de tamaño
+ * mueble, no un objeto recogible que se pueda perder de vista.
+ *
+ * Un material POR TIPO, creado una vez a nivel de módulo (mismo criterio que
+ * `heroSilhouetteMaterial`/`ENEMY_SILHOUETTE_MATERIAL` en HeroView.tsx /
+ * EnemyViews.tsx):
+ * - Moneda y llave reutilizan el color CANÓNICO de `assets.ts`
+ *   (`coinMaterial`/`keyMaterial`), no el dorado cálido del kit
+ *   (`kitWarmGlowMaterial`) que llevan hoy: ese dorado cálido varía con la luz
+ *   de la escena, mientras que la silueta necesita un color de IDENTIDAD fijo
+ *   y reconocible, igual que el resto de siluetas del juego.
+ * - La poción NO reutiliza `potionMaterial.color` (el rosa `#ff6bcb`): David
+ *   pidió expresamente que el frasco fuera SIN tinte rosa (por eso lleva
+ *   `kitWarmGlowMaterial`, no `potionMaterial`), así que una silueta rosa
+ *   contradiría esa decisión. `#4ade80` es un verde vivo y saturado — legible
+ *   en penumbra (mismo motivo que el resto de siluetas usan colores claros) y
+ *   coherente con el cristal verde de `bottle_C_green` — pero deliberadamente
+ *   más "verde puro" que el verde-turquesa de `trailMaterial`/
+ *   `bossVulnerableMaterial` (`#4dd68a`, ya usado como aviso de "vulnerable"),
+ *   para no reciclar sin querer ese significado.
+ */
+const coinSilhouetteMaterial = makeSilhouetteMaterial(coinMaterial.color);
+const potionSilhouetteMaterial = makeSilhouetteMaterial('#4ade80');
+const keySilhouetteMaterial = makeSilhouetteMaterial(keyMaterial.color);
+
 function CoinShape({ receiveShadow }: { receiveShadow: boolean }) {
   const geometry = kitGeometry('coin');
   const nativeSize = useMemo(() => kitBoxSize(geometry), [geometry]);
@@ -182,7 +215,14 @@ function CoinShape({ receiveShadow }: { receiveShadow: boolean }) {
   // sobre Z que aplica ItemMesh (canto visible al voltear) sigue
   // funcionando sin corregir nada en la geometría.
   const scale = (COIN_RADIUS * 2) / nativeSize.x;
-  return <mesh geometry={geometry} material={kitWarmGlowMaterial} scale={scale} receiveShadow={receiveShadow} />;
+  return (
+    <>
+      <mesh geometry={geometry} material={kitWarmGlowMaterial} scale={scale} receiveShadow={receiveShadow} />
+      {/* Silueta de oclusión (ver comentario junto a `coinSilhouetteMaterial`): MISMA
+          geometría/escala que el mesh de arriba, sin `receiveShadow` (símbolo plano). */}
+      <mesh geometry={geometry} material={coinSilhouetteMaterial} scale={scale} renderOrder={SILHOUETTE_RENDER_ORDER} />
+    </>
+  );
 }
 
 /**
@@ -303,19 +343,32 @@ function PotionShape({ receiveShadow }: { receiveShadow: boolean }) {
   // anterior (`POTION_VISUAL_HEIGHT`), no `KIT_SCALE` — es un objeto de
   // juego con tamaño propio, ART_KIT_PLAN.md §2.
   const scale = POTION_VISUAL_HEIGHT / nativeSize.y;
+  // `groundY` alinea la base REAL del frasco (su boundingBox, casi 0: el
+  // modelo ya apoya en su propio min.y) con el ancla del grupo; sumar
+  // `POTION_BASE_OFFSET` reproduce dónde caía esa base con la forma
+  // anterior, sin tener que tocar `ITEM_HEIGHT.potion` ni el useFrame de
+  // `ItemMesh`. En variable (no en el JSX) para que la silueta de abajo
+  // reutilice EXACTAMENTE el mismo cálculo, sin aproximarlo a mano.
+  const position: [number, number, number] = [0, POTION_BASE_OFFSET + groundY * scale, 0];
   return (
-    <mesh
-      geometry={geometry}
-      material={kitWarmGlowMaterial}
-      // `groundY` alinea la base REAL del frasco (su boundingBox, casi 0: el
-      // modelo ya apoya en su propio min.y) con el ancla del grupo; sumar
-      // `POTION_BASE_OFFSET` reproduce dónde caía esa base con la forma
-      // anterior, sin tener que tocar `ITEM_HEIGHT.potion` ni el useFrame de
-      // `ItemMesh`.
-      position={[0, POTION_BASE_OFFSET + groundY * scale, 0]}
-      scale={scale}
-      receiveShadow={receiveShadow}
-    />
+    <>
+      <mesh
+        geometry={geometry}
+        material={kitWarmGlowMaterial}
+        position={position}
+        scale={scale}
+        receiveShadow={receiveShadow}
+      />
+      {/* Silueta de oclusión (ver comentario junto a `potionSilhouetteMaterial`): MISMA
+          geometría/posición/escala que el mesh de arriba, sin `receiveShadow` (símbolo plano). */}
+      <mesh
+        geometry={geometry}
+        material={potionSilhouetteMaterial}
+        position={position}
+        scale={scale}
+        renderOrder={SILHOUETTE_RENDER_ORDER}
+      />
+    </>
   );
 }
 
@@ -352,7 +405,16 @@ function KeyShape({ receiveShadow }: { receiveShadow: boolean }) {
   // criterio que COIN_RADIUS (diámetro) o TORCH_WAX_HEIGHT (altura) — la
   // dimensión que de verdad se lee en pantalla para esta pieza.
   const scale = KEY_SIZE / nativeSize.x;
-  return <mesh geometry={geometry} material={keyKitMaterial} scale={scale} receiveShadow={receiveShadow} />;
+  return (
+    <>
+      <mesh geometry={geometry} material={keyKitMaterial} scale={scale} receiveShadow={receiveShadow} />
+      {/* Silueta de oclusión (ver comentario junto a `keySilhouetteMaterial`): MISMA
+          geometría (ya corregida arriba)/escala que el mesh de arriba, sin `receiveShadow`
+          (símbolo plano). La llave es el objetivo de la sala — perderla de vista tras un
+          muro es peor que perder una moneda. */}
+      <mesh geometry={geometry} material={keySilhouetteMaterial} scale={scale} renderOrder={SILHOUETTE_RENDER_ORDER} />
+    </>
+  );
 }
 
 function ItemMesh({ session, itemId }: { session: GameSession; itemId: string }) {
