@@ -49,16 +49,18 @@ import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { DOOR_WIDTH, WALL_THICKNESS } from '@/game/world/constants';
 import type { AABB } from '@/engine/geometry';
-import type { DoorConnection } from '@/game/features/dungeon/dungeon';
+import type { DoorConnection, PlacedRoom } from '@/game/features/dungeon/dungeon';
 import { QUEEN_COLUMN_ID_PREFIX } from '@/game/features/bosses/queen/constants';
 import { DOOR_GATE_ID_PREFIX } from '@/game/features/dungeon/dungeon-world';
 import type { BossId, Obstacle, World } from '@/game/world/types';
-import { kitGeometry, kitGeometryPart, kitMaterial, kitWarmMaterial } from './kit';
+import { KIT_SCALE, kitGeometry, kitGeometryPart, kitMaterial, kitWarmMaterial } from './kit';
 import type { KitModelName } from './kit-models';
 import { kitBoxSize, kitGroundOffset, kitTopAlignOffset, kitXZCenteredGeometry } from './kit-fit';
 import { betterModuleLength, wallModuleLayout } from './wall-modules';
 import { useKnownRoomIds } from './known-rooms';
 import { hashId, pickFloorFamily, pickFloorTile, type FloorFamily, type FloorFamilyName, FLOOR_FAMILIES } from './floor-families';
+import { unitPlane } from './assets';
+import { stormFlash } from './storm';
 
 function isWallObstacle(o: Obstacle): boolean {
   return o.id.includes('-wall-');
@@ -297,18 +299,25 @@ interface WallSpan {
  * prohibida (ver `room-props.ts`). Las hornacinas `wall_inset_*` hacen lo
  * contrario, excavan hacia dentro del muro, y por eso sí valen.
  *
- * Quedan fuera también las variantes AGUJEREADAS de verdad (`wall_broken`,
- * `wall_window_open`): por su hueco se vería el vacío negro de fuera de la
- * sala, o peor, el suelo flotante de la sala de al lado. `wall_window_closed`
- * y `wall_archedwindow_gated` dan la misma lectura de "ventana" sin abrir
- * agujero.
+ * Queda fuera `wall_broken`: su boquete es un butrón irregular sin hueco
+ * rectangular medible, y por él se vería el vacío negro de fuera de la sala o
+ * el suelo flotante de la sala de al lado — nada lo tapa.
+ *
+ * `wall_window_open`/`wall_archedwindow_gated` SÍ entran, y por eso llevan
+ * `WindowGlowQuad` (más abajo): un quad aditivo tapa su hueco con un
+ * resplandor tenue en vez de dejar ver el vacío. Historia (playtest
+ * 2026-08-07, encargo de David de una luz de tormenta a través de las
+ * ventanas): el candidato original era `wall_window_closed`, pero medido por
+ * raycast contra su `.glb` resultó estar TAPIADO (0 rayos la atraviesan) —
+ * no aporta nada que no aporte ya `wall_inset`, así que se sustituyó por
+ * `wall_window_open`, que sí es pasante.
  */
 const WALL_BASE_MODULE = 'wall';
 const WALL_ACCENT_MODULES = [
   'wall_inset',
   'wall_inset_shelves',
   'wall_inset_candles',
-  'wall_window_closed',
+  'wall_window_open',
   'wall_archedwindow_gated',
 ] as const;
 
@@ -320,19 +329,27 @@ const WALL_ACCENT_MODULES = [
  */
 const WALL_ACCENT_EVERY = 4;
 
-/** Módulo de muro para una posición concreta, determinista por sala + índice (ver `hashId`). */
-function pickWallModule(roomId: string, index: number): KitModelName {
-  const hash = hashId(`${roomId}:wall:${index}`);
+/**
+ * Módulo de muro para una posición concreta, determinista por sala + clave
+ * (ver `hashId`). La CLAVE es una cadena y no un simple índice porque hay dos
+ * familias de posiciones que no deben compartir sorteo: los módulos completos
+ * de un tramo (`"3"`) y los PARES de medios módulos de otro (`"par:3"`, ver
+ * `mergeHalfPairsIntoAccents`).
+ */
+function pickWallModule(roomId: string, key: string): KitModelName {
+  const hash = hashId(`${roomId}:wall:${key}`);
   if (hash % WALL_ACCENT_EVERY !== 0) return WALL_BASE_MODULE;
   return WALL_ACCENT_MODULES[Math.floor(hash / WALL_ACCENT_EVERY) % WALL_ACCENT_MODULES.length];
 }
 
-/** Un módulo de muro ya colocado: dónde va, si está girado 90° y cuánto se estira a lo largo. */
+/** Un módulo de muro ya colocado: dónde va, si está girado 90°, cuánto se estira a lo largo y de qué tramo salió. */
 interface WallPlacement {
   cx: number;
   cz: number;
   horizontal: boolean;
   scale: number;
+  /** Índice del tramo (`WallSpan`) del que salió: dos módulos solo son contiguos si comparten tramo (ver `mergeHalfPairsIntoAccents`). */
+  spanIndex: number;
 }
 
 /**
@@ -343,7 +360,8 @@ interface WallPlacement {
  */
 function wallPlacements(spans: WallSpan[], moduleLength: number): WallPlacement[] {
   const placements: WallPlacement[] = [];
-  for (const span of spans) {
+  for (let s = 0; s < spans.length; s++) {
+    const span = spans[s];
     const { count, scale } = wallModuleLayout(span.length, moduleLength);
     const segmentLength = span.length / count;
     for (let i = 0; i < count; i++) {
@@ -353,10 +371,225 @@ function wallPlacements(spans: WallSpan[], moduleLength: number): WallPlacement[
         cz: span.horizontal ? span.cz : span.cz + offset,
         horizontal: span.horizontal,
         scale,
+        spanIndex: s,
       });
     }
   }
   return placements;
+}
+
+/**
+ * Convierte PARES de medios módulos contiguos en un único módulo COMPLETO
+ * cuando a ese par le toca acento — el paso que hace que las hornacinas, las
+ * estanterías, las velas y (desde el encargo de la tormenta) las VENTANAS
+ * aparezcan también en los tramos repartidos con `wall_half`.
+ *
+ * Por qué hacía falta (medido en playtest 2026-08-07, con `betterModuleLength`
+ * sobre los tamaños reales del pool): `betterModuleLength` elige por tramo el
+ * módulo que menos hay que deformar, y en más de la mitad de los tramos
+ * típicos gana el MEDIO módulo — en una sala de 11×11, el tamaño más común del
+ * pool, gana en TODOS. Como `wall_half` no sortea variante (solo los módulos
+ * completos pasaban por `pickWallModule`), esas salas se quedaban sin un solo
+ * acento: ni hornacina, ni estantería, ni vela, ni ventana. El trabajo de
+ * variedad del muro existía pero no se veía en la mitad de la mazmorra.
+ *
+ * Por qué la sustitución es EXACTA y no deforma nada: `wall` mide justo el
+ * doble que `wall_half` (3.36 u contra 1.68 a `KIT_SCALE`), y todos los
+ * módulos de un tramo comparten la misma escala (`wallModuleLayout` reparte
+ * `count` módulos iguales). Así que dos medios contiguos con escala `s` ocupan
+ * `2 × 1.68 × s`, exactamente lo mismo que UN completo con esa misma escala
+ * `s`, y su centro es el punto medio de los dos. No cambia el reparto, no
+ * cambia la escala, no queda ni un hueco: solo se sustituye la geometría.
+ *
+ * Dosis: se sortea 1 de cada `WALL_ACCENT_EVERY` PARES, no cada medio módulo.
+ * Como un par ocupa lo mismo que un módulo completo, la densidad de acentos
+ * por metro de muro queda idéntica a la de los tramos que ya usaban módulo
+ * completo — el muro no se vuelve más ruidoso en unas salas que en otras.
+ *
+ * Solo se emparejan módulos del MISMO tramo (`spanIndex`): el último medio de
+ * un tramo y el primero del siguiente son contiguos en el array pero no en el
+ * mundo — hay una puerta o una esquina entre medias.
+ */
+function mergeHalfPairsIntoAccents(
+  halfPlacements: WallPlacement[],
+  roomId: string,
+): { halfPlacements: WallPlacement[]; accents: { model: KitModelName; placement: WallPlacement }[] } {
+  const restantes: WallPlacement[] = [];
+  const accents: { model: KitModelName; placement: WallPlacement }[] = [];
+  let i = 0;
+  while (i < halfPlacements.length) {
+    const a = halfPlacements[i];
+    const b = halfPlacements[i + 1];
+    if (!b || b.spanIndex !== a.spanIndex) {
+      // Medio suelto (final de tramo impar): se queda como medio módulo.
+      restantes.push(a);
+      i += 1;
+      continue;
+    }
+    const model = pickWallModule(roomId, `par:${i}`);
+    if (model === WALL_BASE_MODULE) {
+      restantes.push(a, b);
+    } else {
+      accents.push({
+        model,
+        placement: { cx: (a.cx + b.cx) / 2, cz: (a.cz + b.cz) / 2, horizontal: a.horizontal, scale: a.scale, spanIndex: a.spanIndex },
+      });
+    }
+    i += 2;
+  }
+  return { halfPlacements: restantes, accents };
+}
+
+// ── Ventanas: resplandor exterior por el hueco ─────────────────────────────
+//
+// Encargo de David (playtest 2026-08-07): "poner una luz global que haga que
+// se vea un poco la luz a través de las ventanas exteriores". Solo dos de los
+// cinco acentos de `WALL_ACCENT_MODULES` tienen un hueco PASANTE de verdad
+// (`wall_window_open`, `wall_archedwindow_gated`); el resto son hornacinas
+// que no atraviesan el muro. Por cada módulo de esos dos que dé al EXTERIOR
+// de la mazmorra se monta un quad aditivo (`WindowGlowQuad`) en su hueco —
+// NUNCA una luz nueva, presupuesto cerrado a 7 luces/1 sombra (ver
+// GlowPuddle.tsx, mismo espíritu).
+
+/**
+ * Hueco PASANTE de cada pieza de ventana, medido por RAYCAST contra el
+ * `.glb` en unidades de FÁBRICA (antes de `KIT_SCALE`) — no recalcular, ver
+ * encargo. `width`/`centerY` van en el eje LOCAL que `WallModuleInstances`
+ * estira (`placement.scale`, el eje largo del muro); `height` va en Y, que
+ * ningún módulo estira nunca (ver `WallModuleInstances`: `scale.set(scale, 1,
+ * thicknessScale)`), así que `height` solo se multiplica por `KIT_SCALE`.
+ * `wall_window_closed` queda fuera de este mapa a propósito: está tapiada (0
+ * rayos la atraviesan), por eso ya no vive en `WALL_ACCENT_MODULES`.
+ */
+interface WallWindowHole {
+  /** Ancho del hueco en fábrica, eje largo del muro (X local antes de rotar). */
+  width: number;
+  /** Alto del hueco en fábrica, eje Y (nunca se estira por módulo). */
+  height: number;
+  /** Centro del hueco en Y, en fábrica, medido desde la base del módulo (Y=0). */
+  centerY: number;
+}
+const WALL_WINDOW_HOLES: Partial<Record<KitModelName, WallWindowHole>> = {
+  wall_archedwindow_gated: { width: 1.9, height: 1.6, centerY: 1.9 },
+  wall_window_open: { width: 1.3, height: 1.25, centerY: 1.975 },
+};
+
+/** Un `WallPlacement` de ventana ya filtrado (exterior, con hueco pasante) más el modelo concreto que lo determina. */
+interface WindowPlacement extends WallPlacement {
+  model: KitModelName;
+}
+
+/**
+ * ¿Este módulo de muro da al EXTERIOR de la mazmorra? Desplaza el centro del
+ * módulo `WALL_THICKNESS` hacia el lado CONTRARIO a la sala dueña
+ * (`roomCenter`) y comprueba si ese punto cae dentro del `bounds` de
+ * CUALQUIER sala de `dungeonRooms` — no solo las conocidas: un muro no deja
+ * de ser interior porque la sala vecina todavía no se haya descubierto (mismo
+ * criterio que `isPointInKnownRoom`, known-rooms.ts, pero sin filtrar por
+ * conocidas). Si cae dentro de una sala, al otro lado hay sala: interior. Si
+ * no cae en ninguna, no hay nada al otro lado: exterior.
+ *
+ * `dungeonRooms === null` ⇒ modo sala única (playtest del editor): no hay
+ * mazmorra que consultar, así que TODOS los muros son exteriores (lo pide el
+ * encargo explícitamente).
+ */
+function isExteriorWall(
+  placement: Pick<WallPlacement, 'cx' | 'cz' | 'horizontal'>,
+  roomCenter: { x: number; z: number },
+  dungeonRooms: readonly PlacedRoom[] | null,
+): boolean {
+  if (!dungeonRooms) return true;
+  // Signo de "hacia fuera" a lo largo del eje perpendicular al muro (su
+  // grosor): el lado contrario al centro de la sala dueña. `|| 1` es un
+  // resguardo teórico (un muro real nunca está exactamente sobre el centro
+  // de su propia sala), no un caso que se espere alcanzar.
+  const outward = placement.horizontal
+    ? { x: 0, z: Math.sign(placement.cz - roomCenter.z) || 1 }
+    : { x: Math.sign(placement.cx - roomCenter.x) || 1, z: 0 };
+  const probeX = placement.cx + outward.x * WALL_THICKNESS;
+  const probeZ = placement.cz + outward.z * WALL_THICKNESS;
+  return !dungeonRooms.some(
+    (r) => probeX >= r.bounds.minX && probeX <= r.bounds.maxX && probeZ >= r.bounds.minY && probeZ <= r.bounds.maxY,
+  );
+}
+
+/**
+ * Color/opacidad "tenue" (noche despejada) y "casi blanco" (pico del
+ * fogonazo, ver `storm.ts`) del resplandor de ventana. Azul frío para leerse
+ * como luz nocturna exterior, MUY tenue en reposo — "se ve un poco la luz",
+ * nunca un foco — y con margen para que el bloom del postproceso (ver
+ * PostEffects.tsx) haga florecer el pico sin que este material tenga que
+ * llegar él solo a saturación.
+ */
+const WINDOW_GLOW_DIM_COLOR = new THREE.Color('#3a4f7a');
+const WINDOW_GLOW_FLASH_COLOR = new THREE.Color('#eef2ff');
+const WINDOW_GLOW_DIM_OPACITY = 0.22;
+const WINDOW_GLOW_FLASH_OPACITY = 0.95;
+
+/**
+ * Material ÚNICO compartido por TODAS las ventanas de la mazmorra (mismo
+ * espíritu que `GlowPuddle`: quad aditivo, nunca una luz). Compartirlo es lo
+ * que permite animar el fogonazo mutando UN material en un único `useFrame`
+ * (`WindowStormFlash`, más abajo) en vez de uno por ventana.
+ */
+const windowGlowMaterial = new THREE.MeshBasicMaterial({
+  color: WINDOW_GLOW_DIM_COLOR.clone(),
+  transparent: true,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+  side: THREE.DoubleSide,
+  opacity: WINDOW_GLOW_DIM_OPACITY,
+});
+
+/**
+ * Quad aditivo en el hueco de UNA ventana. `DoubleSide` (en el material
+ * compartido) es lo que evita tener que averiguar qué cara mira al interior:
+ * se ve igual desde dentro de la sala y desde fuera. Girar el plano según
+ * `horizontal` es la ÚNICA diferencia con un tramo vertical de muro — misma
+ * distinción que ya usan los placements de muro (`WallModuleInstances`).
+ */
+function WindowGlowQuad({ placement }: { placement: WindowPlacement }) {
+  const hole = WALL_WINDOW_HOLES[placement.model];
+  const geometry = kitGeometry(placement.model);
+  const groundY = useMemo(() => kitGroundOffset(geometry), [geometry]);
+  if (!hole) return null; // no debería alcanzarse: solo se llama con modelos de WALL_WINDOW_HOLES.
+  const width = hole.width * KIT_SCALE * placement.scale;
+  const height = hole.height * KIT_SCALE;
+  const y = groundY + hole.centerY * KIT_SCALE;
+  return (
+    <mesh
+      geometry={unitPlane}
+      material={windowGlowMaterial}
+      position={[placement.cx, y, placement.cz]}
+      rotation={[0, placement.horizontal ? 0 : Math.PI / 2, 0]}
+      scale={[width, height, 1]}
+    />
+  );
+}
+
+/**
+ * Fogonazo de tormenta (`storm.ts`, encargo playtest 2026-08-07): UN solo
+ * `useFrame` para TODA la escena — nunca uno por ventana — que lee
+ * `world.time`, evalúa `stormFlash` y muta el material ÚNICO compartido de
+ * `WindowGlowQuad` de "tenue" a "casi blanco". Montado una vez en `RoomView`
+ * (no dentro de `DungeonStructureView`/`SingleRoomView`), así corre igual
+ * haya o no ventanas visibles en ese momento.
+ *
+ * `SceneLights.tsx` sube el `hemisphereLight` durante el mismo fogonazo,
+ * llamando a la MISMA `stormFlash` sobre el MISMO `world.time` — cada fichero
+ * solo depende de `storm.ts`, nunca el uno del otro, y quedan en fase sin
+ * compartir estado porque la función es determinista.
+ *
+ * Cero asignaciones por frame: `color`/`opacity` se mutan in-place
+ * (`.copy().lerp()`), nunca se crea un `THREE.Color` nuevo dentro del loop.
+ */
+function WindowStormFlash({ world }: { world: World }) {
+  useFrame(() => {
+    const factor = stormFlash(world.time);
+    windowGlowMaterial.color.copy(WINDOW_GLOW_DIM_COLOR).lerp(WINDOW_GLOW_FLASH_COLOR, factor);
+    windowGlowMaterial.opacity = WINDOW_GLOW_DIM_OPACITY + (WINDOW_GLOW_FLASH_OPACITY - WINDOW_GLOW_DIM_OPACITY) * factor;
+  });
+  return null;
 }
 
 /**
@@ -559,15 +792,23 @@ function subtractDoorFootprints(
  * (`subtractDoorFootprints`), así que el marco reemplaza exactamente el trozo
  * de muro que ocupa, sin dejar hueco ni solapar. La pieza de puerta la pinta
  * `DoorStructures` (sección de puertas más abajo).
+ *
+ * `roomCenter`/`dungeonRooms`: solo hacen falta para decidir qué módulos de
+ * ventana llevan resplandor exterior (`isExteriorWall`, `WindowGlowQuad`) —
+ * el resto del reparto de muro no los usa.
  */
 function RoomWalls({
   spans,
   roomId,
+  roomCenter,
+  dungeonRooms,
   connections = [],
   doorFootprintHalfWidth = 0,
 }: {
   spans: WallSpan[];
   roomId: string;
+  roomCenter: { x: number; z: number };
+  dungeonRooms: readonly PlacedRoom[] | null;
   connections?: readonly DoorConnection[];
   doorFootprintHalfWidth?: number;
 }) {
@@ -576,7 +817,7 @@ function RoomWalls({
   const fullModuleLength = useMemo(() => kitBoxSize(fullGeometry).x, [fullGeometry]);
   const halfModuleLength = useMemo(() => kitBoxSize(halfGeometry).x, [halfGeometry]);
 
-  const { fullGroups, halfPlacements } = useMemo(() => {
+  const { fullGroups, halfPlacements, windowPlacements } = useMemo(() => {
     // 1) Recortar lo que ocupan las piezas de puerta ANTES de repartir en
     //    módulos (ver `subtractDoorFootprints`: filtrar módulos ya colocados
     //    dejaba huecos negros a los lados de cada puerta).
@@ -590,20 +831,38 @@ function RoomWalls({
       (chosen === halfModuleLength ? halfSpans : fullSpans).push(span);
     }
 
-    // 3) Los módulos grandes sortean además su variante decorativa.
+    // 3) Los módulos grandes sortean además su variante decorativa. Los que
+    //    salgan ventana Y den al exterior se apuntan aparte para su quad de
+    //    resplandor (`WindowGlowQuad`).
     const byModel = new Map<KitModelName, WallPlacement[]>();
+    const windows: WindowPlacement[] = [];
+    const anotar = (model: KitModelName, placement: WallPlacement) => {
+      const list = byModel.get(model) ?? [];
+      list.push(placement);
+      byModel.set(model, list);
+      if (model in WALL_WINDOW_HOLES && isExteriorWall(placement, roomCenter, dungeonRooms)) {
+        windows.push({ ...placement, model });
+      }
+    };
+
     const placements = wallPlacements(fullSpans, fullModuleLength);
     for (let i = 0; i < placements.length; i++) {
-      const model = pickWallModule(roomId, i);
-      const list = byModel.get(model) ?? [];
-      list.push(placements[i]);
-      byModel.set(model, list);
+      anotar(pickWallModule(roomId, String(i)), placements[i]);
     }
+
+    // 4) Los tramos de MEDIO módulo también reciben acentos, fusionando pares
+    //    contiguos en un módulo completo (ver `mergeHalfPairsIntoAccents`: sin
+    //    esto, las salas cuyos tramos eligen `wall_half` —todas las de 11×11,
+    //    el tamaño más común del pool— se quedaban sin un solo acento).
+    const fusionados = mergeHalfPairsIntoAccents(wallPlacements(halfSpans, halfModuleLength), roomId);
+    for (const { model, placement } of fusionados.accents) anotar(model, placement);
+
     return {
       fullGroups: [...byModel.entries()],
-      halfPlacements: wallPlacements(halfSpans, halfModuleLength),
+      halfPlacements: fusionados.halfPlacements,
+      windowPlacements: windows,
     };
-  }, [spans, roomId, fullModuleLength, halfModuleLength, connections, doorFootprintHalfWidth]);
+  }, [spans, roomId, fullModuleLength, halfModuleLength, connections, doorFootprintHalfWidth, roomCenter, dungeonRooms]);
 
   return (
     <>
@@ -611,6 +870,9 @@ function RoomWalls({
         <WallModuleInstances key={model} placements={placements} geometry={kitGeometry(model)} />
       ))}
       <WallModuleInstances placements={halfPlacements} geometry={halfGeometry} />
+      {windowPlacements.map((placement, i) => (
+        <WindowGlowQuad key={`window-${roomId}-${i}`} placement={placement} />
+      ))}
     </>
   );
 }
@@ -1279,6 +1541,8 @@ function DungeonStructureView({ world }: { world: World }) {
           key={`walls-${placed.room.id}`}
           spans={wallSpansFromObstacles(wallsByRoom.get(placed.room.id) ?? [])}
           roomId={placed.room.id}
+          roomCenter={{ x: placed.origin.x, z: placed.origin.y }}
+          dungeonRooms={dungeon.rooms}
           connections={dungeon.connections}
           doorFootprintHalfWidth={doorFit.footprintHalfWidth}
         />
@@ -1333,7 +1597,9 @@ function SingleRoomView({ world }: { world: World }) {
         roomId={world.room.id}
         familyName={pickFloorFamily(world.room)}
       />
-      <RoomWalls spans={wallSpans} roomId={world.room.id} />
+      {/* Sin mazmorra: no hay salas vecinas que consultar, así que todos los
+          muros son exteriores (`dungeonRooms={null}`, ver `isExteriorWall`). */}
+      <RoomWalls spans={wallSpans} roomId={world.room.id} roomCenter={{ x: 0, z: 0 }} dungeonRooms={null} />
       <CornerColumns halfW={halfW} halfH={halfH} t={t} originX={0} originY={0} />
       {/* Rocas (obstáculos AABB). Las columnas de la Reina (`isQueenColumnObstacle`)
           se excluyen aquí: las pinta QueenColumnsView desde queenState(world).columns,
@@ -1344,8 +1610,13 @@ function SingleRoomView({ world }: { world: World }) {
 }
 
 export function RoomView({ world }: { world: World }) {
-  if (world.dungeon) {
-    return <DungeonStructureView world={world} />;
-  }
-  return <SingleRoomView world={world} />;
+  return (
+    <>
+      {/* UN solo useFrame para el fogonazo de tormenta, aquí y no dentro de
+          cada modo — así corre exactamente una vez sin importar cuántas
+          ventanas haya montadas (ver cabecera de `WindowStormFlash`). */}
+      <WindowStormFlash world={world} />
+      {world.dungeon ? <DungeonStructureView world={world} /> : <SingleRoomView world={world} />}
+    </>
+  );
 }

@@ -91,7 +91,7 @@ export const KIT_MODELS = [
   'wall_inset',
   'wall_inset_candles',
   'wall_inset_shelves',
-  'wall_window_closed',
+  'wall_window_open',
 ] as const;
 
 export type KitModelName = (typeof KIT_MODELS)[number];

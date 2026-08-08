@@ -42,12 +42,27 @@
  * Cero asignaciones por frame: el ancla vive en un `Vector3` de scratch
  * creado una sola vez (`useMemo`), mutado in-place — mismo patrón que
  * CameraRig.tsx.
+ *
+ * Fogonazo de tormenta (encargo playtest 2026-08-07, "un relámpago/trueno que
+ * ilumine muy fuerte por la ventana, casi blanco, durante un instante"): cada
+ * frame se lee `stormFlash(world.time)` (storm.ts, lógica pura y
+ * determinista) y se sube un instante la intensidad/color del
+ * `hemisphereLight` que YA existe arriba — SIN añadir ninguna luz, el
+ * presupuesto cerrado de la escena (7 luces/1 sombra) no se toca. El mismo
+ * `stormFlash` sobre el mismo `world.time` también muta en `RoomView.tsx` el
+ * material compartido de las ventanas (`WindowStormFlash`): los dos quedan en
+ * fase sin que ninguno de los dos ficheros conozca al otro, porque la función
+ * es determinista. La intensidad/color SIEMPRE se recalculan desde la base
+ * (`HEMI_INTENSITY`/`hemiSkyBase`/`hemiGroundBase`) en vez de acumularse, así
+ * que "restaurar tras el fogonazo" no es un caso especial: en cuanto
+ * `stormFlash` vuelve a 0, la luz vuelve a su valor base en ese mismo frame.
  */
 
 import { useFrame } from '@react-three/fiber';
 import { useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import type { GameSession } from '@/game/session/session';
+import { stormFlash } from './storm';
 
 /**
  * Color "sky" del hemisphereLight (ilumina las normales hacia ARRIBA, o sea
@@ -121,8 +136,31 @@ const SHADOW_NORMAL_BIAS = 0.05;
 /** Distancia (al cuadrado, u de mundo) que debe recorrer el héroe desde la última ancla antes de reanclar la luz/sombra. */
 const ANCHOR_MOVE_THRESHOLD_SQ = 1 * 1;
 
+/**
+ * Boost de intensidad del `hemisphereLight` en el PICO del fogonazo de
+ * tormenta (`stormFlash === 1`) — se SUMA a `HEMI_INTENSITY`, nunca la
+ * sustituye, así que fuera del fogonazo la sala nunca cae por debajo de su
+ * relleno normal. ×6 sobre la base (0.34 → 2.38 en el pico): lo bastante
+ * fuerte para sentirse en TODA la sala, no solo en el rectángulo de la
+ * ventana (que es justo lo que pide el encargo — "que se sienta en toda la
+ * sala"), apoyado en que el bloom del postproceso (PostEffects.tsx) hace
+ * florecer ese pico en vez de tener que perseguir el valor final a ojo.
+ */
+const HEMI_STORM_INTENSITY_BOOST = HEMI_INTENSITY * 6;
+/** Cuánto se tira el color del hemisphere hacia blanco en el pico (0 = nada, 1 = blanco puro): moderado para aclarar sin borrar del todo el tinte cálido/frío del rig. */
+const HEMI_STORM_COLOR_MIX = 0.75;
+const HEMI_STORM_WHITE = new THREE.Color('#ffffff');
+
 export function SceneLights({ session }: { session: GameSession }) {
   const directionalRef = useRef<THREE.DirectionalLight>(null);
+  const hemisphereRef = useRef<THREE.HemisphereLight>(null);
+  // Copias de scratch de los colores base del hemisphere (creadas UNA vez):
+  // el fogonazo muta `hemisphereRef.current.color/.groundColor` in-place cada
+  // frame partiendo siempre de estas bases, nunca de sí mismas — mutar a
+  // partir del valor YA mutado del frame anterior iría desplazando el color
+  // hacia blanco sin vuelta atrás.
+  const hemiSkyBase = useMemo(() => HEMI_SKY_COLOR.clone(), []);
+  const hemiGroundBase = useMemo(() => HEMI_GROUND_COLOR.clone(), []);
   // Ancla de la sombra (última posición de héroe, ya cuadriculada a texels,
   // sobre la que se centró la luz direccional). Vector de scratch creado una
   // sola vez y mutado in-place — nunca se reasigna dentro de useFrame.
@@ -132,10 +170,23 @@ export function SceneLights({ session }: { session: GameSession }) {
   const anchor = useMemo(() => new THREE.Vector3(NaN, 0, NaN), []);
 
   useFrame(() => {
+    const world = session.world;
+
+    // Fogonazo de tormenta (ver cabecera del fichero): independiente del
+    // resto de este useFrame (no depende de `directionalRef`), así que se
+    // resuelve antes del `if (!light) return;` de más abajo y corre en TODOS
+    // los frames en los que el hemisphere ya esté montado.
+    const hemi = hemisphereRef.current;
+    if (hemi) {
+      const factor = stormFlash(world.time);
+      hemi.intensity = HEMI_INTENSITY + HEMI_STORM_INTENSITY_BOOST * factor;
+      hemi.color.copy(hemiSkyBase).lerp(HEMI_STORM_WHITE, factor * HEMI_STORM_COLOR_MIX);
+      hemi.groundColor.copy(hemiGroundBase).lerp(HEMI_STORM_WHITE, factor * HEMI_STORM_COLOR_MIX);
+    }
+
     const light = directionalRef.current;
     if (!light) return;
 
-    const world = session.world;
     const hero = world.hero;
     const alpha = session.renderAlpha;
     // Mismo patrón de interpolación que CandleLightView/CameraRig: posición
@@ -166,8 +217,11 @@ export function SceneLights({ session }: { session: GameSession }) {
   return (
     <>
       {/* Luz de relleno general: reemplaza al ambientLight, ver razonamiento
-          de física (sky/ground según normal) en la cabecera del fichero. */}
-      <hemisphereLight color={HEMI_SKY_COLOR} groundColor={HEMI_GROUND_COLOR} intensity={HEMI_INTENSITY} />
+          de física (sky/ground según normal) en la cabecera del fichero.
+          `ref`: el useFrame de arriba sube su intensidad/color un instante
+          durante el fogonazo de tormenta (misma luz de siempre, nunca una
+          nueva). */}
+      <hemisphereLight ref={hemisphereRef} color={HEMI_SKY_COLOR} groundColor={HEMI_GROUND_COLOR} intensity={HEMI_INTENSITY} />
       {/* Única sombra de la escena. La posición/target inicial (origen) la
           corrige el primer useFrame (arranca en NaN, ver comentario de
           `anchor` arriba) — no hace falta declarar un position aquí. */}
