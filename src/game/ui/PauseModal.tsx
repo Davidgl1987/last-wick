@@ -12,10 +12,10 @@
  * cameraSettings.ts), leído por CameraRig en useFrame; persiste solo en
  * localStorage (no en zustand: no debe disparar re-render del canvas).
  *
- * Sonido: sliders conectados a `audioSettings.ts` — hoy el juego no reproduce
- * ningún sonido, así que moverlos no cambia nada audible todavía (ver el
- * comentario de cabecera de ese módulo). Se dejan ya cableados para que el
- * día que se añada audio, el volumen del jugador ya esté persistido.
+ * Sonido: sliders conectados a `audioSettings.ts`, que a su vez alimenta el
+ * motor Web Audio real (`audio/sfxEngine.ts`) — arrastrar un slider aquí sube
+ * o baja el volumen audible en el acto (rampa corta para no chasquear, ver
+ * cabecera de `sfxEngine.ts`), no solo la preferencia persistida.
  *
  * Un `Divider` separa el resumen de la partida (mejoras acumuladas) del resto
  * de secciones, que ya son ajustes — pedido explícito de David.

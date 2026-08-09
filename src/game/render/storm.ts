@@ -3,11 +3,16 @@
  * entorno `node` de vitest, igual que `wall-modules.ts`/`floor-families.ts`).
  * Encargo de David en playtest 2026-08-07: "de vez en cuando hubiera un
  * relámpago/trueno que ilumine muy fuerte por la ventana (casi blanco)
- * durante un instante". El trueno SONORO queda fuera (el juego no tiene motor
- * de audio, ver `src/game/audio/audioSettings.ts`) — este módulo solo decide
- * CUÁNDO y CUÁNTO brilla; CÓMO se pinta lo deciden quienes lo consumen
+ * durante un instante". El trueno SONORO ya está conectado (encargo de
+ * audio posterior, motor Web Audio en `audio/sfxEngine.ts`): la detección
+ * del flanco de subida de `stormFlash(world.time)` vive en
+ * `render/useGameLoop.ts` (una única vez, para no duplicarla en cada
+ * consumidor), que dispara `playSfx('thunder', ...)` con retardo y paso bajo
+ * para que se oiga como un retumbe lejano tras el fogonazo. Este módulo
+ * sigue sin saber nada de audio ni de render: solo decide CUÁNDO y CUÁNTO
+ * brilla/truena; CÓMO se pinta o suena lo deciden quienes lo consumen
  * (`RoomView.tsx` muta el material de las ventanas, `SceneLights.tsx` sube un
- * instante el hemisphereLight).
+ * instante el hemisphereLight, `useGameLoop.ts` dispara el trueno).
  *
  * `stormFlash(time)` es determinista por `time` (nada de `Math.random()`,
  * mismo criterio que el resto del render — ver `hashId`, floor-families.ts):

@@ -271,7 +271,7 @@ export function stepWorld(world: World, events: EventQueue): void {
   stepRoomTransition(world, events);
   if (world.dungeon) stepBossDoorKeyCheck(world, events);
 
-  stepEnemyAi(world, FIXED_DT);
+  stepEnemyAi(world, FIXED_DT, events);
   stepBosses(world, FIXED_DT, events);
   if (world.dungeon) stepBossDoorSeal(world, events);
   stepEnemyCollisions(world);

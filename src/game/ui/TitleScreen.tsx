@@ -13,11 +13,20 @@
 
 import { useState } from 'react';
 import { Button, Divider, Frame } from '@/ui';
+import { playSfx } from '@/game/audio/sfxEngine';
 import { CreditsModal } from './CreditsModal';
 import './title-screen.css';
 
 export function TitleScreen({ onPlay }: { onPlay: () => void }) {
   const [showCredits, setShowCredits] = useState(false);
+
+  // 'level-start' (encargo de audio, bus música): arranca la partida real,
+  // distinto del 'ui-click' genérico que ya lleva CUALQUIER <Button> (éste
+  // suena ADEMÁS, no en su lugar).
+  const handlePlay = (): void => {
+    playSfx('level-start', { bus: 'music' });
+    onPlay();
+  };
 
   return (
     <div className="title-screen">
@@ -29,7 +38,7 @@ export function TitleScreen({ onPlay }: { onPlay: () => void }) {
         <p className="title-screen-subtitle">Lumora en la Mansión Lumbra</p>
 
         <nav className="title-screen-menu">
-          <Button variant="primary" size="lg" onClick={onPlay}>
+          <Button variant="primary" size="lg" onClick={handlePlay}>
             Jugar
           </Button>
           <Button variant="secondary" href="#/editor">

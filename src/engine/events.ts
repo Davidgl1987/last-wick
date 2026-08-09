@@ -27,6 +27,18 @@ export type GameEventType =
    * del CUERPO del héroe y de proyectiles enemigos).
    */
   | 'projectile-wall'
+  /**
+   * Un enemigo dispara un proyectil: el arquetipo *shooter*
+   * (`features/enemies/shooter/ai.ts`) al final de su carga, y La Tormenta
+   * (`features/bosses/storm/pattern.ts`) en cada bala de sus 3 patrones.
+   * Evento nuevo (encargo de audio, ver `audio/eventSfx.ts`): antes de esto
+   * un disparo enemigo no emitía nada, así que no tenía sonido propio. El
+   * Prisma NO lo emite aquí — sus disparos ya viajan como `boss-telegraph`
+   * con label `<arma>-fire` (`prisma-arrow-fire`/`prisma-spell-fire`), y
+   * `eventSfx.ts` resuelve ESE label al mismo clip `enemy-shot` sin duplicar
+   * el evento.
+   */
+  | 'enemy-shot'
   | 'enemy-hit'
   /** Golpe del jugador que daña a un JEFE (vs 'enemy-hit' de enemigos normales): shake grande, escalado por daño (playtest 2026-07-10: "más shake al dañar al jefe, menos a enemigos pequeños"). intensity = daño. */
   | 'boss-hit'

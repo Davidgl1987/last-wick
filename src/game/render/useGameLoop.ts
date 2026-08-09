@@ -12,15 +12,54 @@ import { useRef } from 'react';
 import { FIXED_DT } from '@/engine/physics';
 import { consumeHitStop, decayTrauma } from '@/game/features/effects/effectsState';
 import { reactToEvent } from '@/game/features/effects/reactToEvent';
+import { playEventSfx } from '@/game/audio/eventSfx';
+import { playSfx, setLoop, stopLoop } from '@/game/audio/sfxEngine';
 import type { GameSession } from '@/game/session/session';
 import { drainEvents, type GameEvent } from '@/engine/events';
 import { stepWorld } from '@/game/world/step';
 import type { GamePhase } from '@/game/world/types';
 import { useUiStore } from '@/game/session/store';
 import { WEAPON_COLOR } from '@/game/render/assets';
+import { stormFlash } from '@/game/render/storm';
 
 /** Tope de tiempo de frame acumulable (evita la espiral de la muerte en tabs suspendidas). */
 const MAX_FRAME_TIME = 0.25;
+
+// ── Sonido de movimiento del héroe (hero-slide-loop) ────────────────────────
+/** Por debajo de esta velocidad (u/s) el bucle de deslizamiento suena a ganancia 0 (y el motor lo detiene, ver sfxEngine.ts). */
+const HERO_SLIDE_SPEED_FLOOR = 1.5;
+/** Rango de velocidad (u/s) sobre el suelo que mapea a ganancia [0,1] del bucle. */
+const HERO_SLIDE_SPEED_RANGE = 6;
+/** Ganancia máxima del bucle de deslizamiento a velocidad alta. */
+const HERO_SLIDE_MAX_GAIN = 0.35;
+/** playbackRate base del bucle a velocidad 0 (el resto sube con la velocidad). */
+const HERO_SLIDE_RATE_BASE = 0.9;
+/** u/s → incremento de playbackRate del bucle. */
+const HERO_SLIDE_RATE_PER_SPEED = 0.02;
+
+// ── Trueno (encargo de audio, ver cabecera de render/storm.ts) ──────────────
+/** Ganancia base del trueno: retumbe de fondo, nunca debe tapar el resto del mix. */
+const THUNDER_VOLUME = 0.5;
+/** playbackRate bajo: el rugido grave de un trueno lejano, no el chasquido agudo del clip base. */
+const THUNDER_RATE = 0.5;
+const THUNDER_RATE_JITTER = 0.08;
+/** Paso bajo agresivo: convierte el fogonazo en retumbe sordo (GDD-encargo). */
+const THUNDER_LOWPASS_HZ = 900;
+/** Desfase luz→sonido (relámpago visto antes que oído): tormenta "lejana". */
+const THUNDER_DELAY_S = 0.35;
+/**
+ * Throttle del trueno (ms). Cada relámpago es un DOBLE destello (storm.ts):
+ * la envolvente vale exactamente 0 entre los dos pulsos (soporte finito), así
+ * que el flanco de subida se cruza DOS veces por relámpago, con ~0.2 s de
+ * separación. Sin este throttle sonaban dos retumbes de ~2.6 s solapados y
+ * embarrados. Holgado por arriba (3 s) y muy por debajo del hueco real entre
+ * relámpagos (10-20 s garantizados por `stormFlash`): nunca se come uno bueno.
+ */
+const THUNDER_MIN_INTERVAL_MS = 3000;
+
+function clamp(value: number, min: number, max: number): number {
+  return value < min ? min : value > max ? max : value;
+}
 
 const NOTICE_BY_EVENT: Partial<Record<GameEvent['type'], string>> = {
   'room-cleared': 'Sala limpiada',
@@ -63,6 +102,8 @@ export function useGameLoop(session: GameSession): void {
     roomIndex: -2,
     currentRoomName: '',
   });
+  /** Último valor de `stormFlash(world.time)` leído, para detectar el flanco de subida del trueno (ver más abajo). */
+  const prevStormFlash = useRef(0);
 
   const runFrame = (delta: number): void => {
     const world = session.world;
@@ -90,6 +131,35 @@ export function useGameLoop(session: GameSession): void {
     session.effects.trail.update(cappedDelta);
     session.effects.shockwaves.update(cappedDelta);
 
+    // Bucle de deslizamiento (hero-slide-loop, encargo de audio): ganancia y
+    // tono en función de la velocidad actual del héroe; a ganancia 0 el
+    // propio motor detiene la fuente (setLoop/stopLoop, ver sfxEngine.ts) en
+    // vez de dejarla sonando inaudible toda la partida.
+    if (world.phase === 'playing') {
+      const heroSpeed = Math.hypot(world.hero.velocity.x, world.hero.velocity.y);
+      const slideGain = clamp((heroSpeed - HERO_SLIDE_SPEED_FLOOR) / HERO_SLIDE_SPEED_RANGE, 0, 1) * HERO_SLIDE_MAX_GAIN;
+      setLoop('hero-slide-loop', slideGain, HERO_SLIDE_RATE_BASE + heroSpeed * HERO_SLIDE_RATE_PER_SPEED);
+    } else {
+      stopLoop('hero-slide-loop');
+    }
+
+    // Trueno (encargo de audio, ver cabecera de render/storm.ts): flanco de
+    // subida del mismo `stormFlash(world.time)` puro que ya consumen
+    // RoomView.tsx (ventanas) y SceneLights.tsx (hemisphere) — la detección
+    // del flanco vive AQUÍ y solo aquí, para no duplicarla en cada consumidor.
+    const flashFactor = stormFlash(world.time);
+    if (prevStormFlash.current === 0 && flashFactor > 0) {
+      playSfx('thunder', {
+        volume: THUNDER_VOLUME,
+        rate: THUNDER_RATE,
+        rateJitter: THUNDER_RATE_JITTER,
+        lowpass: THUNDER_LOWPASS_HZ,
+        delay: THUNDER_DELAY_S,
+        minInterval: THUNDER_MIN_INTERVAL_MS,
+      });
+    }
+    prevStormFlash.current = flashFactor;
+
     drainEvents(session.events, (event) => {
       // Color del arma activa en el momento del evento (audit playtest: el
       // burst de 'launch' cubre lanzamiento corporal Y disparo de flecha/
@@ -103,6 +173,9 @@ export function useGameLoop(session: GameSession): void {
         Math.random,
         `#${WEAPON_COLOR[world.hero.weaponMode].getHexString()}`,
       );
+      // Sonido del evento (encargo de audio, audio/eventSfx.ts): el héroe es
+      // el "oyente" para paneo/atenuación espacial de eventos remotos.
+      playEventSfx(event, world.hero.position.x, world.hero.position.y, world.hero.weaponMode);
 
       if (event.type === 'room-entered') {
         useUiStore.getState().showNotice(event.label);

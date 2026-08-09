@@ -4,11 +4,15 @@
  * `subscribe`/`getSnapshot` vía `useSyncExternalStore`, `sanitize` defensivo
  * al leer).
  *
- * HONESTO: hoy el juego NO reproduce ningún sonido. No existe todavía motor
- * de audio ni un solo `.play()` en el proyecto. Este módulo solo persiste la
- * PREFERENCIA del jugador para que, el día que se añada audio de verdad, lo
- * lea de aquí — por eso los sliders de "Sonido" en el menú de pausa se mueven
- * pero hoy no cambian nada audible.
+ * Motor de audio: `audio/sfxEngine.ts` se SUSCRIBE a este módulo con
+ * `subscribeAudioSettings` (mismo `Set` de listeners que usa
+ * `useAudioSettings`, sin estado duplicado) y aplica `master`/`music`/`sfx` a
+ * los `GainNode` de sus buses con una rampa corta (`setTargetAtTime`) cada
+ * vez que cambian — así arrastrar un slider en el modal de pausa (
+ * `ui/PauseModal.tsx`) sube o baja el volumen real sin chasquido. El resto
+ * del código fuera de React que necesite leer el volumen actual sin
+ * suscribirse (tampoco es el caso hoy de nada más que `sfxEngine.ts`) puede
+ * usar `getAudioSettings()`.
  *
  * Frecuencia de escritura: ínfima (arrastrar un slider ocasional en pausa),
  * igual que `postSettings.ts` — el coste de recrear el snapshot y notificar
@@ -89,4 +93,21 @@ export function setAudioVolume(key: keyof AudioSettings, value: number): void {
 /** Hook de lectura reactiva: re-renderiza el componente cuando cambia cualquier volumen. */
 export function useAudioSettings(): AudioSettings {
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+}
+
+/**
+ * Snapshot actual sin engancharse a React (para `sfxEngine.ts`, que no es un
+ * componente): misma referencia inmutable que lee `useAudioSettings`.
+ */
+export function getAudioSettings(): AudioSettings {
+  return settings;
+}
+
+/**
+ * Suscripción para código fuera de React (`sfxEngine.ts`): reutiliza el
+ * mismo `Set` de listeners que ya usa `useSyncExternalStore` internamente,
+ * sin duplicar el mecanismo de notificación.
+ */
+export function subscribeAudioSettings(listener: () => void): () => void {
+  return subscribe(listener);
 }
