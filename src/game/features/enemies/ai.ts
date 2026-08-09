@@ -8,11 +8,13 @@ import { stepDummy } from '@/game/features/enemies/dummy/ai';
 import { stepShooter } from '@/game/features/enemies/shooter/ai';
 import { stepSpike } from '@/game/features/enemies/spike/ai';
 import { stepTrail } from '@/game/features/enemies/trail/ai';
+import type { EventQueue } from '@/engine/events';
 import type { World } from '@/game/world/types';
 
 // ── Orquestador ────────────────────────────────────────────────────────────
 
-export function stepEnemyAi(world: World, dt: number): void {
+/** `events` opcional al final (encargo de audio, ver shooter/ai.ts): solo el arquetipo shooter lo necesita hoy (dispara 'enemy-shot'). */
+export function stepEnemyAi(world: World, dt: number, events: EventQueue | null = null): void {
   const enemies = world.enemies;
   for (let i = 0; i < enemies.length; i++) {
     const enemy = enemies[i];
@@ -43,7 +45,7 @@ export function stepEnemyAi(world: World, dt: number): void {
         stepTrail(world, enemy, dt);
         break;
       case 'shooter':
-        stepShooter(world, enemy, dt);
+        stepShooter(world, enemy, dt, events);
         break;
     }
   }

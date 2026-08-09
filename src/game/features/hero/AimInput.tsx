@@ -16,6 +16,7 @@ import type { GameSession } from '@/game/session/session';
 import { resolveWeaponRelease } from '@/game/features/combat/combat';
 import { launchHero } from './launch';
 import { useUiStore } from '@/game/session/store';
+import { playSfx } from '@/game/audio/sfxEngine';
 
 export function AimInput({ session }: { session: GameSession }) {
   const camera = useThree((state) => state.camera);
@@ -80,6 +81,7 @@ export function AimInput({ session }: { session: GameSession }) {
       aim.force = 0;
       aim.dirX = 0;
       aim.dirY = 0;
+      playSfx('aim-pull');
       try {
         el.setPointerCapture(e.pointerId);
       } catch {
@@ -101,6 +103,7 @@ export function AimInput({ session }: { session: GameSession }) {
       if (aim.force < MIN_LAUNCH_FORCE) {
         // Rechazo de tiro accidental (GDD §3): aviso, sin coste.
         useUiStore.getState().showNotice('Tiro demasiado flojo');
+        playSfx('ui-cancel');
         return;
       }
       if (session.world.phase !== 'playing') return; // la fase pudo cambiar durante el drag

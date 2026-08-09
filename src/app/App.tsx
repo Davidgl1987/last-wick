@@ -20,6 +20,7 @@ import { EditorPage } from '@/editor/EditorPage';
 import { loadPlaytestRoom } from '@/editor/storage';
 import { GameRoot } from '@/game/render/GameRoot';
 import { preloadKit, useKitReady } from '@/game/render/kit';
+import { initAudio } from '@/game/audio/sfxEngine';
 import { useUiStore } from '@/game/session/store';
 import { TitleScreen } from '@/game/ui/TitleScreen';
 
@@ -78,6 +79,16 @@ export function App() {
     const onHashChange = () => setRoute(currentRoute());
     window.addEventListener('hashchange', onHashChange);
     return () => window.removeEventListener('hashchange', onHashChange);
+  }, []);
+
+  // Arma el desbloqueo de audio (encargo de audio, sfxEngine.ts): NO crea el
+  // AudioContext todavía (los navegadores lo bloquean sin gesto), solo deja
+  // listo el listener de "primer gesto" que lo hará. Idempotente, así que da
+  // igual que este efecto se repita; se llama una vez y basta para toda la
+  // vida de la pestaña, cubriendo también el editor (sus propios botones ya
+  // llevan 'ui-click', ver ui/Button.tsx).
+  useEffect(() => {
+    initAudio(import.meta.env.BASE_URL);
   }, []);
 
   // Precarga del kit KayKit en cuanto la ruta actual va a necesitar el juego

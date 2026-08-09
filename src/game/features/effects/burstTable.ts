@@ -40,6 +40,11 @@ export const BURST_BY_EVENT: Record<GameEventType, BurstSpec> = {
   // pequeñas/breves y sin apenas trauma — "más humilde" que 'enemy-hit', es
   // un impacto contra un muro inerte, no contra un enemigo.
   'projectile-wall': { color: '#c7ccdf', size: 0.05, count: 5, life: 0.18, speed: 1.8, trauma: 0.02 },
+  // Disparo enemigo (encargo de audio, engine/events.ts): el propio
+  // proyectil naciendo ya es el feedback visual; sin burst propio (NONE)
+  // para no duplicar partículas sobre lo que dispara el arquetipo shooter/
+  // La Tormenta varias veces por segundo.
+  'enemy-shot': NONE,
   'enemy-hit': { color: '#ffffff', size: 0.08, count: 8, life: 0.25, speed: 2.6, trauma: 0.06 },
   // Golpe a un JEFE (playtest 2026-07-10): shake grande, escalado por daño en
   // reactToEvent.ts — mucho más notorio que un enemigo pequeño (enemy-hit).

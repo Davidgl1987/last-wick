@@ -3,9 +3,16 @@
 import { canAggro, moveToward, stepPatrol } from '@/game/features/enemies/steering';
 import { SHOOTER_CHARGE_DURATION, SHOOTER_CHASE_DURATION, SHOOTER_CHASE_SPEED, SHOOTER_PROJECTILE_DAMAGE, SHOOTER_PROJECTILE_RADIUS, SHOOTER_PROJECTILE_SPEED } from './constants';
 import { fireEnemyProjectile } from '@/game/features/combat/combat';
+import { pushEvent, type EventQueue } from '@/engine/events';
 import type { Enemy, World } from '@/game/world/types';
 
-export function stepShooter(world: World, enemy: Enemy, dt: number): void {
+/**
+ * `events` opcional al final (encargo de audio, `enemy-shot`, ver
+ * engine/events.ts): `stepEnemyAi(world, dt)` no pasaba cola de eventos
+ * hasta ahora — opcional-al-final mantiene compilando sin tocar los tests
+ * existentes que llaman a `stepEnemyAi`/`stepShooter` con la firma antigua.
+ */
+export function stepShooter(world: World, enemy: Enemy, dt: number, events: EventQueue | null = null): void {
   // Sin aggro (punto 7): patrulla como cualquier otro arquetipo, con el
   // ciclo persigue/carga/dispara congelado (nunca telegrafía ni dispara a
   // través de su propio muro) hasta que el héroe vuelva a su sala.
@@ -43,6 +50,9 @@ export function stepShooter(world: World, enemy: Enemy, dt: number): void {
         SHOOTER_PROJECTILE_DAMAGE,
         SHOOTER_PROJECTILE_RADIUS,
       );
+      if (events) {
+        pushEvent(events, 'enemy-shot', enemy.position.x, enemy.position.y, SHOOTER_PROJECTILE_SPEED);
+      }
       enemy.shooterPhase = 'chase';
       enemy.shooterPhaseTimer = SHOOTER_CHASE_DURATION;
     }

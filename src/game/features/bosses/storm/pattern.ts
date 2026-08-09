@@ -169,6 +169,16 @@ function stormResetPatternState(world: World, boss: Enemy, state: StormState): v
 let stormWorldRef: World | null = null;
 let stormBossPhaseRef: 1 | 2 | 3 = 1;
 /**
+ * Cola de eventos vigente (encargo de audio, `enemy-shot`, ver
+ * engine/events.ts): mismo criterio que `stormWorldRef`/`stormBossPhaseRef`
+ * de arriba — `stormEmit` no puede recibir `events` en su firma (contrato
+ * fijo de `StormEmit`, `patterns.ts`, NO tocado por esta fase), así que se
+ * guarda aquí, reescrita al principio de cada `stormStepPattern`.
+ */
+let stormEventsRef: EventQueue | null = null;
+/** `world.time` del último 'enemy-shot' emitido, para que una oleada entera suene una sola vez (ver `stormEmit`). `-1` = ninguno todavía. */
+let stormLastShotEventTime = -1;
+/**
  * Etiqueta de color del ciclo en curso (feedback playtest 2026-07-17: "pon en
  * cada ataque los proyectiles de un color"), reescrita junto a las dos
  * anteriores al principio de cada `stormStepPattern`. Reutiliza literalmente
@@ -196,6 +206,21 @@ const stormEmit: StormEmit = (originX, originY, dirX, dirY, speed, damage, radiu
   if (!world) return;
   const capped = stormCapHitDamage(world.hero.maxHp, stormBossPhaseRef, damage);
   fireEnemyProjectile(world, originX, originY, dirX, dirY, speed, capped, radius, 0, stormColorTagRef);
+  // 'enemy-shot' (encargo de audio): UNO por OLEADA, no uno por bala. Un
+  // anillo o una ráfaga radial nacen enteros dentro del MISMO tick (ver
+  // `emitRing`/`fireRadialBurst`, patterns.ts: bucles sin reloj interno), y
+  // son ~20-24 balas. Empujar un evento por bala metería esas 24 entradas de
+  // golpe en un ring buffer de 64 slots que descarta lo MÁS ANTIGUO al
+  // llenarse (engine/events.ts) — es decir, el audio podría comerse eventos
+  // de gameplay reales (un 'player-damaged', un 'boss-hit') antes de que
+  // nadie los drenara. Y no compraría nada: el throttle de 70 ms de
+  // `eventSfx.ts` colapsa la oleada entera en un solo sonido igualmente.
+  // `world.time` solo avanza entre ticks, así que "una vez por tick" es
+  // exactamente "una vez por oleada".
+  if (stormEventsRef && world.time !== stormLastShotEventTime) {
+    stormLastShotEventTime = world.time;
+    pushEvent(stormEventsRef, 'enemy-shot', originX, originY, speed, 'storm');
+  }
 };
 
 /**
@@ -329,11 +354,16 @@ export function stormOnInit(world: World, boss: Enemy): void {
   boss.bossVulnerable = false;
   boss.bossVulnerableUntil = 0;
   boss.patrolForward = false;
+  // Igual que el resto de refs de módulo de este fichero: el `world.time` de
+  // una run anterior no debe silenciar la primera oleada de esta (reiniciar
+  // la partida devuelve el reloj a 0, ver `restartSession`).
+  stormLastShotEventTime = -1;
 }
 
 export function stormStepPattern(world: World, boss: Enemy, dt: number, events: EventQueue): void {
   stormWorldRef = world;
   stormBossPhaseRef = boss.bossPhase;
+  stormEventsRef = events;
   // Sin patrón decidido todavía (justo tras onInit, ver comentario de
   // cabecera): sin colorTag, las balas (si las hubiera, que no las hay en
   // ese instante) caerían al color clásico.
