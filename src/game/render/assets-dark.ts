@@ -245,6 +245,54 @@ export const candleFlameMaterial = new THREE.MeshLambertMaterial({
 /** Ojos de la vela (carita simple del concept): óvalos negros, reutiliza smallDotGeometry escalada. */
 export const candleEyeMaterial = new THREE.MeshBasicMaterial({ color: '#14121a' });
 
+// ── Pantalla de título 3D ──────────────────────────────────────
+
+/**
+ * Negro absoluto detrás del portón del título. `DoubleSide` garantiza
+ * que siga cubriendo el canvas cuando la cámara atraviesa su plano durante
+ * la transición, sin añadir una segunda malla.
+ */
+export const titleVoidMaterial = new THREE.MeshBasicMaterial({
+  color: '#000000',
+  side: THREE.DoubleSide,
+});
+
+/** Polvo/ceniza del vestíbulo: un único `Points`, sin luces ni transparencias ordenadas por partícula. */
+export const titleDustMaterial = new THREE.PointsMaterial({
+  color: '#c9c1b5',
+  size: 0.035,
+  transparent: true,
+  opacity: 0.28,
+  depthWrite: false,
+  sizeAttenuation: true,
+});
+
+/**
+ * Volumen fijo de 42 motas para el título. RNG local determinista construido
+ * una sola vez al cargar el módulo; la animación mueve el `Points` completo,
+ * no reescribe buffers por frame.
+ */
+function createTitleDustGeometry(): THREE.BufferGeometry {
+  const positions = new Float32Array(42 * 3);
+  let seed = 0x1a57c1;
+  const random = (): number => {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    return seed / 0x100000000;
+  };
+  for (let i = 0; i < 42; i++) {
+    const offset = i * 3;
+    positions[offset] = (random() - 0.5) * 8;
+    positions[offset + 1] = 0.25 + random() * 3.5;
+    positions[offset + 2] = -4 + random() * 9;
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
+export const titleDustGeometry = createTitleDustGeometry();
+
 /**
  * Ojos/detalles emissive de enemigo (Bloom fase 4): mismo motivo que las
  * llamas de arriba — ANTES `MeshBasicMaterial` (autoiluminados, ignoran la

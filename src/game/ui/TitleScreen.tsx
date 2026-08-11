@@ -11,46 +11,75 @@
  * App.tsx): son herramientas de desarrollo, no el flujo de juego normal.
  */
 
-import { useState } from 'react';
-import { Button, Divider, Frame } from '@/ui';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Button, Frame } from '@/ui';
 import { playSfx } from '@/game/audio/sfxEngine';
+import { useKitReady } from '@/game/render/kit';
 import { CreditsModal } from './CreditsModal';
+import { TitleScreenScene } from './TitleScreenScene';
 import './title-screen.css';
 
 export function TitleScreen({ onPlay }: { onPlay: () => void }) {
   const [showCredits, setShowCredits] = useState(false);
+  const [phase, setPhase] = useState<'idle' | 'entering' | 'loading'>('idle');
+  const startedRef = useRef(false);
+  const kitReady = useKitReady();
+
+  const startGameOnce = useCallback((): void => {
+    if (startedRef.current) return;
+    startedRef.current = true;
+    onPlay();
+  }, [onPlay]);
+
+  useEffect(() => {
+    if (phase === 'loading' && kitReady) startGameOnce();
+  }, [kitReady, phase, startGameOnce]);
 
   // 'level-start' (encargo de audio, bus música): arranca la partida real,
   // distinto del 'ui-click' genérico que ya lleva CUALQUIER <Button> (éste
   // suena ADEMÁS, no en su lugar).
   const handlePlay = (): void => {
+    if (phase !== 'idle') return;
     playSfx('level-start', { bus: 'music' });
-    onPlay();
+    setShowCredits(false);
+    setPhase('entering');
   };
 
+  const handleEntryComplete = useCallback((): void => {
+    if (kitReady) {
+      startGameOnce();
+    } else {
+      setPhase('loading');
+    }
+  }, [kitReady, startGameOnce]);
+
+  const busy = phase !== 'idle';
+
   return (
-    <div className="title-screen">
-      <div className="title-screen-glow" aria-hidden="true" />
+    <div className={`title-screen title-screen-${phase}`} aria-busy={busy}>
+      {kitReady ? <TitleScreenScene entering={phase === 'entering'} onComplete={handleEntryComplete} /> : null}
+      <div className="title-screen-fallback" aria-hidden="true" />
       <Frame variant="inset" className="title-screen-frame" aria-hidden="true" />
-      <div className="title-screen-content">
+      <header className="title-screen-heading">
         <h1 className="title-screen-title">La Última Mecha</h1>
-        <Divider />
         <p className="title-screen-subtitle">Lumora en la Mansión Lumbra</p>
+      </header>
 
-        <nav className="title-screen-menu">
-          <Button variant="primary" size="lg" onClick={handlePlay}>
-            Jugar
-          </Button>
-          <Button variant="secondary" href="#/editor">
-            Editor
-          </Button>
-          <Button variant="secondary" onClick={() => setShowCredits(true)}>
-            Créditos
-          </Button>
-        </nav>
-      </div>
+      <nav className="title-screen-menu" aria-hidden={busy}>
+        <Button variant="primary" size="lg" onClick={handlePlay} disabled={busy || !kitReady}>
+          {kitReady ? 'Jugar' : 'Preparando…'}
+        </Button>
+        <Button variant="secondary" href="#/editor" tabIndex={busy ? -1 : 0} aria-disabled={busy}>
+          Editor
+        </Button>
+        <Button variant="secondary" onClick={() => setShowCredits(true)} disabled={busy}>
+          Créditos
+        </Button>
+      </nav>
 
-      <CreditsModal open={showCredits} onClose={() => setShowCredits(false)} />
+      {phase === 'loading' ? <p className="title-screen-loading-label">Encendiendo la última mecha…</p> : null}
+
+      <CreditsModal open={showCredits && !busy} onClose={() => setShowCredits(false)} />
     </div>
   );
 }

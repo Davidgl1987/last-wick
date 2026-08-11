@@ -15,7 +15,7 @@
  * juego, sin pasar por el título.
  */
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { EditorPage } from '@/editor/EditorPage';
 import { loadPlaytestRoom } from '@/editor/storage';
 import { GameRoot } from '@/game/render/GameRoot';
@@ -73,7 +73,16 @@ export function App() {
   // Pantalla de título: arranca ya "jugando" si `?boss=` fuerza una arena de
   // jefe (herramienta de dev, no debe interponerse el título).
   const [started, setStarted] = useState(hasForcedBossParam);
+  // Solo el flujo normal del título usa esta cortina: conserva el negro que
+  // llena el plano de la puerta sobre el primer frame ya montado del juego y
+  // lo retira con el fade-in pedido. Las rutas dev siguen entrando directas.
+  const [entryCurtain, setEntryCurtain] = useState(false);
   const kitReady = useKitReady();
+
+  const handleTitleEntryComplete = useCallback((): void => {
+    setEntryCurtain(true);
+    setStarted(true);
+  }, []);
 
   useEffect(() => {
     const onHashChange = () => setRoute(currentRoute());
@@ -117,7 +126,7 @@ export function App() {
   }
 
   if (!started) {
-    return <TitleScreen onPlay={() => setStarted(true)} />;
+    return <TitleScreen onPlay={handleTitleEntryComplete} />;
   }
 
   if (!kitReady) return <KitLoadingScreen />;
@@ -127,8 +136,16 @@ export function App() {
     // título: al pulsar "Jugar" de nuevo, GameRoot se remonta y crea sesión
     // nueva desde cero.
     useUiStore.getState().resetRun();
+    setEntryCurtain(false);
     setStarted(false);
   };
 
-  return <GameRoot key="game" onExitToTitle={handleExitToTitle} />;
+  return (
+    <>
+      <GameRoot key="game" onExitToTitle={handleExitToTitle} />
+      {entryCurtain ? (
+        <div className="game-entry-curtain" onAnimationEnd={() => setEntryCurtain(false)} aria-hidden="true" />
+      ) : null}
+    </>
+  );
 }
