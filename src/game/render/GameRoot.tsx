@@ -24,6 +24,7 @@ import { getRoomPool } from '@/game/features/dungeon/rooms';
 import { readForcedBossPhase, readForcedBossRoom, readGodMode } from './debug-params';
 import { AimInput } from '@/game/features/hero/AimInput';
 import { CandleLightView } from '@/game/features/hero/CandleLightView';
+import { AmbientDustView } from '@/game/features/effects/AmbientDustView';
 import { ParticleView } from '@/game/features/effects/ParticleView';
 import { ShockwaveView } from '@/game/features/effects/ShockwaveView';
 import { TrailView } from '@/game/features/effects/TrailView';
@@ -207,6 +208,9 @@ export function GameRoot({
         <TorchPropsView session={session} />
         {/* Pool FIJO de 3 spotLights reales reasignadas por cercanía al héroe entre TODAS las antorchas de la mazmorra (ver TorchLightPool.tsx): sustituye las hasta ~10 spotLight/pointLight permanentes que antes montaban BossCandlesView/ShopLightsView. */}
         <TorchLightPool session={session} />
+        {/* Polvo ambiental barato: un único Points anclado a las coordenadas
+            globales de las salas; independiente del pool de combate. */}
+        <AmbientDustView session={session} />
         {/* Effects (GDD §12): partículas, estela y ondas expansivas, todos pools preasignados. */}
         <ParticleView pool={session.effects.particles} />
         <TrailView pool={session.effects.trail} />

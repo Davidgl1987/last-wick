@@ -13,10 +13,8 @@
  * librería como ejemplo.
  *
  * `return null` con los 4 flags apagados: sin composer montado, R3F vuelve a
- * su render directo de toda la vida — coste cero de post-proceso cuando el
- * jugador no ha activado ningún efecto (el valor por defecto, ver
- * postSettings.ts). Evita pagar el render-target extra + el pase de
- * composición por nada.
+ * su render directo de toda la vida. Aunque el look por defecto los activa
+ * todos, esta ruta conserva coste cero si el jugador los desmarca en Pausa.
  *
  * Los toggles SOLO cambian desde los checkboxes del modal de pausa
  * (PauseModal.tsx), nunca en caliente durante el juego: montar/desmontar
@@ -61,7 +59,7 @@ import { useMemo } from 'react';
 import { BlendFunction, ChromaticAberrationEffect, ToneMappingMode } from 'postprocessing';
 import { Vector2 } from 'three';
 import type { GameSession } from '@/game/session/session';
-import { usePostSettings } from './postSettings';
+import { usePostSettings, type PostSettings } from './postSettings';
 
 /**
  * PUNTO DE TUNING: oscurecimiento y extensión del viñeteado de bordes.
@@ -156,8 +154,50 @@ const BLOOM_RADIUS = 0.5;
  */
 const CA_MAX_OFFSET = 0.015;
 
+/** Aberración de reposo del título: visible en los bordes iluminados, pero muy por debajo de un impacto de combate. */
+const TITLE_CA_OFFSET = 0.0011;
+
+function PostEffectChain({
+  settings,
+  chromaticAberrationEffect,
+  multisampling,
+}: {
+  settings: PostSettings;
+  chromaticAberrationEffect: ChromaticAberrationEffect;
+  multisampling: number;
+}) {
+  const { bloom, vignette, noise, chromaticAberration } = settings;
+
+  if (!bloom && !vignette && !noise && !chromaticAberration) return null;
+
+  const passes = [];
+  if (bloom) {
+    passes.push(
+      <Bloom
+        key="bloom"
+        mipmapBlur
+        luminanceThreshold={BLOOM_LUMINANCE_THRESHOLD}
+        luminanceSmoothing={BLOOM_LUMINANCE_SMOOTHING}
+        intensity={BLOOM_INTENSITY}
+        radius={BLOOM_RADIUS}
+      />,
+    );
+  }
+  passes.push(<ToneMapping key="tonemapping" mode={ToneMappingMode.ACES_FILMIC} />);
+  if (chromaticAberration) passes.push(<primitive key="ca" object={chromaticAberrationEffect} />);
+  if (vignette) passes.push(<Vignette key="vignette" darkness={VIGNETTE_DARKNESS} offset={VIGNETTE_OFFSET} />);
+  if (noise) passes.push(<Noise key="noise" opacity={NOISE_OPACITY} blendFunction={BlendFunction.ADD} />);
+
+  const chainKey = `${+bloom}${+chromaticAberration}${+vignette}${+noise}`;
+  return (
+    <EffectComposer key={chainKey} multisampling={multisampling}>
+      {passes}
+    </EffectComposer>
+  );
+}
+
 export function PostEffects({ session }: { session: GameSession }) {
-  const { bloom, vignette, noise, chromaticAberration } = usePostSettings();
+  const settings = usePostSettings();
   // Instancia del efecto construida A MANO (no vía el componente
   // <ChromaticAberration> del wrapper de @react-three/postprocessing): el
   // offset inicial (0,0) va garantizado en el constructor — el
@@ -202,74 +242,35 @@ export function PostEffects({ session }: { session: GameSession }) {
     chromaticAberrationEffect.offset.set(magnitude, magnitude);
   });
 
-  // Con todo apagado no hay composer: el Canvas renderiza directo (coste cero).
-  if (!bloom && !vignette && !noise && !chromaticAberration) return null;
+  return <PostEffectChain settings={settings} chromaticAberrationEffect={chromaticAberrationEffect} multisampling={4} />;
+}
 
-  // Hijos como array SIN fragments vacíos: el composer monta bien con
-  // fragments de relleno, pero RECONCILIAR un cambio de hijos (fragment ↔
-  // efecto) tras un toggle lo tumbaba con Context Lost (verificado en
-  // playtest de esta rama: pantalla negra al desmarcar Bloom en pausa). Solo
-  // entran los efectos activos, cada uno con key estable.
-  const passes = [];
-  if (bloom) {
-    // mipmapBlur: variante barata de Bloom (pirámide de mipmaps en vez de
-    // múltiples pases de blur de resolución completa) — obligatoria aquí
-    // porque el target de rendimiento incluye móvil. Va ANTES de la
-    // viñeta/grano para muestrear la imagen sin viñetear (si no, el bloom
-    // de los bordes se apagaría con las esquinas oscurecidas).
-    passes.push(
-      <Bloom
-        key="bloom"
-        mipmapBlur
-        luminanceThreshold={BLOOM_LUMINANCE_THRESHOLD}
-        luminanceSmoothing={BLOOM_LUMINANCE_SMOOTHING}
-        intensity={BLOOM_INTENSITY}
-        radius={BLOOM_RADIUS}
-      />,
-    );
-  }
-  // SIEMPRE presente (sin toggle) justo después del Bloom: postprocessing
-  // pone `renderer.toneMapping = NoToneMapping` mientras el composer está
-  // montado (renderiza a buffers lineales), así que sin este pase la escena
-  // pierde el ACES filmic por defecto de R3F y sale quemada/lavada
-  // (verificado: la vela pasaba de llama recogida a bola de fuego). Va
-  // DESPUÉS del Bloom (que necesita leer el HDR lineal para su umbral de
-  // luminancia) y ANTES de aberración/viñeta/grano — esos tres son efectos de
-  // "look" diseñados para espacio de pantalla LDR (0-1), no para el HDR
-  // lineal donde antes vivían por ir el ToneMapping al final del chain (ver
-  // docstring de cabecera del fichero).
-  passes.push(<ToneMapping key="tonemapping" mode={ToneMappingMode.ACES_FILMIC} />);
-  if (chromaticAberration) {
-    // La instancia del useMemo de arriba (offset garantizado a (0,0) desde el
-    // constructor), montada como <primitive>. El efecto NO se monta/desmonta
-    // por trauma — solo por el toggle de pausa (ver docstring de cabecera);
-    // el useFrame de arriba anima su uniform a partir del reposo.
-    passes.push(<primitive key="ca" object={chromaticAberrationEffect} />);
-  }
-  if (vignette) {
-    passes.push(<Vignette key="vignette" darkness={VIGNETTE_DARKNESS} offset={VIGNETTE_OFFSET} />);
-  }
-  if (noise) {
-    // BlendFunction.ADD (antes OVERLAY, playtest de David 2026-07-26): OVERLAY
-    // calcula 2·base·ruido, y con la base casi negra de esta escena (fondo
-    // #050508 + niebla) el resultado varía una diezmilésima — invisible por
-    // construcción, no por culpa de NOISE_OPACITY. ADD suma el ruido
-    // directamente sobre el color final (ya en LDR gracias al reordenamiento
-    // del chain, ver docstring de cabecera), así que sí se lee como grano
-    // encima de los negros.
-    passes.push(<Noise key="noise" opacity={NOISE_OPACITY} blendFunction={BlendFunction.ADD} />);
-  }
-
-  // `key` = set de efectos activos: cualquier cambio de toggles REMONTA el
-  // composer entero (desmontaje limpio + montaje fresco, la ruta que sí
-  // funciona) en vez de reconciliar pases en caliente (la que crasheaba).
-  // Coste: recompilar los shaders de post-proceso al cambiar un toggle —
-  // oculto tras el modal de pausa, que es el único sitio desde donde cambian.
-  const chainKey = `${+bloom}${+chromaticAberration}${+vignette}${+noise}`;
-
-  return (
-    <EffectComposer key={chainKey} multisampling={4}>
-      {passes}
-    </EffectComposer>
+/**
+ * El mismo look en la escena de título, sin crear una `GameSession`. La
+ * aberración respira muy despacio alrededor de un offset mínimo; en gameplay
+ * sigue partiendo de cero y respondiendo exclusivamente al trauma.
+ * Multisampling 2 en vez de 4 para contener el coste en la primera pantalla
+ * móvil, donde no hay geometría de combate fina que necesite el escalón extra.
+ */
+export function TitlePostEffects() {
+  const settings = usePostSettings();
+  const chromaticAberrationEffect = useMemo(
+    () =>
+      new ChromaticAberrationEffect({
+        offset: new Vector2(TITLE_CA_OFFSET, TITLE_CA_OFFSET * 0.45),
+        radialModulation: false,
+        modulationOffset: 0,
+      }),
+    [],
   );
+
+  useFrame((state) => {
+    const time = state.clock.elapsedTime;
+    chromaticAberrationEffect.offset.set(
+      TITLE_CA_OFFSET + Math.sin(time * 0.19) * TITLE_CA_OFFSET * 0.2,
+      TITLE_CA_OFFSET * 0.45 + Math.cos(time * 0.16) * TITLE_CA_OFFSET * 0.12,
+    );
+  });
+
+  return <PostEffectChain settings={settings} chromaticAberrationEffect={chromaticAberrationEffect} multisampling={2} />;
 }
