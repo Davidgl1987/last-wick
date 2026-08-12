@@ -20,21 +20,28 @@
 
 import { useSyncExternalStore } from 'react';
 
-const STORAGE_KEY = 'last-wick:post-effects';
+/**
+ * `v2` fuerza una migración única desde la etapa de playtest en la que los
+ * cuatro efectos arrancaban apagados. Sin cambiar la clave, un navegador que
+ * ya hubiese guardado esos `false` no adoptaría el nuevo look por defecto.
+ */
+const STORAGE_KEY = 'last-wick:post-effects:v2';
 
 export interface PostSettings {
   bloom: boolean;
   vignette: boolean;
   noise: boolean;
   chromaticAberration: boolean;
+  ambientDust: boolean;
 }
 
-/** Todo apagado por defecto: los efectos se activan uno a uno en playtest. */
+/** Look final: los cuatro efectos activos desde el primer arranque. */
 const DEFAULTS: PostSettings = {
-  bloom: false,
-  vignette: false,
-  noise: false,
-  chromaticAberration: false,
+  bloom: true,
+  vignette: true,
+  noise: true,
+  chromaticAberration: true,
+  ambientDust: true,
 };
 
 /** Valida un valor leído de JSON: cualquier campo que no sea boolean cae al default. */

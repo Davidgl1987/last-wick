@@ -269,8 +269,7 @@ export const titleDustMaterial = new THREE.PointsMaterial({
 
 /**
  * Volumen fijo de 42 motas para el título. RNG local determinista construido
- * una sola vez al cargar el módulo; la animación mueve el `Points` completo,
- * no reescribe buffers por frame.
+ * una sola vez al cargar el módulo; la vista anima el buffer ya reservado.
  */
 function createTitleDustGeometry(): THREE.BufferGeometry {
   const positions = new Float32Array(42 * 3);
@@ -292,6 +291,32 @@ function createTitleDustGeometry(): THREE.BufferGeometry {
 }
 
 export const titleDustGeometry = createTitleDustGeometry();
+
+/**
+ * Polvo ambiental del juego. Geometría independiente de la del título porque
+ * ambas vistas animan sus posiciones in-place. La capacidad fija cubre la
+ * mazmorra completa sin crecer en runtime y sigue siendo un único draw call.
+ */
+export const gameDustMaterial = new THREE.PointsMaterial({
+  color: '#c9c1b5',
+  size: 0.04,
+  transparent: true,
+  opacity: 0.2,
+  depthWrite: false,
+  sizeAttenuation: true,
+});
+
+export const GAME_DUST_CAPACITY = 256;
+
+function createGameDustGeometry(): THREE.BufferGeometry {
+  const positions = new Float32Array(GAME_DUST_CAPACITY * 3);
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3).setUsage(THREE.DynamicDrawUsage));
+  geometry.setDrawRange(0, 0);
+  return geometry;
+}
+
+export const gameDustGeometry = createGameDustGeometry();
 
 /**
  * Ojos/detalles emissive de enemigo (Bloom fase 4): mismo motivo que las

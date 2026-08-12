@@ -49,16 +49,15 @@ const AUDIO_SLIDERS: { key: keyof AudioSettings; label: string }[] = [
 ];
 
 /**
- * Los 4 toggles se crean YA en esta fase 1, aunque Bloom y ChromaticAberration
- * todavía no monten ningún efecto real en PostEffects.tsx (llegan en fases 2 y
- * 3) — así el checkbox y su persistencia en localStorage quedan listos de
- * antemano y las fases siguientes solo añaden el `<Effect>` correspondiente.
+ * Ajustes visuales persistentes. Los cuatro primeros controlan el composer;
+ * las motas ambientales controlan su vista ligera dentro de la escena.
  */
 const POST_EFFECT_TOGGLES: { key: keyof PostSettings; label: string }[] = [
   { key: 'bloom', label: 'Bloom (brillos)' },
   { key: 'vignette', label: 'Viñeta' },
   { key: 'noise', label: 'Grano de imagen' },
   { key: 'chromaticAberration', label: 'Aberración cromática (impactos)' },
+  { key: 'ambientDust', label: 'Motas de polvo' },
 ];
 
 export function PauseModal({ session, onExitToTitle }: { session: GameSession; onExitToTitle?: () => void }) {

@@ -30,16 +30,16 @@
     linear-gradient(180deg, #090c16 0%, #030408 100%);
 }
 
-/* Viñeta CSS barata: concentra la mirada en Lumora y la puerta sin postproceso. */
+/* Gradiente de contraste para separar la UI. La viñeta radial vive ahora en
+   el compositor 3D compartido; mantener ambas oscurecería dos veces unos
+   laterales que ya son deliberadamente fríos. */
 .title-screen::after {
   content: '';
   position: absolute;
   z-index: -1;
   inset: 0;
   pointer-events: none;
-  background:
-    linear-gradient(180deg, rgba(2, 3, 7, 0.3) 0%, transparent 24%, transparent 68%, rgba(1, 1, 3, 0.44) 100%),
-    radial-gradient(ellipse 72% 72% at 50% 52%, transparent 48%, rgba(1, 2, 5, 0.7) 100%);
+  background: linear-gradient(180deg, rgba(2, 3, 7, 0.3) 0%, transparent 24%, transparent 68%, rgba(1, 1, 3, 0.44) 100%);
   transition: opacity 420ms ease;
 }
 
