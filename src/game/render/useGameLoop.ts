@@ -130,6 +130,7 @@ export function useGameLoop(session: GameSession): void {
     session.effects.particles.update(cappedDelta);
     session.effects.trail.update(cappedDelta);
     session.effects.shockwaves.update(cappedDelta);
+    session.effects.flashes.update(cappedDelta);
 
     // Bucle de deslizamiento (hero-slide-loop, encargo de audio): ganancia y
     // tono en función de la velocidad actual del héroe; a ganancia 0 el
@@ -172,6 +173,10 @@ export function useGameLoop(session: GameSession): void {
         session.effects.shockwaves,
         Math.random,
         `#${WEAPON_COLOR[world.hero.weaponMode].getHexString()}`,
+        session.effects.flashes,
+        // El MODO además del color: el color pinta el burst, el modo decide la
+        // textura (copo de Hielo). Separados a propósito — ver reactToEvent.ts.
+        world.hero.weaponMode,
       );
       // Sonido del evento (encargo de audio, audio/eventSfx.ts): el héroe es
       // el "oyente" para paneo/atenuación espacial de eventos remotos.

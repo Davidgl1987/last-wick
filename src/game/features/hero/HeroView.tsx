@@ -28,7 +28,7 @@ import { kitGeometry } from '@/game/render/kit';
 import { makeSilhouetteMaterial, SILHOUETTE_RENDER_ORDER } from '@/game/render/occlusion-silhouette';
 import { HERO_RADIUS } from './constants';
 import { PIT_FALL_DURATION } from '@/game/features/hazards/constants';
-import { HERO_WAX_EMIT_DISTANCE } from '@/game/features/effects/wax';
+import { HERO_WAX_EMIT_DISTANCE, WAX_TYPE_ARCANE, WAX_TYPE_FROST, WAX_TYPE_WAX } from '@/game/features/effects/wax';
 import { getUpgradeLevel } from '@/game/session/upgrades';
 import type { GameSession } from '@/game/session/session';
 import type { WeaponMode } from '@/game/world/types';
@@ -41,14 +41,15 @@ import {
   heroSpikeMaterial,
   smallDotGeometry,
   unitCircle,
-  unitCone,
+  unitPlane,
   unitSphere,
   WEAPON_COLOR,
 } from '@/game/render/assets';
 import {
   candleEyeMaterial,
-  candleFlameMaterial,
   HERO_WAX_COLOR,
+  heroFlameMaterial,
+  WEAPON_COLOR_FLAME_HDR,
 } from '@/game/render/assets-dark';
 import { boulderScaleFactor, cometStretchFactor, shieldBubbleOpacity, spikeCountForLevel } from './upgrade-visuals';
 
@@ -341,10 +342,21 @@ const WAX_TELEPORT_GUARD = 3;
  * inclinación", punto 1 de playtest), pero solo `bodyRef` recibe además el
  * escalado de squash/estiramiento.
  *
+ * MATIZ (feedback de David 2026-08-12, llama → billboard): lo de arriba
+ * sigue siendo cierto para los OJOS y para la POSICIÓN de la llama (su pivote
+ * se sigue desplazando con el lean, heredado de `candleTiltGroupRef` sin
+ * tocar nada). Pero la ROTACIÓN PROPIA de la llama ya no acompaña la
+ * inclinación: es un billboard cilíndrico que se cancela contra la rotación
+ * de `candleTiltGroupRef` para quedarse siempre vertical en mundo (ver el
+ * bloque `flame` del useFrame más abajo, comentario largo ahí). Igual que una
+ * llama real, que por flotabilidad se queda derecha aunque la cera se ladee.
+ *
  * Llama: pulso de tamaño (punto 3 de playtest ronda 4: "parece que se
  * balancea, mejor que crezca y decrezca") — suma de dos senos a frecuencias
  * inconmensuradas (barato, sin asignaciones) que modulan una escala
- * UNIFORME, nunca su posición/rotación (eliminadas: ya no hay balanceo).
+ * UNIFORME. Nunca modula su POSICIÓN local (eliminada: ya no hay balanceo);
+ * su ROTACIÓN local sí se escribe cada frame, pero para el billboard de
+ * cámara, no para ningún balanceo.
  */
 const FLAME_PULSE_FREQ_A = 3.1;
 const FLAME_PULSE_FREQ_B = 5.7;
@@ -376,6 +388,12 @@ const FLAME_BASE_SCALE = 0.7;
 const FLAME_HEIGHT_FACTOR = 2 * CANDLE_HALF_HEIGHT + (FLAME_BASE_SCALE * 1.8) / 2 - 1;
 /** Amplitud del pulso de tamaño de la llama: ±15%, pedido explícito de playtest. */
 const FLAME_PULSE_AMPLITUDE = 0.15;
+/**
+ * Eje de mundo reutilizado para el billboard CILÍNDRICO de la llama (ver
+ * bloque `flame` del useFrame): solo lectura, nunca se muta, así que un único
+ * objeto de módulo vale para todos los frames sin asignar nada nuevo.
+ */
+const Y_AXIS = new Vector3(0, 1, 0);
 
 /**
  * Gesto de victoria (playtest 2026-07-15, David: "quizá algún gesto de
@@ -508,6 +526,12 @@ export function HeroView({ session }: { session: GameSession }) {
   // criterio que el resto del render de esta rama).
   const candleTiltAxis = useRef(new Vector3());
   const candleTiltQuat = useRef(new Quaternion());
+  // Billboard cilíndrico de la llama (ver bloque `flame` del useFrame):
+  // quaternion de mundo objetivo (solo yaw, mirando a cámara) y scratch para
+  // el inverso de la rotación de `candleTiltGroupRef` que hay que cancelar —
+  // ambos reutilizados cada frame, cero asignaciones.
+  const flameBillboardQuat = useRef(new Quaternion());
+  const flameTiltInverseQuat = useRef(new Quaternion());
 
   // Pose de los pinchos (F5): fija al montar (ver CANDLE_SPIKE_SURFACE_*
   // arriba) — nunca en useFrame, son hijos estáticos del mesh del héroe
@@ -527,7 +551,7 @@ export function HeroView({ session }: { session: GameSession }) {
     });
   }, []);
 
-  useFrame((_, delta) => {
+  useFrame((state, delta) => {
     const world = session.world;
     const hero = world.hero;
     const alpha = session.renderAlpha;
@@ -564,15 +588,20 @@ export function HeroView({ session }: { session: GameSession }) {
     // Héroe = vela: el cuerpo (cera) no lerpea (queda fijo, assets-dark.ts) y
     // el lerp se aplica a la llama en su lugar.
     //
-    // Bloom (fase 4): `candleFlameMaterial` pasó de `MeshBasicMaterial` a
-    // `MeshLambertMaterial` con `color` negro + todo el brillo en `emissive`
-    // (ver assets-dark.ts) para poder cruzar el umbral de bloom — así que el
-    // lerp de arma ahora escribe en `.emissive`, NO en `.color` (que se queda
-    // fijo en negro). `aimDotMaterial` sigue siendo Basic sin cambios: su
-    // lerp sigue en `.color` como siempre.
+    // Bloom (fase 4) + billboard (2026-08-12): la llama pasó de
+    // `candleFlameMaterial` (`MeshLambertMaterial`, color negro + brillo en
+    // `emissive`, ver assets-dark.ts) a `heroFlameMaterial`
+    // (`MeshBasicMaterial` aditivo con `map = flame.png`, mismo fichero) —
+    // Basic no tiene canal `emissive`, así que el lerp de arma ahora escribe
+    // en `.color` directamente, pero contra `WEAPON_COLOR_FLAME_HDR` (versión
+    // YA escalada ×`BLOOM_EMISSIVE_INTENSITY`), no contra `targetColor` (LDR):
+    // `targetColor` lo siguen usando tal cual `aimDotMaterial`/
+    // `heroSilhouetteMaterial` dos líneas más abajo, así que no se puede
+    // reescalar in-place sin romperlos. `aimDotMaterial` sigue siendo Basic
+    // sin `map`: su lerp sigue en `.color` LDR como siempre.
     const targetColor = WEAPON_COLOR[hero.weaponMode];
     const colorK = 1 - Math.exp(-WEAPON_COLOR_LERP_STIFFNESS * delta);
-    candleFlameMaterial.emissive.lerp(targetColor, colorK);
+    heroFlameMaterial.color.lerp(WEAPON_COLOR_FLAME_HDR[hero.weaponMode], colorK);
     aimDotMaterial.color.lerp(targetColor, colorK);
     heroSilhouetteMaterial.color.lerp(targetColor, colorK);
 
@@ -644,6 +673,13 @@ export function HeroView({ session }: { session: GameSession }) {
             WAX_TRAIL_COLOR.r,
             WAX_TRAIL_COLOR.g,
             WAX_TRAIL_COLOR.b,
+            // Tipo de rastro según el arma activa (VFX_PLAN, Problema 2:
+            // "cada arma deja su propio rastro") — mismo mapeo que
+            // WEAPON_COLOR/targetColor de arriba, solo que aquí decide la
+            // FORMA del depósito, no su color (el color del rastro del
+            // propio héroe se queda fijo en WAX_TRAIL_COLOR a propósito, ver
+            // su comentario).
+            hero.weaponMode === 'arrow' ? WAX_TYPE_FROST : hero.weaponMode === 'spell' ? WAX_TYPE_ARCANE : WAX_TYPE_WAX,
           );
         }
       }
@@ -762,14 +798,57 @@ export function HeroView({ session }: { session: GameSession }) {
     const flame = flameRef.current;
     if (flame) {
       // Pulso de tamaño (punto 3 de playtest ronda 4): SIN oscilación de
-      // posición/rotación (eliminadas, ya no "balancea"), solo escala
-      // UNIFORME, con la misma suma de senos barata de siempre
-      // (frecuencias inconmensuradas, sin asignaciones, sin estroboscopia).
+      // posición local (eliminada, ya no "balancea"), solo escala UNIFORME,
+      // con la misma suma de senos barata de siempre (frecuencias
+      // inconmensuradas, sin asignaciones, sin estroboscopia).
       const pulseA = Math.sin(world.time * FLAME_PULSE_FREQ_A);
       const pulseB = Math.sin(world.time * FLAME_PULSE_FREQ_B);
       const pulse = 1 + (pulseA * 0.6 + pulseB * 0.4) * FLAME_PULSE_AMPLITUDE;
       flame.position.set(0, visualRadius * FLAME_HEIGHT_FACTOR, 0);
-      flame.rotation.z = 0;
+
+      // Billboard CILÍNDRICO (feedback de David 2026-08-12: la llama pasa de
+      // `unitCone` a un quad `unitPlane` con `heroFlameMaterial`, textura
+      // `flame.png`). "Cilíndrico" y no ESFÉRICO a propósito: copiar
+      // `camera.quaternion` entero (como hace el billboard esférico de
+      // ParticleView.tsx, pensado para chispas sin "arriba" propio)
+      // inclinaría la llama con el PITCH de la cámara — CameraRig.tsx mira
+      // siempre desde `CAMERA_OFFSET=(0,9.5,6.2)`, ~56° sobre la horizontal —
+      // y una llama tumbada hacia la cámara no se lee como fuego ardiendo
+      // hacia arriba. Un billboard cilíndrico solo gira en YAW (eje Y),
+      // manteniendo su eje vertical fijo al de mundo.
+      //
+      // Yaw calculado con posiciones REALES (cámara vs. hero en XZ), no con
+      // una constante — sigue siendo correcto si el encuadre de CameraRig
+      // cambia algún día. Se usa (x,z) del héroe como proxy de la posición
+      // real de la llama (que puede desplazarse hasta ~0.4u de ahí por el
+      // lean, ver más abajo): a la distancia real de la cámara (11-24u según
+      // zoom) el error angular es ≤2°, imperceptible, y no compensa cargar
+      // aquí con la posición de mundo exacta de la llama.
+      //
+      // `flame` cuelga de `candleGroupRef` (nunca rota) que a su vez cuelga
+      // de `tiltGroup` (SÍ rota con el lean de la vela, ver más arriba) — fijar
+      // aquí solo `flame.quaternion = billboard` NO bastaría: heredaría
+      // también la rotación de `tiltGroup` y la llama quedaría inclinada con
+      // la vela, exactamente lo que se quiere evitar. Se cancela esa herencia
+      // multiplicando por su inversa antes del yaw objetivo (worldQuat =
+      // tiltGroup.quaternion ⊗ localQuat ⇒ localQuat = tiltGroup.quaternion⁻¹
+      // ⊗ billboard), así el resultado en pantalla es SIEMPRE vertical, se
+      // incline o no la vela — a diferencia de los ojos (que si acompañan el
+      // lean en rotación, ver comentario junto a `candleGroupRef` arriba), la
+      // llama solo hereda el lean en POSICIÓN (su pivote sigue desplazándose
+      // con la inclinación vía la jerarquía, sin tocar nada de eso), como una
+      // llama real que por flotabilidad se queda derecha aunque la cera se
+      // ladee.
+      const camera = state.camera;
+      const yaw = Math.atan2(camera.position.x - x, camera.position.z - z);
+      flameBillboardQuat.current.setFromAxisAngle(Y_AXIS, yaw);
+      if (tiltGroup) {
+        flameTiltInverseQuat.current.copy(tiltGroup.quaternion).invert();
+        flame.quaternion.copy(flameTiltInverseQuat.current).multiply(flameBillboardQuat.current);
+      } else {
+        flame.quaternion.copy(flameBillboardQuat.current);
+      }
+
       const flameScale = visualRadius * FLAME_BASE_SCALE * pulse;
       flame.scale.set(flameScale, flameScale * 1.8, flameScale);
     }
@@ -824,8 +903,9 @@ export function HeroView({ session }: { session: GameSession }) {
           <mesh ref={shieldRef} geometry={unitSphere} material={heroShieldMaterial} scale={SHIELD_BUBBLE_SCALE} visible={false} />
         </mesh>
         <group ref={candleGroupRef}>
-          {/* Llama (MUTABLE, ver useFrame): cono estrecho, autoiluminado. */}
-          <mesh ref={flameRef} geometry={unitCone} material={candleFlameMaterial} />
+          {/* Llama (MUTABLE, ver useFrame): billboard cilíndrico con textura
+              de fuego (heroFlameMaterial/flame.png), ya no un cono liso. */}
+          <mesh ref={flameRef} geometry={unitPlane} material={heroFlameMaterial} />
           {/* Carita de vela: dos ojos negros ovalados simples (concept art),
               juntos y a ~60% de la altura del cilindro (CANDLE_EYE_Y), justo
               fuera de la superficie (CANDLE_EYE_Z, ver BUG en su comentario).

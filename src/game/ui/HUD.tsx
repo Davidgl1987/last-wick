@@ -20,7 +20,7 @@ import { WeaponBar } from './WeaponBar';
 
 const NOTICE_DURATION_MS = 1200;
 
-export function HUD({ session }: { session: GameSession }) {
+export function HUD({ session, showMicroTutorial }: { session: GameSession; showMicroTutorial: boolean }) {
   const hp = useUiStore((s) => s.hp);
   const maxHp = useUiStore((s) => s.maxHp);
   const coins = useUiStore((s) => s.coins);
@@ -114,6 +114,24 @@ export function HUD({ session }: { session: GameSession }) {
         </div>
       )}
       {notice !== null && <div className="hud-notice">{notice}</div>}
+      {showMicroTutorial && phase === 'playing' && (
+        <div className="hud-microtutorial" role="status">
+          <div className="hud-microtutorial-gesture" aria-hidden="true">
+            <span className="hud-microtutorial-pull" />
+            <svg className="hud-microtutorial-finger" viewBox="0 0 40 52" fill="none">
+              <path
+                d="M15.5 25V8.5a4 4 0 0 1 8 0V21m0-5.5a4 4 0 0 1 8 0V27m0-6a4 4 0 0 1 7.5 2v12.5C39 44 33 50 24.5 50h-4.8c-5.2 0-8.1-2.7-10.8-7L2.5 33.2a4.2 4.2 0 0 1 6.7-5l6.3 6.1V25Z"
+                fill="rgba(18, 21, 34, 0.9)"
+                stroke="currentColor"
+                strokeWidth="2.2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </div>
+          <span className="hud-microtutorial-text">Arrastra y suelta para lanzarte</span>
+        </div>
+      )}
       <BossHealthBar session={session} />
       <WeaponBar session={session} />
     </div>

@@ -18,7 +18,7 @@ import { launchHero } from './launch';
 import { useUiStore } from '@/game/session/store';
 import { playSfx } from '@/game/audio/sfxEngine';
 
-export function AimInput({ session }: { session: GameSession }) {
+export function AimInput({ session, onLaunch }: { session: GameSession; onLaunch: () => void }) {
   const camera = useThree((state) => state.camera);
   const gl = useThree((state) => state.gl);
 
@@ -108,11 +108,13 @@ export function AimInput({ session }: { session: GameSession }) {
       }
       if (session.world.phase !== 'playing') return; // la fase pudo cambiar durante el drag
       const mode = session.world.hero.weaponMode;
-      if (mode === 'body') {
-        launchHero(session.world, aim.dirX, aim.dirY, aim.force, session.events);
-      } else {
-        resolveWeaponRelease(session.world, aim.dirX, aim.dirY, aim.force, session.events);
-      }
+      const launched =
+        mode === 'body'
+          ? launchHero(session.world, aim.dirX, aim.dirY, aim.force, session.events)
+          : resolveWeaponRelease(session.world, aim.dirX, aim.dirY, aim.force, session.events);
+      // Solo cuenta un lanzamiento que la sim haya aceptado: una cancelación,
+      // un tiro flojo o soltar durante el cooldown no ocultan el tutorial.
+      if (launched) onLaunch();
     };
 
     /** Cancelación (gesto interrumpido, pérdida de captura): anula sin coste. */
@@ -131,7 +133,7 @@ export function AimInput({ session }: { session: GameSession }) {
       el.removeEventListener('pointerup', onPointerUp);
       el.removeEventListener('pointercancel', onPointerCancel);
     };
-  }, [camera, gl, session]);
+  }, [camera, gl, onLaunch, session]);
 
   return null;
 }

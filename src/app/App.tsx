@@ -10,9 +10,9 @@
  *
  * Pantalla de título (feature de presentación): la ruta 'game' muestra
  * `TitleScreen` hasta que el jugador pulsa "Jugar" (estado `started`), que
- * monta `GameRoot` (crea la sesión). `?boss=<id>` (debug de playtest de
- * jefes) y `#/playtest` son herramientas de desarrollo: saltan DIRECTO al
- * juego, sin pasar por el título.
+ * monta `GameRoot` (crea la sesión). `?boss=<id>` (playtest de jefes),
+ * `?room=test` (Sala de Pruebas) y `#/playtest` son herramientas de
+ * desarrollo: saltan DIRECTO al juego, sin pasar por el título.
  */
 
 import { useCallback, useEffect, useState } from 'react';
@@ -33,15 +33,22 @@ function currentRoute(): Route {
   return 'game';
 }
 
-/** `?boss=` (herramienta de playtest de jefes, ver debug-params.ts): salta directo al juego, sin título. */
-function hasForcedBossParam(): boolean {
-  return new URLSearchParams(window.location.search).has('boss');
+/**
+ * Herramientas de playtest que saltan DIRECTAS al juego, sin pasar por el
+ * título (ver debug-params.ts): `?boss=` (arena de jefe suelta) y `?room=`
+ * (Sala de Pruebas). Con el título 3D de por medio, obligar a pulsar "Jugar"
+ * y esperar la transición del portón en cada recarga hace inservible un banco
+ * de pruebas que se recarga sin parar.
+ */
+function hasDirectPlaytestParam(): boolean {
+  const params = new URLSearchParams(window.location.search);
+  return params.has('boss') || params.has('room');
 }
 
 /**
  * Estado de carga mínimo mientras `preloadKit()` termina (docs/plans/
  * ART_KIT_PLAN.md, F1). Solo hace falta en las vías que saltan DIRECTAS al
- * juego sin pasar por el título (`#/playtest`, `?boss=`): la pantalla de
+ * juego sin pasar por el título (`#/playtest`, `?boss=`, `?room=`): la pantalla de
  * título absorbe la carga gratis mientras el jugador la mira, pero esas dos
  * herramientas de dev no le dan tiempo. Deliberadamente austero — no es un
  * sistema de loading nuevo, solo evita montar `GameRoot` (y con él, vistas
@@ -70,9 +77,9 @@ function KitLoadingScreen() {
 
 export function App() {
   const [route, setRoute] = useState<Route>(currentRoute);
-  // Pantalla de título: arranca ya "jugando" si `?boss=` fuerza una arena de
-  // jefe (herramienta de dev, no debe interponerse el título).
-  const [started, setStarted] = useState(hasForcedBossParam);
+  // Pantalla de título: arranca ya "jugando" si `?boss=`/`?room=` fuerzan una
+  // sala concreta (herramientas de dev, no debe interponerse el título).
+  const [started, setStarted] = useState(hasDirectPlaytestParam);
   // Solo el flujo normal del título usa esta cortina: conserva el negro que
   // llena el plano de la puerta sobre el primer frame ya montado del juego y
   // lo retira con el fade-in pedido. Las rutas dev siguen entrando directas.
@@ -105,7 +112,7 @@ export function App() {
   // disparar la carga). `preloadKit()` es idempotente, así que da igual
   // repetir el efecto en cada cambio de ruta: la carga real solo ocurre una
   // vez. Si el jugador pasa por el título, sale gratis mientras lo mira;
-  // `#/playtest` y `?boss=` la disparan igual aunque salten el título.
+  // `#/playtest`, `?boss=` y `?room=` la disparan igual aunque salten el título.
   useEffect(() => {
     if (route !== 'editor') void preloadKit();
   }, [route]);

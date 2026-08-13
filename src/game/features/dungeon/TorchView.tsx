@@ -101,8 +101,8 @@ const FLICKER_PHASE_STEP = 2.3;
  * tuning.
  */
 const TORCH_GLOW_PUDDLE_RADIUS = 1.4;
-/** Opacidad del charco: mismo valor que el resto de halos aditivos del juego (proyectiles/enemigos, ver `assets.ts`/`EnemyLights.tsx`). */
-const TORCH_GLOW_PUDDLE_OPACITY = 0.16;
+/** Opacidad del charco: mismo valor que el resto de halos aditivos del juego (proyectiles/enemigos, ver `assets.ts`/`EnemyLights.tsx`) — bajada de 0.16 a 0.13 junto con el resto (VFX_PLAN T0, ver el comentario largo sobre `enemyProjectileGlowHaloMaterials` en `assets.ts`). */
+const TORCH_GLOW_PUDDLE_OPACITY = 0.13;
 
 export function WallTorch({ x, z, dirX, dirZ, index }: { x: number; z: number; dirX: number; dirZ: number; index: number }) {
   const flameRef = useRef<Mesh>(null);

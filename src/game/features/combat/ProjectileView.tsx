@@ -8,13 +8,21 @@
  * mejora "Hechizo Arcano").
  *
  * Formas (feedback de playtest):
- * - Flecha (ronda 3, punto 3: "las flechas apenas se ven, puedes usar un
- *   cono"): CONO amarillo grande como cuerpo dominante (mucho más ancho que
- *   el fino asta+punta de la ronda anterior, que seguía sin leerse bien en
- *   móvil) + un asta corta detrás para dar sensación de proyectil alargado,
- *   orientado según su velocidad (rotación en el plano XZ). Proporciones a
- *   radio unitario; el GRUPO se escala por `p.radius` cada frame (nunca se
- *   recrea geometría).
+ * - Flecha/Hielo (arma `arrow`, "Hielo" en la UI desde 2026-08-11 — antes
+ *   "Fuego", ver WeaponBar.tsx): CONO grande como cuerpo dominante (ronda 3,
+ *   punto 3: "las flechas apenas se ven, puedes usar un cono" — mucho más
+ *   ancho que el fino asta+punta de la ronda anterior, que seguía sin leerse
+ *   bien en móvil) + un asta corta detrás para dar sensación de proyectil
+ *   alargado, orientado según su velocidad (rotación en el plano XZ). Desde
+ *   2026-08-11 (David: el proyectil siempre fue azul hielo, incoherente con
+ *   "Fuego" — el concepto pasa a ser hielo) el cono usa `arrowCrystalGeometry`
+ *   (5 segmentos radiales, MUY pocos) en vez del `unitCone` liso de 12, con
+ *   `arrowMaterial` en `flatShading` para que se note el tallado, más 2
+ *   esquirlas estáticas (`spellSparkGeometry`) incrustadas en su superficie
+ *   para romper la simetría de revolución — MISMO volumen aparente que
+ *   antes (sin adelgazar: la legibilidad en móvil de la ronda 3 sigue
+ *   aplicando). Proporciones a radio unitario; el GRUPO se escala por
+ *   `p.radius` cada frame (nunca se recrea geometría).
  * - Hechizo (ronda 3, punto 11: "quita la bola, haz el rayo más grande"): SIN
  *   núcleo esférico — solo el zigzag eléctrico (más ancho/largo que antes) +
  *   chispas violeta en la estela, jitter determinista por frame a partir de
@@ -39,9 +47,9 @@ import type { Group, Mesh } from 'three';
 import type { GameSession } from '@/game/session/session';
 import type { Projectile } from '@/game/world/types';
 import { getUpgradeLevel } from '@/game/session/upgrades';
-import { arrowMaterial, arrowShaftGeometry, arrowTipMaterial, enemyProjectileGlowHaloMaterialForTag, enemyProjectileMaterial, enemyProjectileMaterialForTag, glowPuddleMaterial, spellBoltMaterial, spellBoltSegmentGeometry, spellSparkGeometry, spellSparkMaterial, unitCone, unitSphere, WEAPON_COLOR } from '@/game/render/assets';
+import { arrowCrystalGeometry, arrowMaterial, arrowShaftGeometry, arrowTipMaterial, enemyProjectileGlowHaloMaterialForTag, enemyProjectileMaterial, enemyProjectileMaterialForTag, glowPuddleMaterial, spellBoltMaterial, spellBoltSegmentGeometry, spellSparkGeometry, spellSparkMaterial, unitSphere, WEAPON_COLOR } from '@/game/render/assets';
 import { GLOW_PUDDLE_GROUND_Y, GlowPuddle } from '@/game/render/GlowPuddle';
-import { PROJECTILE_WAX_EMIT_DISTANCE } from '@/game/features/effects/wax';
+import { PROJECTILE_WAX_EMIT_DISTANCE, WAX_TYPE_ARCANE, WAX_TYPE_FROST } from '@/game/features/effects/wax';
 import { arrowWidthScaleForLevel } from './upgrade-visuals';
 
 /**
@@ -63,8 +71,8 @@ import { arrowWidthScaleForLevel } from './upgrade-visuals';
  * necesita el mismo tratamiento).
  */
 const PROJECTILE_HALO_RADIUS = 0.6;
-/** Opacidad del halo del proyectil del HÉROE (arrow/spell): mismo valor que ya usaban ram/arrow/spell-tag en el halo de proyectil enemigo (`assets.ts`). */
-const PROJECTILE_HERO_HALO_OPACITY = 0.16;
+/** Opacidad del halo del proyectil del HÉROE (arrow/spell): mismo valor que ram/arrow/spell-tag en el halo de proyectil enemigo (`assets.ts`) — bajada de 0.16 a 0.13 junto con el resto de halos aditivos (VFX_PLAN T0, ver el comentario largo sobre `enemyProjectileGlowHaloMaterials` en `assets.ts`: el nuevo mapa `circle_c.png` tiene el núcleo más concentrado que el degradado de canvas anterior). */
+const PROJECTILE_HERO_HALO_OPACITY = 0.13;
 /**
  * Altura Y del centro del proyectil (mismo valor que `group.position.set` en
  * `ProjectileSlot`): ya no es "altura de luz" (no queda ninguna), pero el
@@ -108,11 +116,33 @@ type ProjectileKind = Projectile['kind'];
 // Proporciones de la flecha a radio unitario (el grupo se escala por
 // p.radius): CONO grande como cuerpo dominante (mucho más ancho que el fino
 // asta+punta anterior), con un asta corta detrás para dar sentido de
-// proyectil alargado en vuelo.
+// proyectil alargado en vuelo. SIN CAMBIOS al pasar a cristal de hielo
+// (2026-08-11): son las medidas que ya garantizaban legibilidad en móvil
+// (ronda 3 de playtest) y las esquirlas nuevas se AÑADEN sobre este volumen,
+// nunca lo sustituyen — ver ARROW_SHARDS más abajo.
 const ARROW_CONE_LENGTH = 2.2;
 const ARROW_CONE_THICKNESS = 2.6;
 const ARROW_SHAFT_LENGTH = 1.6;
 const ARROW_SHAFT_THICKNESS = 0.9;
+
+/**
+ * Esquirlas del cristal de hielo: tetraedros pequeños y ESTÁTICOS (mismo
+ * `spellSparkGeometry` unitario que ya usa el hechizo para sus chispas de
+ * estela, ver assets.ts — aquí sin animación) incrustados en la superficie
+ * del cono central, mitad dentro/mitad asomando (mismo criterio que
+ * `heroSpikeGeometry`, ver su comentario en assets.ts). Su única función es
+ * romper la simetría de revolución del cono con astillas irregulares —
+ * "cristal tallado a mano", no un cono limpio. Coordenadas calculadas a
+ * mano: el radio del cono decrece linealmente desde ARROW_CONE_THICKNESS/2
+ * en la base (z=0) hasta 0 en la punta (z=ARROW_CONE_LENGTH), así que cada
+ * entrada usa un (x,y) cuyo módulo ronda el radio del cono en su propia z.
+ * Sin useFrame propio: giran/escalan como bloque rígido junto con el resto
+ * de `arrowGroup` (orientación de vuelo + escala por nivel de mejora).
+ */
+const ARROW_SHARDS: { position: [number, number, number]; rotation: [number, number, number]; scale: number }[] = [
+  { position: [0.85, 0.42, 0.5], rotation: [0.5, 1.1, 0.3], scale: 0.65 },
+  { position: [-0.55, -0.4, 1.05], rotation: [1.3, -0.4, 0.9], scale: 0.5 },
+];
 
 /** Nº de segmentos del zigzag eléctrico por proyectil de hechizo. */
 const SPELL_BOLT_SEGMENTS = 5;
@@ -134,17 +164,19 @@ function jitter11(a: number, b: number): number {
 }
 
 /**
- * Flecha: CONO amarillo grande (cuerpo dominante, claramente visible) +
- * asta corta detrás, proporciones a radio unitario (el grupo padre se
- * escala por p.radius). El cono apunta en +Z local (la punta hacia delante,
- * en la dirección de movimiento — ProjectileSlot alinea +Z con la
- * velocidad).
+ * Cristal de hielo del arma `arrow` ("Hielo" en la UI, antes "Fuego" — ver
+ * WeaponBar.tsx): cono facetado (`arrowCrystalGeometry`, 5 caras, cuerpo
+ * dominante claramente visible) + asta corta detrás + esquirlas estáticas
+ * incrustadas en la superficie (ARROW_SHARDS), proporciones a radio unitario
+ * (el grupo padre se escala por p.radius). El cono apunta en +Z local (la
+ * punta hacia delante, en la dirección de movimiento — ProjectileSlot alinea
+ * +Z con la velocidad).
  */
 function ArrowShape() {
   return (
     <>
       <mesh
-        geometry={unitCone}
+        geometry={arrowCrystalGeometry}
         material={arrowMaterial}
         position={[0, 0, ARROW_CONE_LENGTH / 2]}
         rotation-x={Math.PI / 2}
@@ -157,6 +189,16 @@ function ArrowShape() {
         rotation-x={Math.PI / 2}
         scale={[ARROW_SHAFT_THICKNESS, ARROW_SHAFT_LENGTH, ARROW_SHAFT_THICKNESS]}
       />
+      {ARROW_SHARDS.map((shard, i) => (
+        <mesh
+          key={i}
+          geometry={spellSparkGeometry}
+          material={arrowTipMaterial}
+          position={shard.position}
+          rotation={shard.rotation}
+          scale={shard.scale}
+        />
+      ))}
     </>
   );
 }
@@ -288,6 +330,9 @@ function ProjectileSlot({ session, index }: { session: GameSession; index: numbe
           color.r,
           color.g,
           color.b,
+          // Tipo de rastro según el proyectil (VFX_PLAN, Problema 2): el `if`
+          // que envuelve esta llamada ya garantiza p.kind === 'arrow'|'spell'.
+          p.kind === 'arrow' ? WAX_TYPE_FROST : WAX_TYPE_ARCANE,
         );
       }
     } else {

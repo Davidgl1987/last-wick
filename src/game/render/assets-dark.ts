@@ -35,6 +35,7 @@ import {
   trailMaterial,
   WEAPON_COLOR,
 } from './assets';
+import { vfxTexture } from './vfx-textures';
 
 // ── Bloom HDR: emissive de los emisores reales (rama post-procesado, fase 4) ──
 //
@@ -244,6 +245,67 @@ export const candleFlameMaterial = new THREE.MeshLambertMaterial({
 });
 /** Ojos de la vela (carita simple del concept): óvalos negros, reutiliza smallDotGeometry escalada. */
 export const candleEyeMaterial = new THREE.MeshBasicMaterial({ color: '#14121a' });
+
+/**
+ * Versión HDR de `WEAPON_COLOR` para el TINTE de `heroFlameMaterial` (más
+ * abajo): `MeshBasicMaterial` no tiene canal `emissive`/`emissiveIntensity`
+ * (a diferencia de `candleFlameMaterial`, Lambert), así que el escalado que
+ * antes aplicaba `BLOOM_EMISSIVE_INTENSITY` al emissive ahora hay que
+ * aplicarlo directamente al `.color` que `HeroView.tsx` lerpea cada frame —
+ * si no, la llama nunca cruzaría `BLOOM_LUMINANCE_THRESHOLD`
+ * (`PostEffects.tsx`) y perdería su Bloom. Tabla precalculada UNA vez (nunca
+ * `.clone().multiplyScalar()` dentro de un `useFrame` — regla de cero
+ * asignaciones por frame): el lerp de HeroView solo indexa y muta in-place,
+ * igual que ya hace con `WEAPON_COLOR` para `aimDotMaterial`/
+ * `heroSilhouetteMaterial` (esos SÍ deben quedarse en rango LDR [0,1]: no son
+ * emisores de bloom, así que NO usan esta tabla).
+ */
+export const WEAPON_COLOR_FLAME_HDR: Record<'body' | 'arrow' | 'spell', THREE.Color> = {
+  body: WEAPON_COLOR.body.clone().multiplyScalar(BLOOM_EMISSIVE_INTENSITY),
+  arrow: WEAPON_COLOR.arrow.clone().multiplyScalar(BLOOM_EMISSIVE_INTENSITY),
+  spell: WEAPON_COLOR.spell.clone().multiplyScalar(BLOOM_EMISSIVE_INTENSITY),
+};
+
+/**
+ * Llama del héroe como BILLBOARD (feedback de David 2026-08-12: "¿hay alguna
+ * textura que parezca fuego? ... para que no se vea un cono tal cual" — desde
+ * la cámara del juego `candleFlameMaterial` sobre `unitCone` se leía como
+ * geometría, no como fuego). Sustituye a `candleFlameMaterial` SOLO en
+ * `HeroView.tsx`: `candleFlameMaterial` sigue existiendo tal cual (Lambert +
+ * emissive, sobre `unitCone`) para el cirio estático del vestíbulo del título
+ * (`TitleScreenScene.tsx::Lumora`), que no es billboard y compartir este
+ * material texturizado ahí pintaría el mapa de llama envuelto sobre la
+ * curvatura de un cono en vez de sobre un quad plano — deliberadamente FUERA
+ * de alcance de este cambio.
+ *
+ * Material DEDICADO, no `additiveVfxMaterial('flame', color, opacity)` del
+ * catálogo genérico (`vfx-textures.ts`, cacheado por la clave exacta
+ * `nombre|color|opacidad`): la llama LERPEA su color cada frame (HeroView,
+ * siguiendo el arma activa) y ese cacheo por clave exacta generaría una
+ * entrada nueva del `Map` en cada paso del lerp — necesita el mismo patrón de
+ * "objeto mutable único" que `candleFlameMaterial`/`heroMaterial`.
+ *
+ * `MeshBasicMaterial` (no Lambert): un quad aditivo no necesita sombreado
+ * difuso y, sobre todo, no tiene canal `emissive` — el brillo HDR que antes
+ * daba `emissiveIntensity` ahora vive directamente en `.color` (ver
+ * `WEAPON_COLOR_FLAME_HDR` arriba: mismo factor ×6, así cruza el mismo
+ * `BLOOM_LUMINANCE_THRESHOLD` de `PostEffects.tsx` con el mismo margen que
+ * antes). `map` = `flame.png` (Light Mask propia, `LIGHT_MASK_NAMES` en
+ * `vfx-textures.ts`, generada por `scripts/gen-vfx-textures.mjs`): luminancia
+ * sobre negro, así que SIEMPRE con `AdditiveBlending` (regla del §2 de
+ * `docs/plans/VFX_PLAN.md` — con blending normal el negro de fondo de la
+ * textura pintaría un cuadrado). `depthWrite:false`: mismo criterio que
+ * cualquier material aditivo/transparente del juego (ver `glowPuddleMaterial`
+ * en `assets.ts`), para que el quad no bloquee en el buffer de profundidad lo
+ * que se dibuje detrás suyo.
+ */
+export const heroFlameMaterial = new THREE.MeshBasicMaterial({
+  map: vfxTexture('flame'),
+  color: WEAPON_COLOR_FLAME_HDR.body.clone(),
+  transparent: true,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+});
 
 // ── Pantalla de título 3D ──────────────────────────────────────
 

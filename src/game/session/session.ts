@@ -6,6 +6,7 @@
 
 import { ROOMS_PER_RUN } from '@/game/world/constants';
 import { createEffectsState, type EffectsState } from '@/game/features/effects/effectsState';
+import { FlashPool } from '@/game/features/effects/flash';
 import { ParticlePool } from '@/game/features/effects/particles';
 import { ShockwavePool } from '@/game/features/effects/shockwave';
 import { TrailPool } from '@/game/features/effects/trail';
@@ -36,6 +37,14 @@ export interface EffectsSession {
    */
   wax: WaxPool;
   shockwaves: ShockwavePool;
+  /**
+   * Fogonazos de impacto (VFX_PLAN T3): igual que `shockwaves`, geometría
+   * pura sin estado de sala — no se limpia explícitamente en
+   * `restartSession`/`advanceToNextDungeon` (más abajo). Su vida (~0.1 s) es
+   * tan corta que cualquier fogonazo activo ya se habrá extinguido mucho
+   * antes de que un reinicio pueda ocurrir; efímero, no persistente como `wax`.
+   */
+  flashes: FlashPool;
   state: EffectsState;
 }
 
@@ -45,6 +54,7 @@ function createEffectsSession(): EffectsSession {
     trail: new TrailPool(),
     wax: new WaxPool(),
     shockwaves: new ShockwavePool(),
+    flashes: new FlashPool(),
     state: createEffectsState(),
   };
 }

@@ -43,9 +43,9 @@
 /* Color por arma (feedback de playtest): cada botón usa el color de su
    ataque — mismo color que el proyectil/estela para mapeo instantáneo.
    Mismos hex que `WEAPON_COLOR` en render/assets.ts.
-   NOTA: el azul de "Fuego" (weapon-btn-arrow) es el color heredado del
-   proyectil `arrow` — coincidencia con el nombre del elemento (agua/hielo,
-   no fuego), pendiente de decidir un color propio para el arma renombrada. */
+   NOTA: `weapon-btn-arrow` se llamaba "Fuego" hasta 2026-08-11; el azul ya
+   era el color real del proyectil `arrow` (WEAPON_COLOR.arrow), así que el
+   arma pasó a llamarse "Hielo" en vez de recolorearla — este hex no cambia. */
 .weapon-btn-body {
   --weapon-color: #fef08a;
   --weapon-glow: rgba(254, 240, 138, 0.4);

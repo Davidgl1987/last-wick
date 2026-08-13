@@ -18,6 +18,9 @@ const CREDIT_SECTIONS: { label: string; value: string }[] = [
   // CC0: la atribución no es obligatoria, se pone igual (mismo criterio que
   // con Kenney). Licencia completa en public/models/kaykit/LICENSE-kaykit.txt.
   { label: 'Escenario y objetos', value: 'KayKit · Dungeon Pack, de Kay Lousberg (CC0)' },
+  // CC0, misma nota que arriba. Licencia completa en
+  // public/textures/vfx/LICENSE-kenney.txt (docs/plans/VFX_PLAN.md).
+  { label: 'Efectos visuales', value: 'Kenney · Light Masks + Splat Pack (CC0)' },
   { label: 'Tipografías', value: 'Cinzel Decorative · Cormorant Garamond' },
   { label: 'Sonido', value: '400 Sounds Pack' },
   { label: 'Motor', value: 'three.js · React Three Fiber' },
