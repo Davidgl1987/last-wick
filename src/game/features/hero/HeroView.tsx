@@ -280,6 +280,28 @@ const CANDLE_EYE_Z = HERO_RADIUS * 0.96;
 const CANDLE_EYE_SCALE: [number, number, number] = [HERO_RADIUS * 0.21, HERO_RADIUS * 0.32, HERO_RADIUS * 0.12];
 
 /**
+ * `renderOrder` de los ojos: por encima de `SILHOUETTE_RENDER_ORDER` (David
+ * 2026-08-13: "los ojos parece que tienen también la máscara de cuando estás
+ * tapado por la pared, y deberían ser negros siempre"). Causa raíz: los ojos
+ * son opacos y se asientan casi en la superficie del cuerpo, así que el
+ * depth buffer los ve como "algo delante del cuerpo" — justo lo que
+ * `heroSilhouetteMaterial` (`depthFunc: GreaterDepth`, ver
+ * `occlusion-silhouette.ts`) interpreta como oclusión externa, así que se
+ * pintaba encima suyo (color de arma a través de ellos) incluso sin ningún
+ * muro de por medio. `candleEyeMaterial` pasa a `transparent: true`
+ * (`assets-dark.ts`) para que los ojos entren en la cola TRANSPARENTE de
+ * three.js — la única forma de que un `renderOrder` los sitúe después de la
+ * silueta, que también es transparente: three.js dibuja siempre toda la cola
+ * opaca antes que la transparente, así que un renderOrder alto en un
+ * material opaco nunca los habría colado después de la silueta. Con esto
+ * detrás de la silueta en orden de dibujo (y el depthTest normal, sin tocar,
+ * que los sigue ocultando correctamente contra un muro real más cercano en
+ * el buffer), los ojos quedan siempre negros salvo cuando de verdad les tapa
+ * algo.
+ */
+const CANDLE_EYE_RENDER_ORDER = SILHOUETTE_RENDER_ORDER + 1;
+
+/**
  * Orientación de la mirada (playtest ronda 8, punto 3b: "deben mirar hacia
  * donde se está apuntando, o hacia donde se está moviendo"): los ojos viven
  * en un `<group>` propio (`eyeGroupRef`, hijo de `candleGroup`) que rota
@@ -290,7 +312,8 @@ const CANDLE_EYE_SCALE: [number, number, number] = [HERO_RADIUS * 0.21, HERO_RAD
  * pivote a radio fijo `CANDLE_EYE_Z`, así que rotarlo los pasea alrededor del
  * cilindro sin recalcular su posición cada frame (mismo resultado que la
  * proyección seno/coseno del Chaser, más simple porque aquí basta un solo
- * eje). Prioridad de objetivo: apuntando > moviéndose > último ángulo válido
+ * eje). Prioridad de objetivo: apuntando > bloqueo de disparo de proyectil
+ * (ver `PROJECTILE_FACE_LOCK_DURATION`) > moviéndose > último ángulo válido
  * (parado, se conserva sin más). Suavizado con `dampAngleTowards`
  * (`src/engine/geometry.ts`) por el arco más corto, mismo criterio que ya usa
  * `chaserFaceAngle` en `chaser/Mesh.tsx`.
@@ -298,6 +321,31 @@ const CANDLE_EYE_SCALE: [number, number, number] = [HERO_RADIUS * 0.21, HERO_RAD
 const EYE_FACE_LERP_STIFFNESS = 10;
 /** Por debajo de esta velocidad (u/s) no se considera "moviéndose" a efectos de la mirada (evita que un jitter mínimo reoriente la cara). */
 const EYE_FACE_SPEED_THRESHOLD = 0.5;
+/**
+ * Duración del bloqueo de mirada tras disparar un proyectil (arrow/spell),
+ * en segundos (playtest 2026-08-13, David: "cuando lanzas cera, el
+ * personaje se queda mirando hacia donde te lanzas, pero cuando lanzas
+ * proyectiles, como tiene retroceso, se queda mirando hacia atrás, y
+ * debería quedarse mirando hacia donde ha lanzado el proyectil"). Causa
+ * raíz: `fireProjectile` (combat.ts) aplica el retroceso RESTANDO la
+ * dirección de disparo a `hero.velocity` — justo tras soltar, la velocidad
+ * apunta al REVÉS del disparo, y la rama "en movimiento" de más abajo (que
+ * sigue a `hero.velocity`) orientaba la cara hacia atrás. Con el cuerpo
+ * (`launchHero`) no pasa: ahí la velocidad SÍ queda en la dirección de
+ * puntería, así que seguir a la velocidad ya es correcto — este bloqueo
+ * solo se activa al detectar un disparo de arrow/spell (nunca body, ver
+ * `prevLastArrowTime`/`prevLastSpellTime` más abajo), y punto 4 GDD
+ * conservado: la mirada normal (moviéndose/apuntando) no cambia en nada.
+ *
+ * Duración calculada, no a ojo: fricción exponencial de `physics.ts`
+ * (`FRICTION_FACTOR=1.42`, `v(t)=v0·e^(-1.42t)`) — de la velocidad de
+ * retroceso típica (`PROJECTILE_RECOIL≈1.15` × 0.75-1.1, combat.ts) hasta
+ * `EYE_FACE_SPEED_THRESHOLD` (0.5) hay ln(2)/1.42≈0.49s por fricción base
+ * (la fricción extra a baja velocidad de physics.ts solo acorta ese
+ * margen). 0.5s cubre ese decaimiento con margen sin dejar la mirada
+ * bloqueada más de lo necesario una vez el retroceso ya se disipó.
+ */
+const PROJECTILE_FACE_LOCK_DURATION = 0.5;
 
 /**
  * Rastro de CERA (playtest ronda 5, punto 4: "haz que la vela deje un
@@ -377,15 +425,32 @@ const FLAME_PULSE_FREQ_B = 5.7;
  */
 const FLAME_BASE_SCALE = 0.7;
 /**
+ * Hueco entre la boca de la vela y la base visible de la llama, en ×
+ * visualRadius (playtest 2026-08-13, David: "parece que tiene reflejo" —
+ * veía un brillo lechoso sobre el cuerpo en vez de una llama). Diagnosticado
+ * con la escena real (posición de mundo del billboard vía consola): sin este
+ * término la base de la llama caía EXACTAMENTE en la boca del cilindro, hueco
+ * cero, y desde la cámara elevada de CameraRig (~56° sobre la horizontal) las
+ * dos siluetas se funden en pantalla en una sola mancha — más aún con el tono
+ * casi blanco que deja el tonemap ACES sobre el amarillo pálido en HDR
+ * (`WEAPON_COLOR_FLAME_HDR`), que no contrasta con la cera clara
+ * (`HERO_WAX_COLOR`). Empujar la llama este margen hacia arriba basta para
+ * que quede una franja oscura visible entre cera y fuego y la llama vuelva a
+ * leerse como llama, sin tocar el tinte ni separarla tanto que parezca un
+ * elemento aparte flotando sobre la vela.
+ */
+const FLAME_GAP = 0.6;
+/**
  * Centro de la llama, en × visualRadius y LOCAL a `candleGroup` (que vive en
  * 1.00·visualRadius absoluto). Se calcula, no se tunea: boca de la vela
  * (2·semialto) + el semialto de la propia llama (`FLAME_BASE_SCALE · 1.8 / 2`)
- * − el 1.00 del grupo padre. Así la BASE de la llama queda asentada justo en
- * la boca sea cual sea el modelo de vela, que es lo que se afinó a mano en la
- * ronda 8 ("la llama hazla un poco más grande") y lo que se rompería al
- * cambiar de pieza si el número siguiera siendo fijo.
+ * + el hueco `FLAME_GAP` − el 1.00 del grupo padre. Así la BASE de la llama
+ * queda asentada a `FLAME_GAP` justo por encima de la boca sea cual sea el
+ * modelo de vela, que es lo que se afinó a mano en la ronda 8 ("la llama
+ * hazla un poco más grande") y lo que se rompería al cambiar de pieza si el
+ * número siguiera siendo fijo.
  */
-const FLAME_HEIGHT_FACTOR = 2 * CANDLE_HALF_HEIGHT + (FLAME_BASE_SCALE * 1.8) / 2 - 1;
+const FLAME_HEIGHT_FACTOR = 2 * CANDLE_HALF_HEIGHT + (FLAME_BASE_SCALE * 1.8) / 2 - 1 + FLAME_GAP;
 /** Amplitud del pulso de tamaño de la llama: ±15%, pedido explícito de playtest. */
 const FLAME_PULSE_AMPLITUDE = 0.15;
 /**
@@ -504,6 +569,16 @@ export function HeroView({ session }: { session: GameSession }) {
   // chaser/Mesh.tsx).
   const eyeGroupRef = useRef<Group>(null);
   const candleFaceAngle = useRef(0);
+  // Bloqueo de mirada tras disparo de proyectil (ver PROJECTILE_FACE_LOCK_DURATION
+  // arriba): ángulo fijado al soltar arrow/spell + world.time hasta el que manda
+  // sobre la velocidad. prevLastArrowTime/prevLastSpellTime detectan el disparo
+  // comparando con el frame anterior (mismo patrón que prevWeaponMode más abajo);
+  // null = "todavía no visto el primer frame", para no disparar un falso positivo
+  // al montar.
+  const projectileFaceLockAngle = useRef(0);
+  const projectileFaceLockUntil = useRef(0);
+  const prevLastArrowTime = useRef<number | null>(null);
+  const prevLastSpellTime = useRef<number | null>(null);
   const prevSpeed = useRef(0);
   const squashUntil = useRef(0);
   // Cera persistente (ver WAX_TRAIL_COLOR arriba): acumulador de DISTANCIA
@@ -853,14 +928,35 @@ export function HeroView({ session }: { session: GameSession }) {
       flame.scale.set(flameScale, flameScale * 1.8, flameScale);
     }
 
-    // Mirada de los ojos (punto 3b de playtest ronda 8): apuntando > en
-    // movimiento > último ángulo válido (parado, ver comentario de
-    // EYE_FACE_LERP_STIFFNESS arriba). Reutiliza `speed`/`aim` ya
-    // calculados en este mismo useFrame.
+    // Mirada de los ojos (punto 3b de playtest ronda 8): apuntando >
+    // bloqueo de disparo de proyectil > en movimiento > último ángulo
+    // válido (parado, ver comentario de EYE_FACE_LERP_STIFFNESS arriba).
+    // Reutiliza `speed`/`aim` ya calculados en este mismo useFrame.
     const aimForEyes = session.aim;
+
+    // Detecta un disparo de arrow/spell recién resuelto por la sim (ver
+    // PROJECTILE_FACE_LOCK_DURATION arriba): lastArrowTime/lastSpellTime
+    // cambian a world.time SOLO dentro de fireProjectile (combat.ts), nunca
+    // en launchHero, así que esto nunca se activa para el cuerpo. Se fija el
+    // ángulo objetivo al de `aim` en ESE MOMENTO (aim.dirX/dirY no se tocan
+    // al soltar, solo aim.active — ver AimInput.tsx), la dirección real del
+    // disparo, no la del retroceso.
+    if (prevLastArrowTime.current !== null && hero.lastArrowTime !== prevLastArrowTime.current) {
+      projectileFaceLockAngle.current = Math.atan2(aimForEyes.dirX, aimForEyes.dirY);
+      projectileFaceLockUntil.current = world.time + PROJECTILE_FACE_LOCK_DURATION;
+    }
+    if (prevLastSpellTime.current !== null && hero.lastSpellTime !== prevLastSpellTime.current) {
+      projectileFaceLockAngle.current = Math.atan2(aimForEyes.dirX, aimForEyes.dirY);
+      projectileFaceLockUntil.current = world.time + PROJECTILE_FACE_LOCK_DURATION;
+    }
+    prevLastArrowTime.current = hero.lastArrowTime;
+    prevLastSpellTime.current = hero.lastSpellTime;
+
     let targetFaceAngle: number | null = null;
     if (world.heroAiming && aimForEyes.force > 0) {
       targetFaceAngle = Math.atan2(aimForEyes.dirX, aimForEyes.dirY);
+    } else if (world.time < projectileFaceLockUntil.current) {
+      targetFaceAngle = projectileFaceLockAngle.current;
     } else if (speed > EYE_FACE_SPEED_THRESHOLD) {
       targetFaceAngle = Math.atan2(hero.velocity.x, hero.velocity.y);
     }
@@ -918,12 +1014,14 @@ export function HeroView({ session }: { session: GameSession }) {
               material={candleEyeMaterial}
               position={[-CANDLE_EYE_X, 0, CANDLE_EYE_Z]}
               scale={CANDLE_EYE_SCALE}
+              renderOrder={CANDLE_EYE_RENDER_ORDER}
             />
             <mesh
               geometry={smallDotGeometry}
               material={candleEyeMaterial}
               position={[CANDLE_EYE_X, 0, CANDLE_EYE_Z]}
               scale={CANDLE_EYE_SCALE}
+              renderOrder={CANDLE_EYE_RENDER_ORDER}
             />
           </group>
         </group>
