@@ -101,6 +101,15 @@ export const SPLAT_NAMES = [
   /** Rayo en zigzag con dos ramas: rastro del arma Hechizo en el suelo. */
   'bolt',
   /**
+   * Estelas de proyectil, HORIZONTALES y pensadas para estirarse en X: el
+   * rastro de un proyectil pasa de N marcas sueltas (confusas cuando vuelan
+   * varios a la vez) a UN trazo por tramo de trayectoria, orientado en la
+   * dirección del disparo. Sus detalles corren a lo LARGO del eje, así que
+   * alargarlas no deforma el dibujo.
+   */
+  'bolt_streak',
+  'frost_streak',
+  /**
    * Disco liso de borde antialiasado: devuelve a una partícula billboard el
    * aspecto EXACTO de la esfera de color plano que había antes de texturizar
    * (David: las explosiones con textura "dan un aire irreal, casi prefiero los

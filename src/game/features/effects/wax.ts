@@ -50,8 +50,9 @@ export const WAX_POOL_CAPACITY = 5000;
 
 /** Cadencia de depósito del héroe: un punto cada ~0.3-0.4 u recorridas (rastro uniforme de TODOS sus movimientos, sin umbral de velocidad). */
 export const HERO_WAX_EMIT_DISTANCE = 0.35;
-/** Cadencia de depósito de los proyectiles del héroe: algo más espaciada (van más rápido, un punto cada ~0.5 u ya deja un rastro denso). */
-export const PROJECTILE_WAX_EMIT_DISTANCE = 0.5;
+// La cadencia de depósito de los PROYECTILES vivía aquí; se retiró al pasar su
+// rastro a trazos de trayectoria (`features/effects/streaks.ts`): ya no dejan
+// marcas sueltas cada X unidades, sino un trazo por tramo entre rebotes.
 
 /**
  * Tipo de depósito: decide qué de los 3 `InstancedMesh` de `WaxView` recibe

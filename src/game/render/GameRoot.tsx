@@ -28,6 +28,7 @@ import { FlashView } from '@/game/features/effects/FlashView';
 import { AmbientDustView } from '@/game/features/effects/AmbientDustView';
 import { ParticleView } from '@/game/features/effects/ParticleView';
 import { ShockwaveView } from '@/game/features/effects/ShockwaveView';
+import { StreakView } from '@/game/features/effects/StreakView';
 import { TrailView } from '@/game/features/effects/TrailView';
 import { WaxView } from '@/game/features/effects/WaxView';
 import { forceBossPhase } from '@/game/features/bosses/lifecycle';
@@ -233,6 +234,10 @@ export function GameRoot({
             movimientos del héroe/sus proyectiles, sin desvanecido — ver
             wax.ts. */}
         <WaxView pool={session.effects.wax} />
+        {/* Rastro de proyectiles (feedback 2026-08-13): un trazo por tramo
+            recto de la trayectoria, pool independiente de la cera — ver
+            streaks.ts. */}
+        <StreakView pool={session.effects.streaks} />
         <ShockwaveView pool={session.effects.shockwaves} />
         <FlashView pool={session.effects.flashes} />
         <AimIndicatorView session={session} />

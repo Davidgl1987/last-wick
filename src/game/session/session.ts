@@ -9,6 +9,7 @@ import { createEffectsState, type EffectsState } from '@/game/features/effects/e
 import { FlashPool } from '@/game/features/effects/flash';
 import { ParticlePool } from '@/game/features/effects/particles';
 import { ShockwavePool } from '@/game/features/effects/shockwave';
+import { StreakPool } from '@/game/features/effects/streaks';
 import { TrailPool } from '@/game/features/effects/trail';
 import { WaxPool } from '@/game/features/effects/wax';
 import { BOSS_DIFFICULTY_ORDER } from '@/game/features/bosses/registry';
@@ -36,6 +37,16 @@ export interface EffectsSession {
    * solo tiene sentido dentro de la mazmorra actual).
    */
   wax: WaxPool;
+  /**
+   * Rastro de proyectiles (héroe, feedback 2026-08-13: "un solo trazo
+   * orientado en la dirección del disparo", ver `features/effects/streaks.ts`
+   * y `ProjectileView.tsx`): pool NUEVO e independiente de `wax` — mismo
+   * criterio de persistencia que `wax` (sobrevive a los cambios de SALA
+   * dentro de la misma mazmorra, se limpia explícitamente aquí abajo en los
+   * MISMOS puntos que `wax`, nunca en `advanceRoom`/lo que sea que cambie de
+   * sala).
+   */
+  streaks: StreakPool;
   shockwaves: ShockwavePool;
   /**
    * Fogonazos de impacto (VFX_PLAN T3): igual que `shockwaves`, geometría
@@ -53,6 +64,7 @@ function createEffectsSession(): EffectsSession {
     particles: new ParticlePool(),
     trail: new TrailPool(),
     wax: new WaxPool(),
+    streaks: new StreakPool(),
     shockwaves: new ShockwavePool(),
     flashes: new FlashPool(),
     state: createEffectsState(),
@@ -302,6 +314,9 @@ export function restartSession(session: GameSession): void {
   // Cera (ver comentario de `EffectsSession.wax` arriba): reinicio de run =
   // mazmorra nueva, el rastro de la anterior no debe seguir pintado encima.
   session.effects.wax.clear();
+  // Rastro de proyectiles (ver comentario de `EffectsSession.streaks`
+  // arriba): mismo motivo y mismo punto que `wax`.
+  session.effects.streaks.clear();
 }
 
 /**
@@ -388,6 +403,8 @@ export function advanceToNextDungeon(session: GameSession): void {
   // se arrastra el rastro de la anterior (sí se conserva al cambiar de SALA
   // dentro de la MISMA mazmorra: aquí no se toca `wax` en ningún otro punto).
   session.effects.wax.clear();
+  // Rastro de proyectiles: mismo motivo y mismo punto que `wax`.
+  session.effects.streaks.clear();
 }
 
 /**

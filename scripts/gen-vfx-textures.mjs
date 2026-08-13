@@ -248,8 +248,94 @@ function disc() {
   return f;
 }
 
+// ── Estelas de proyectil: pensadas para ESTIRARSE en X ───────────────────
+// El rastro de un proyectil pasa de ser N marcas sueltas a UN trazo por tramo
+// de trayectoria (origen→rebote→final), escalado a lo largo del segmento. Por
+// eso estas dos son horizontales y sus formas se leen bien al alargarse: los
+// detalles corren a lo LARGO del eje X, no perpendiculares a él.
+
+/** Rayo horizontal en zigzag con dos ramas: estela del arma Hechizo. */
+function boltStreak() {
+  const f = makeField();
+  let seed = 0x51ed270b;
+  const rnd = () => {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    return seed / 0x100000000;
+  };
+  const pts = [];
+  const N = 7;
+  for (let i = 0; i <= N; i++) {
+    const t = i / N;
+    const x = 8 + t * 240;
+    const side = i % 2 === 0 ? -1 : 1;
+    // Los extremos convergen al eje: así el trazo empalma limpio con el
+    // siguiente tramo tras un rebote.
+    const taper = Math.sin(Math.PI * t);
+    const jitter = side * (16 + rnd() * 22) * taper;
+    pts.push([x, 128 + jitter]);
+  }
+  for (let i = 0; i < pts.length - 1; i++) {
+    const t = i / (pts.length - 1);
+    const w = 6.5 * Math.sin(Math.PI * t) + 1.6; // afilado en los dos extremos
+    stroke(f, pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1], w);
+  }
+  for (const [from, dy] of [
+    [2, -1],
+    [5, 1],
+  ]) {
+    const [x, y] = pts[from];
+    stroke(f, x, y, x + 26 + rnd() * 16, y + dy * (30 + rnd() * 18), 2.6);
+  }
+  return f;
+}
+
+/**
+ * Veta de escarcha horizontal: vetas longitudinales + agujas de hielo. Las
+ * vetas corren a lo largo del eje X para que estirar el quad las alargue de
+ * forma natural en vez de deformar un dibujo compacto (que es lo que pasaría
+ * con un copo suelto).
+ */
+function frostStreak() {
+  const f = makeField();
+  let seed = 0x2f9e44c1;
+  const rnd = () => {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    return seed / 0x100000000;
+  };
+  // Tres vetas longitudinales onduladas.
+  for (const [yc, amp, w] of [
+    [128, 16, 3.6],
+    [104, 11, 2.4],
+    [152, 13, 2.2],
+  ]) {
+    let px = 6;
+    let py = yc;
+    for (let i = 1; i <= 16; i++) {
+      const t = i / 16;
+      const nx = 6 + t * 244;
+      const ny = yc + Math.sin(t * 6.0 + yc) * amp * Math.sin(Math.PI * t);
+      stroke(f, px, py, nx, ny, w * Math.sin(Math.PI * t) + 0.7);
+      px = nx;
+      py = ny;
+    }
+  }
+  // Agujas de hielo perpendiculares, cortas y de tamaños distintos.
+  for (let i = 0; i < 22; i++) {
+    const t = 0.08 + rnd() * 0.84;
+    const x = 6 + t * 244;
+    const y = 128 + (rnd() - 0.5) * 46;
+    const len = (9 + rnd() * 20) * Math.sin(Math.PI * t);
+    const dir = rnd() < 0.5 ? -1 : 1;
+    const skew = (rnd() - 0.5) * 12;
+    stroke(f, x, y, x + skew, y + dir * len, 1.9);
+  }
+  return f;
+}
+
 const out = process.argv[2];
 writePng(`${out}/disc.png`, fieldToWhiteAlpha(disc()));
+writePng(`${out}/bolt_streak.png`, fieldToWhiteAlpha(boltStreak()));
+writePng(`${out}/frost_streak.png`, fieldToWhiteAlpha(frostStreak()));
 writePng(`${out}/snowflake.png`, fieldToWhiteAlpha(snowflake()));
 writePng(`${out}/bolt.png`, fieldToWhiteAlpha(bolt()));
 writePng(`${out}/flame.png`, fieldToLuminance(flame()));
