@@ -1,9 +1,8 @@
 /**
  * Manifiesto de clips de audio (David trajo el pack de sonidos ya
  * convertido, ver `public/audio/*.mp3`: 53 ficheros, mono 44.1 kHz, MP3
- * 96 kbps, silencios de los extremos recortados y pico normalizado a
- * −3 dBFS — el bucle continuo (`hero-slide-loop`) a −6 dBFS. Esos ficheros
- * NO se tocan desde el código: este módulo solo los cataloga).
+ * 96 kbps, silencios de los extremos recortados y pico normalizado. Esos
+ * ficheros NO se tocan desde el código: este módulo solo los cataloga).
  *
  * Módulo PURO a propósito, mismo patrón EXACTO que `render/kit-models.ts`:
  * nada de `import.meta.env.BASE_URL` aquí dentro (rompería los tests del
@@ -48,7 +47,6 @@ export const SFX_CLIP_NAMES = [
   'enemy-hit-3',
   'enemy-shot',
   'godmode-revive',
-  'hero-slide-loop',
   'launch-arrow',
   'launch-body',
   'launch-spell',

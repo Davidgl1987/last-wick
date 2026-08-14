@@ -29,9 +29,9 @@ describe('sfxEngine (no-op seguro sin AudioContext)', () => {
   });
 
   it('setLoop/stopLoop no lanzan en ningún orden', () => {
-    expect(() => setLoop('hero-slide-loop', 0.5, 1.1)).not.toThrow();
-    expect(() => stopLoop('hero-slide-loop')).not.toThrow();
-    expect(() => setLoop('hero-slide-loop', 0, 1)).not.toThrow();
-    expect(() => stopLoop('hero-slide-loop')).not.toThrow();
+    expect(() => setLoop('shop-opened', 0.32)).not.toThrow();
+    expect(() => stopLoop('shop-opened')).not.toThrow();
+    expect(() => setLoop('shop-opened', 0, 1)).not.toThrow();
+    expect(() => stopLoop('shop-opened')).not.toThrow();
   });
 });

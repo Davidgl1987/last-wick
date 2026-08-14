@@ -14,6 +14,7 @@ import { consumeHitStop, decayTrauma } from '@/game/features/effects/effectsStat
 import { reactToEvent } from '@/game/features/effects/reactToEvent';
 import { playEventSfx } from '@/game/audio/eventSfx';
 import { playSfx, setLoop, stopLoop } from '@/game/audio/sfxEngine';
+import { shouldPlayShopClock } from '@/game/audio/shopClock';
 import type { GameSession } from '@/game/session/session';
 import { drainEvents, type GameEvent } from '@/engine/events';
 import { stepWorld } from '@/game/world/step';
@@ -25,17 +26,9 @@ import { stormFlash } from '@/game/render/storm';
 /** Tope de tiempo de frame acumulable (evita la espiral de la muerte en tabs suspendidas). */
 const MAX_FRAME_TIME = 0.25;
 
-// ── Sonido de movimiento del héroe (hero-slide-loop) ────────────────────────
-/** Por debajo de esta velocidad (u/s) el bucle de deslizamiento suena a ganancia 0 (y el motor lo detiene, ver sfxEngine.ts). */
-const HERO_SLIDE_SPEED_FLOOR = 1.5;
-/** Rango de velocidad (u/s) sobre el suelo que mapea a ganancia [0,1] del bucle. */
-const HERO_SLIDE_SPEED_RANGE = 6;
-/** Ganancia máxima del bucle de deslizamiento a velocidad alta. */
-const HERO_SLIDE_MAX_GAIN = 0.35;
-/** playbackRate base del bucle a velocidad 0 (el resto sube con la velocidad). */
-const HERO_SLIDE_RATE_BASE = 0.9;
-/** u/s → incremento de playbackRate del bucle. */
-const HERO_SLIDE_RATE_PER_SPEED = 0.02;
+// ── Reloj de tienda ────────────────────────────────────────────────────────
+/** Fondo diegético de la sala de tienda, por debajo de UI y compras. */
+const SHOP_CLOCK_GAIN = 0.32;
 
 // ── Trueno (encargo de audio, ver cabecera de render/storm.ts) ──────────────
 /** Ganancia base del trueno: retumbe de fondo, nunca debe tapar el resto del mix. */
@@ -56,10 +49,6 @@ const THUNDER_DELAY_S = 0.35;
  * relámpagos (10-20 s garantizados por `stormFlash`): nunca se come uno bueno.
  */
 const THUNDER_MIN_INTERVAL_MS = 3000;
-
-function clamp(value: number, min: number, max: number): number {
-  return value < min ? min : value > max ? max : value;
-}
 
 const NOTICE_BY_EVENT: Partial<Record<GameEvent['type'], string>> = {
   'room-cleared': 'Sala limpiada',
@@ -132,16 +121,13 @@ export function useGameLoop(session: GameSession): void {
     session.effects.shockwaves.update(cappedDelta);
     session.effects.flashes.update(cappedDelta);
 
-    // Bucle de deslizamiento (hero-slide-loop, encargo de audio): ganancia y
-    // tono en función de la velocidad actual del héroe; a ganancia 0 el
-    // propio motor detiene la fuente (setLoop/stopLoop, ver sfxEngine.ts) en
-    // vez de dejarla sonando inaudible toda la partida.
-    if (world.phase === 'playing') {
-      const heroSpeed = Math.hypot(world.hero.velocity.x, world.hero.velocity.y);
-      const slideGain = clamp((heroSpeed - HERO_SLIDE_SPEED_FLOOR) / HERO_SLIDE_SPEED_RANGE, 0, 1) * HERO_SLIDE_MAX_GAIN;
-      setLoop('hero-slide-loop', slideGain, HERO_SLIDE_RATE_BASE + heroSpeed * HERO_SLIDE_RATE_PER_SPEED);
+    // `world.room` cambia al cruzar físicamente el umbral (world/step.ts): el
+    // reloj pertenece a la sala, no al modal del tendero. Sigue sonando si se
+    // cierra el menú dentro de ella y se apaga al entrar en otra sala.
+    if (shouldPlayShopClock(world)) {
+      setLoop('shop-opened', SHOP_CLOCK_GAIN);
     } else {
-      stopLoop('hero-slide-loop');
+      stopLoop('shop-opened');
     }
 
     // Trueno (encargo de audio, ver cabecera de render/storm.ts): flanco de
