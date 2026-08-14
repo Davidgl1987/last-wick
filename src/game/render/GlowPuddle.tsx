@@ -65,7 +65,7 @@ export function GlowPuddle({
   color: ColorRepresentation;
   /** Radio del disco, en unidades de mundo (escala `unitCircle`). */
   radius: number;
-  /** Opacidad del blending aditivo (~0.15-0.2 para no saturar; ver los halos existentes en `assets.ts`). */
+  /** Opacidad del blending aditivo (~0.13-0.15 para no saturar con el mapa `circle_c.png`, más concentrado que el degradado anterior; ver los halos existentes en `assets.ts`). */
   opacity: number;
   /** Posición de montaje (local al padre); por defecto en el origen del padre, a `GLOW_PUDDLE_GROUND_Y` de altura. */
   position?: readonly [number, number, number];

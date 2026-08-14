@@ -39,6 +39,10 @@ export const SILENT_EVENTS: readonly GameEventType[] = [
   // Ya suenan 'doors-open' (sala limpiada) y 'door-locked' (puerta con
   // llave); el aviso de UI (useGameLoop.ts) cubre el resto de casos.
   'room-entered',
+  // La fase 'shopping' gobierna `shop-opened` como bucle de reloj desde
+  // useGameLoop. Reproducir además este evento como one-shot duplicaría el
+  // primer tic al entrar y dejaría sonar el resto del clip tras salir.
+  'shop-opened',
   // Rastro de polvo emitido en RÁFAGA mientras un jefe carga (varias veces
   // por segundo, GDD §15.2): puramente visual, sonar saturaría el bus y no
   // aporta nada que 'boss-telegraph' (el aviso real de la carga) no cubra ya.
@@ -83,7 +87,6 @@ export const SFX_BY_EVENT: Partial<Record<GameEventType, EventSfx>> = {
   'spikes-hit': { clip: 'spikes-hit', rateJitter: 0.05 },
   'barrel-explosion': { clip: 'barrel-explosion' },
   'item-pickup': { clip: 'pickup-coin' }, // clip real: resolveEventClip según label
-  'shop-opened': { clip: 'shop-opened', bus: 'music' },
   'upgrade-applied': { clip: 'upgrade-applied' },
   'upgrade-purchased': { clip: 'upgrade-purchased' },
   'room-cleared': { clip: 'room-cleared', bus: 'music' },

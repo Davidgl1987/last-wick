@@ -35,6 +35,7 @@ import {
   trailMaterial,
   WEAPON_COLOR,
 } from './assets';
+import { vfxTexture } from './vfx-textures';
 
 // ── Bloom HDR: emissive de los emisores reales (rama post-procesado, fase 4) ──
 //
@@ -132,7 +133,7 @@ function applyProjectileGlow(): void {
 //
 // Bloom (fase 4): los ojos/detalles PUNTUALES (dummyEyeGlowMaterial,
 // chaserEyeGlowMaterial, spikeEyeGlowMaterial, shooterTubeGlowMaterial,
-// candleFlameMaterial, bossCandleFlameMaterial) pasaron de `MeshBasicMaterial`
+// bossCandleFlameMaterial) pasaron de `MeshBasicMaterial`
 // a `MeshLambertMaterial` con color negro + emissive HDR (ver sus
 // declaraciones más abajo) precisamente para poder florecer — Basic no tiene
 // canal emissive. Los acentos de jefe (guardianHornMaterial/
@@ -191,7 +192,7 @@ export const heroCandleGeometry = new THREE.CylinderGeometry(1.0, 1.0, 2.8, 20);
 export const bossCandleWaxMaterial = new THREE.MeshLambertMaterial({ color: '#d8cdb4' });
 /**
  * Llama del cirio de jefe (reutilizada también por `WallTorch`, ver
- * TorchView.tsx): mismo cálido que `CandleLightView`/`candleFlameMaterial`.
+ * TorchView.tsx): mismo cálido que `CandleLightView`/`heroFlameMaterial`.
  *
  * Bloom (fase 4): ANTES `MeshBasicMaterial` (autoiluminada, ignora la luz de
  * escena) — pero Basic NO tiene canal `emissive`/`emissiveIntensity`, así que
@@ -223,27 +224,93 @@ export const bossCandleFlameMaterial = new THREE.MeshLambertMaterial({
 export const wallTorchWaxGeometry = new THREE.CylinderGeometry(0.1, 0.12, 0.7, 10);
 
 /**
- * Llama de la vela del héroe: MUTABLE, mismo criterio que `heroMaterial` en
- * dark=0 — HeroView.tsx interpola su color hacia `WEAPON_COLOR[weaponMode]`
- * cada frame con la misma rigidez (`WEAPON_COLOR_LERP_STIFFNESS`).
+ * Ojos de la vela (carita simple del concept): óvalos negros, reutiliza
+ * smallDotGeometry escalada.
  *
- * Bloom (fase 4): igual que `bossCandleFlameMaterial` de arriba, convertida de
- * `MeshBasicMaterial` a `MeshLambertMaterial` con `color` NEGRO + todo el
- * brillo en `emissive` (Basic no tiene canal emissive, no hay forma de
- * llevarla a HDR sin esta conversión). DIFERENCIA IMPORTANTE con la del
- * jefe/antorcha: esta SÍ se muta cada frame (el lerp de arma de HeroView.tsx)
- * — antes el lerp escribía en `.color` (lo único que Basic tenía), ahora
- * escribe en `.emissive` (ver `HeroView.tsx`, comentario junto al lerp). La
- * intensidad HDR (`emissiveIntensity`) es constante y se fija aquí una sola
- * vez; solo el TONO del emissive cambia por frame según el arma activa.
+ * `transparent: true` aunque la opacidad se queda en 1 (David 2026-08-13:
+ * "los ojos parece que tienen también la máscara de cuando estás tapado por
+ * la pared, y deberían ser negros siempre"). Causa raíz: la silueta de
+ * oclusión de `HeroView.tsx` (`heroSilhouetteMaterial`, ver
+ * `occlusion-silhouette.ts`) compara con `depthFunc: GreaterDepth` contra lo
+ * que YA esté en el depth buffer; los ojos son opacos y se pintan casi en la
+ * superficie del cuerpo, así que quedan en el buffer de profundidad como si
+ * fueran "algo delante del cuerpo" — exactamente lo que la silueta interpreta
+ * como oclusión externa, y por eso se pintaba encima suyo (tiñéndolos del
+ * color de arma) incluso sin ningún muro de por medio. Tres.js SIEMPRE
+ * dibuja la cola opaca entera antes que la transparente, así que un
+ * `renderOrder` alto en un material opaco no basta para colarse después de la
+ * silueta (transparente); hay que pasar los ojos a la cola transparente para
+ * que su `renderOrder` (ver `CANDLE_EYE_RENDER_ORDER` en HeroView.tsx, mayor
+ * que `SILHOUETTE_RENDER_ORDER`) los dibuje DESPUÉS de la silueta y los deje
+ * siempre negros y por delante suyo. El depthTest normal (sin tocar) sigue
+ * ocultándolos correctamente contra un muro real: su profundidad pierde
+ * contra la del muro, ya cercano en el buffer desde la pasada opaca.
  */
-export const candleFlameMaterial = new THREE.MeshLambertMaterial({
-  color: 0x000000,
-  emissive: WEAPON_COLOR.body.clone(),
-  emissiveIntensity: BLOOM_EMISSIVE_INTENSITY,
+export const candleEyeMaterial = new THREE.MeshBasicMaterial({ color: '#14121a', transparent: true });
+
+/**
+ * Versión HDR de `WEAPON_COLOR` para el TINTE de `heroFlameMaterial` (más
+ * abajo): `MeshBasicMaterial` no tiene canal `emissive`/`emissiveIntensity`
+ * (a diferencia de un material Lambert con emissive), así que el escalado que
+ * antes aplicaba `BLOOM_EMISSIVE_INTENSITY` al emissive ahora hay que
+ * aplicarlo directamente al `.color` que `HeroView.tsx` lerpea cada frame —
+ * si no, la llama nunca cruzaría `BLOOM_LUMINANCE_THRESHOLD`
+ * (`PostEffects.tsx`) y perdería su Bloom. Tabla precalculada UNA vez (nunca
+ * `.clone().multiplyScalar()` dentro de un `useFrame` — regla de cero
+ * asignaciones por frame): el lerp de HeroView solo indexa y muta in-place,
+ * igual que ya hace con `WEAPON_COLOR` para `aimDotMaterial`/
+ * `heroSilhouetteMaterial` (esos SÍ deben quedarse en rango LDR [0,1]: no son
+ * emisores de bloom, así que NO usan esta tabla).
+ */
+export const WEAPON_COLOR_FLAME_HDR: Record<'body' | 'arrow' | 'spell', THREE.Color> = {
+  body: WEAPON_COLOR.body.clone().multiplyScalar(BLOOM_EMISSIVE_INTENSITY),
+  arrow: WEAPON_COLOR.arrow.clone().multiplyScalar(BLOOM_EMISSIVE_INTENSITY),
+  spell: WEAPON_COLOR.spell.clone().multiplyScalar(BLOOM_EMISSIVE_INTENSITY),
+};
+
+/**
+ * Llama del héroe como BILLBOARD (feedback de David 2026-08-12: "¿hay alguna
+ * textura que parezca fuego? ... para que no se vea un cono tal cual" — desde
+ * la cámara del juego el antiguo cono liso con Lambert+emissive se leía como
+ * geometría, no como fuego). Sustituyó a la antigua `candleFlameMaterial`
+ * (cono liso, Lambert+emissive) primero solo en `HeroView.tsx`; el vestíbulo
+ * del título (`TitleScreenScene.tsx::Lumora`) siguió con el cono un tiempo
+ * porque su cámara/`useFrame` son propios (no billboard automático) — David
+ * 2026-08-13, "para que todo sea igual": `Lumora` ahora monta este MISMO
+ * material sobre el mismo quad, con su propio cálculo de yaw hacia SU cámara
+ * (ver `TitleScreenScene.tsx`). Con los dos consumidores migrados,
+ * `candleFlameMaterial` se quedó sin ningún sitio que la usara y se retiró
+ * (código muerto) — si hace falta una llama Lambert lisa en el futuro,
+ * `bossCandleFlameMaterial` de arriba es el patrón a copiar.
+ *
+ * Material DEDICADO, no `additiveVfxMaterial('flame', color, opacity)` del
+ * catálogo genérico (`vfx-textures.ts`, cacheado por la clave exacta
+ * `nombre|color|opacidad`): la llama LERPEA su color cada frame (HeroView,
+ * siguiendo el arma activa) y ese cacheo por clave exacta generaría una
+ * entrada nueva del `Map` en cada paso del lerp — necesita el mismo patrón de
+ * "objeto mutable único" que `heroMaterial`.
+ *
+ * `MeshBasicMaterial` (no Lambert): un quad aditivo no necesita sombreado
+ * difuso y, sobre todo, no tiene canal `emissive` — el brillo HDR que antes
+ * daba `emissiveIntensity` ahora vive directamente en `.color` (ver
+ * `WEAPON_COLOR_FLAME_HDR` arriba: mismo factor ×6, así cruza el mismo
+ * `BLOOM_LUMINANCE_THRESHOLD` de `PostEffects.tsx` con el mismo margen que
+ * antes). `map` = `flame.png` (Light Mask propia, `LIGHT_MASK_NAMES` en
+ * `vfx-textures.ts`, generada por `scripts/gen-vfx-textures.mjs`): luminancia
+ * sobre negro, así que SIEMPRE con `AdditiveBlending` (regla del §2 de
+ * `docs/plans/VFX_PLAN.md` — con blending normal el negro de fondo de la
+ * textura pintaría un cuadrado). `depthWrite:false`: mismo criterio que
+ * cualquier material aditivo/transparente del juego (ver `glowPuddleMaterial`
+ * en `assets.ts`), para que el quad no bloquee en el buffer de profundidad lo
+ * que se dibuje detrás suyo.
+ */
+export const heroFlameMaterial = new THREE.MeshBasicMaterial({
+  map: vfxTexture('flame'),
+  color: WEAPON_COLOR_FLAME_HDR.body.clone(),
+  transparent: true,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
 });
-/** Ojos de la vela (carita simple del concept): óvalos negros, reutiliza smallDotGeometry escalada. */
-export const candleEyeMaterial = new THREE.MeshBasicMaterial({ color: '#14121a' });
 
 // ── Pantalla de título 3D ──────────────────────────────────────
 
@@ -397,7 +464,7 @@ function applySilhouettes(): void {
   // BLOOM_EMISSIVE_INTENSITY haría florecer el CUERPO ENTERO de la vela como
   // si fuera una bombilla, exactamente el efecto "todo el charco de luz
   // floreaba" que se está corrigiendo — el objetivo es que solo la LLAMA
-  // (`candleFlameMaterial`, de verdad puntual) sea el emisor.
+  // (`heroFlameMaterial`, de verdad puntual) sea el emisor.
   heroMaterial.emissive.set('#8a7a58');
   heroMaterial.emissiveIntensity = 0.5;
 

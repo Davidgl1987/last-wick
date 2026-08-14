@@ -8,13 +8,21 @@
  * mejora "Hechizo Arcano").
  *
  * Formas (feedback de playtest):
- * - Flecha (ronda 3, punto 3: "las flechas apenas se ven, puedes usar un
- *   cono"): CONO amarillo grande como cuerpo dominante (mucho más ancho que
- *   el fino asta+punta de la ronda anterior, que seguía sin leerse bien en
- *   móvil) + un asta corta detrás para dar sensación de proyectil alargado,
- *   orientado según su velocidad (rotación en el plano XZ). Proporciones a
- *   radio unitario; el GRUPO se escala por `p.radius` cada frame (nunca se
- *   recrea geometría).
+ * - Flecha/Hielo (arma `arrow`, "Hielo" en la UI desde 2026-08-11 — antes
+ *   "Fuego", ver WeaponBar.tsx): CONO grande como cuerpo dominante (ronda 3,
+ *   punto 3: "las flechas apenas se ven, puedes usar un cono" — mucho más
+ *   ancho que el fino asta+punta de la ronda anterior, que seguía sin leerse
+ *   bien en móvil) + un asta corta detrás para dar sensación de proyectil
+ *   alargado, orientado según su velocidad (rotación en el plano XZ). Desde
+ *   2026-08-11 (David: el proyectil siempre fue azul hielo, incoherente con
+ *   "Fuego" — el concepto pasa a ser hielo) el cono usa `arrowCrystalGeometry`
+ *   (5 segmentos radiales, MUY pocos) en vez del `unitCone` liso de 12, con
+ *   `arrowMaterial` en `flatShading` para que se note el tallado, más 2
+ *   esquirlas estáticas (`spellSparkGeometry`) incrustadas en su superficie
+ *   para romper la simetría de revolución — MISMO volumen aparente que
+ *   antes (sin adelgazar: la legibilidad en móvil de la ronda 3 sigue
+ *   aplicando). Proporciones a radio unitario; el GRUPO se escala por
+ *   `p.radius` cada frame (nunca se recrea geometría).
  * - Hechizo (ronda 3, punto 11: "quita la bola, haz el rayo más grande"): SIN
  *   núcleo esférico — solo el zigzag eléctrico (más ancho/largo que antes) +
  *   chispas violeta en la estela, jitter determinista por frame a partir de
@@ -39,9 +47,9 @@ import type { Group, Mesh } from 'three';
 import type { GameSession } from '@/game/session/session';
 import type { Projectile } from '@/game/world/types';
 import { getUpgradeLevel } from '@/game/session/upgrades';
-import { arrowMaterial, arrowShaftGeometry, arrowTipMaterial, enemyProjectileGlowHaloMaterialForTag, enemyProjectileMaterial, enemyProjectileMaterialForTag, glowPuddleMaterial, spellBoltMaterial, spellBoltSegmentGeometry, spellSparkGeometry, spellSparkMaterial, unitCone, unitSphere, WEAPON_COLOR } from '@/game/render/assets';
+import { arrowCrystalGeometry, arrowMaterial, arrowShaftGeometry, arrowTipMaterial, enemyProjectileGlowHaloMaterialForTag, enemyProjectileMaterial, enemyProjectileMaterialForTag, glowPuddleMaterial, spellBoltMaterial, spellBoltSegmentGeometry, spellSparkGeometry, spellSparkMaterial, unitSphere, WEAPON_COLOR } from '@/game/render/assets';
 import { GLOW_PUDDLE_GROUND_Y, GlowPuddle } from '@/game/render/GlowPuddle';
-import { PROJECTILE_WAX_EMIT_DISTANCE } from '@/game/features/effects/wax';
+import { STREAK_TYPE_ARCANE, STREAK_TYPE_FROST } from '@/game/features/effects/streaks';
 import { arrowWidthScaleForLevel } from './upgrade-visuals';
 
 /**
@@ -63,8 +71,8 @@ import { arrowWidthScaleForLevel } from './upgrade-visuals';
  * necesita el mismo tratamiento).
  */
 const PROJECTILE_HALO_RADIUS = 0.6;
-/** Opacidad del halo del proyectil del HÉROE (arrow/spell): mismo valor que ya usaban ram/arrow/spell-tag en el halo de proyectil enemigo (`assets.ts`). */
-const PROJECTILE_HERO_HALO_OPACITY = 0.16;
+/** Opacidad del halo del proyectil del HÉROE (arrow/spell): mismo valor que ram/arrow/spell-tag en el halo de proyectil enemigo (`assets.ts`) — bajada de 0.16 a 0.13 junto con el resto de halos aditivos (VFX_PLAN T0, ver el comentario largo sobre `enemyProjectileGlowHaloMaterials` en `assets.ts`: el nuevo mapa `circle_c.png` tiene el núcleo más concentrado que el degradado de canvas anterior). */
+const PROJECTILE_HERO_HALO_OPACITY = 0.13;
 /**
  * Altura Y del centro del proyectil (mismo valor que `group.position.set` en
  * `ProjectileSlot`): ya no es "altura de luz" (no queda ninguna), pero el
@@ -88,31 +96,58 @@ const PROJECTILE_HALO_LOCAL_Y = GLOW_PUDDLE_GROUND_Y - PROJECTILE_GROUP_HEIGHT;
 const PROJECTILE_VISUAL_SCALE = 0.8;
 
 /**
- * Estela de proyectiles del héroe (playtest 2026-07-20, David: "cuando
- * dispares con proyectiles, deja cera de ese color") — REDISEÑO (mismo
- * playtest, punto de la cera persistente): ya NO usa `session.effects.trail`
- * (vida corta, se desvanece); flecha y hechizo depositan en la capa de cera
- * persistente (`session.effects.wax`, `features/effects/wax.ts`, MISMO pool
- * que usa `HeroView.tsx`), con color del arma activa (`WEAPON_COLOR`, no el
- * color de cera del héroe) y cadencia por DISTANCIA recorrida
- * (`PROJECTILE_WAX_EMIT_DISTANCE`, no por tiempo — un proyectil rápido con
- * cadencia por tiempo dejaría puntos muy espaciados en el suelo, mientras que
- * uno lento los apelmazaría). Emitido aquí (render, useFrame de
- * `ProjectileSlot`, mismo sitio donde ya se itera cada proyectil por frame) y
- * NUNCA en la sim (combat.ts stepea física/daño, no efectos).
+ * Rastro de proyectiles del héroe (playtest 2026-07-20, David: "cuando
+ * dispares con proyectiles, deja cera de ese color") — REDISEÑO 2026-08-13
+ * (David: "el rastro de los proyectiles podría ser una sola textura
+ * orientada en la dirección del disparo, [...] cuando salen varios no se ve
+ * bien qué es lo que deja en el suelo, sale confuso [...] uno solo que
+ * empiece en el origen del disparo y acabe donde rebota, y vuelva a empezar
+ * ahí y terminar donde acaba"): ya NO deposita marcas sueltas en
+ * `session.effects.wax` (esa capa sigue siendo EXCLUSIVA del rastro del
+ * héroe, sin tocar — `HeroView.tsx`/`wax.ts`/`WaxView.tsx`). Flecha y hechizo
+ * abren/estiran/cierran un trazo por TRAMO RECTO en `session.effects.streaks`
+ * (`features/effects/streaks.ts`, pool NUEVO e independiente), con color del
+ * arma activa (`WEAPON_COLOR`) — ver `STREAK_*` más abajo y la cabecera de
+ * `streaks.ts` para el ciclo de vida completo open()/update(). Igual que
+ * antes, todo esto ocurre aquí (render, `useFrame` de `ProjectileSlot`, mismo
+ * sitio donde ya se itera cada proyectil por frame) y NUNCA en la sim
+ * (combat.ts stepea física/daño, no efectos).
  */
-const PROJECTILE_TRAIL_SIZE_FACTOR = 0.55;
+/** Ancho BASE del trazo como fracción de `p.radius` (el pool varía esto ±25%, ver `streaks.ts`): orden de magnitud del grosor visual del proyectil (cono de Hielo/zigzag del Hechizo), para que el rastro se lea como su estela real. */
+const PROJECTILE_STREAK_WIDTH_FACTOR = 1.1;
 
 type ProjectileKind = Projectile['kind'];
 
 // Proporciones de la flecha a radio unitario (el grupo se escala por
 // p.radius): CONO grande como cuerpo dominante (mucho más ancho que el fino
 // asta+punta anterior), con un asta corta detrás para dar sentido de
-// proyectil alargado en vuelo.
+// proyectil alargado en vuelo. SIN CAMBIOS al pasar a cristal de hielo
+// (2026-08-11): son las medidas que ya garantizaban legibilidad en móvil
+// (ronda 3 de playtest) y las esquirlas nuevas se AÑADEN sobre este volumen,
+// nunca lo sustituyen — ver ARROW_SHARDS más abajo.
 const ARROW_CONE_LENGTH = 2.2;
 const ARROW_CONE_THICKNESS = 2.6;
 const ARROW_SHAFT_LENGTH = 1.6;
 const ARROW_SHAFT_THICKNESS = 0.9;
+
+/**
+ * Esquirlas del cristal de hielo: tetraedros pequeños y ESTÁTICOS (mismo
+ * `spellSparkGeometry` unitario que ya usa el hechizo para sus chispas de
+ * estela, ver assets.ts — aquí sin animación) incrustados en la superficie
+ * del cono central, mitad dentro/mitad asomando (mismo criterio que
+ * `heroSpikeGeometry`, ver su comentario en assets.ts). Su única función es
+ * romper la simetría de revolución del cono con astillas irregulares —
+ * "cristal tallado a mano", no un cono limpio. Coordenadas calculadas a
+ * mano: el radio del cono decrece linealmente desde ARROW_CONE_THICKNESS/2
+ * en la base (z=0) hasta 0 en la punta (z=ARROW_CONE_LENGTH), así que cada
+ * entrada usa un (x,y) cuyo módulo ronda el radio del cono en su propia z.
+ * Sin useFrame propio: giran/escalan como bloque rígido junto con el resto
+ * de `arrowGroup` (orientación de vuelo + escala por nivel de mejora).
+ */
+const ARROW_SHARDS: { position: [number, number, number]; rotation: [number, number, number]; scale: number }[] = [
+  { position: [0.85, 0.42, 0.5], rotation: [0.5, 1.1, 0.3], scale: 0.65 },
+  { position: [-0.55, -0.4, 1.05], rotation: [1.3, -0.4, 0.9], scale: 0.5 },
+];
 
 /** Nº de segmentos del zigzag eléctrico por proyectil de hechizo. */
 const SPELL_BOLT_SEGMENTS = 5;
@@ -134,17 +169,19 @@ function jitter11(a: number, b: number): number {
 }
 
 /**
- * Flecha: CONO amarillo grande (cuerpo dominante, claramente visible) +
- * asta corta detrás, proporciones a radio unitario (el grupo padre se
- * escala por p.radius). El cono apunta en +Z local (la punta hacia delante,
- * en la dirección de movimiento — ProjectileSlot alinea +Z con la
- * velocidad).
+ * Cristal de hielo del arma `arrow` ("Hielo" en la UI, antes "Fuego" — ver
+ * WeaponBar.tsx): cono facetado (`arrowCrystalGeometry`, 5 caras, cuerpo
+ * dominante claramente visible) + asta corta detrás + esquirlas estáticas
+ * incrustadas en la superficie (ARROW_SHARDS), proporciones a radio unitario
+ * (el grupo padre se escala por p.radius). El cono apunta en +Z local (la
+ * punta hacia delante, en la dirección de movimiento — ProjectileSlot alinea
+ * +Z con la velocidad).
  */
 function ArrowShape() {
   return (
     <>
       <mesh
-        geometry={unitCone}
+        geometry={arrowCrystalGeometry}
         material={arrowMaterial}
         position={[0, 0, ARROW_CONE_LENGTH / 2]}
         rotation-x={Math.PI / 2}
@@ -157,6 +194,16 @@ function ArrowShape() {
         rotation-x={Math.PI / 2}
         scale={[ARROW_SHAFT_THICKNESS, ARROW_SHAFT_LENGTH, ARROW_SHAFT_THICKNESS]}
       />
+      {ARROW_SHARDS.map((shard, i) => (
+        <mesh
+          key={i}
+          geometry={spellSparkGeometry}
+          material={arrowTipMaterial}
+          position={shard.position}
+          rotation={shard.rotation}
+          scale={shard.scale}
+        />
+      ))}
     </>
   );
 }
@@ -244,20 +291,46 @@ function ProjectileSlot({ session, index }: { session: GameSession; index: numbe
   const enemyBodyRef = useRef<Mesh>(null);
   const haloRef = useRef<Mesh>(null);
   const lastKind = useRef<ProjectileKind | null>(null);
-  // Cera del proyectil (ver PROJECTILE_TRAIL_SIZE_FACTOR arriba): acumulador
-  // propio por slot, de DISTANCIA recorrida (no tiempo — cada slot se
-  // recicla entre disparos, así que empezar en 0 tras un `kind` nuevo es
-  // correcto: como mucho retrasa el primer punto de ese disparo unos
-  // milímetros, nunca arrastra distancia del proyectil anterior).
-  const trailAccumulator = useRef(0);
+  // Rastro de proyectiles (ver cabecera del fichero): índice del trazo
+  // ABIERTO de este slot en `session.effects.streaks`, o -1 si ninguno, más
+  // el origen (mundo) del tramo actual — `StreakPool` no lo conserva (ver su
+  // cabecera), así que vive aquí, junto al índice, en las refs del propio
+  // slot de proyectil.
+  const streakIndex = useRef(-1);
+  const streakOriginX = useRef(0);
+  const streakOriginZ = useRef(0);
+  // Detectan, sin ambigüedad, "esto es un vuelo DISTINTO al que ocupaba este
+  // slot" incluso si el slot se recicla para un disparo nuevo dentro del
+  // mismo tick de sim SIN pasar por un frame con `p.active=false` por medio
+  // (`acquireProjectile` reutiliza el primer slot libre por índice, así que
+  // el reciclaje inmediato es plausible, no un caso de laboratorio — ver
+  // combat.ts). `ttl` SOLO decrece durante la vida de un proyectil
+  // (`stepProjectiles`: `p.ttl -= dt`, y otro `-= 0.4` en cada rebote), así
+  // que un valor mayor que el último visto es prueba inequívoca de un
+  // proyectil nuevo en este slot.
+  const lastTtl = useRef(0);
+  // `bouncesLeft` (world/types.ts) es el contador de rebotes DE VERDAD de la
+  // sim (decrece SOLO en `stepHeroProjectileCollisions` al rebotar contra
+  // pared/roca, combat.ts) — se prefiere a inferir el rebote por el cambio
+  // brusco de dirección de la velocidad (el rebote además la amortigua por
+  // SPELL_BOUNCE_FACTOR, así que un "cambio brusco" sería más ambiguo de
+  // umbralizar) y a escuchar el evento 'projectile-wall' (que TAMBIÉN se
+  // emite cuando el proyectil MUERE contra la pared, no solo cuando rebota —
+  // distinguir ambos casos desde el evento exigiría replicar aquí la misma
+  // condición `bouncesLeft > 0` que ya decide combat.ts, así que leer el
+  // contador directamente es más simple y no puede desincronizarse). La
+  // flecha nunca rebota (`bouncesLeft` siempre 0 para 'arrow'), así que esta
+  // comparación nunca se dispara para ella — coherente con que solo el
+  // Hechizo rebota hoy.
+  const lastBounces = useRef(0);
 
-  useFrame((_, delta) => {
+  useFrame(() => {
     const p = session.world.projectiles[index];
     const group = groupRef.current;
     if (!group) return;
     if (!p.active) {
       group.visible = false;
-      trailAccumulator.current = 0;
+      streakIndex.current = -1;
       return;
     }
     group.visible = true;
@@ -272,26 +345,53 @@ function ProjectileSlot({ session, index }: { session: GameSession; index: numbe
 
     if (lastKind.current !== p.kind) lastKind.current = p.kind;
 
-    // Cera de color del arma (solo proyectiles del héroe): ver cabecera del
-    // fichero (PROJECTILE_TRAIL_SIZE_FACTOR). Cadencia por DISTANCIA recorrida
-    // (`speed * delta`, ya calculado arriba), no por tiempo — mismo criterio
-    // que la cera del héroe en HeroView.tsx.
+    // Rastro de proyectiles del héroe (arrow/spell): un trazo por tramo recto
+    // (ver cabecera del fichero y streaks.ts). `isNewFlight` cubre TANTO el
+    // nacimiento normal (frame anterior con streakIndex=-1, tras !p.active)
+    // COMO el reciclaje del slot sin pasar por un frame inactivo (ver
+    // `lastTtl` arriba); `bounced` solo puede dispararse si NO es un vuelo
+    // nuevo, así que un `bouncesLeft` heredado de un disparo anterior nunca
+    // se confunde con un rebote real de este vuelo.
     if (p.owner === 'hero' && (p.kind === 'arrow' || p.kind === 'spell')) {
-      trailAccumulator.current += speed * delta;
-      while (trailAccumulator.current >= PROJECTILE_WAX_EMIT_DISTANCE) {
-        trailAccumulator.current -= PROJECTILE_WAX_EMIT_DISTANCE;
+      const streaks = session.effects.streaks;
+      const isNewFlight = streakIndex.current === -1 || p.ttl > lastTtl.current;
+      const bounced = !isNewFlight && p.bouncesLeft !== lastBounces.current;
+      if (bounced) {
+        // Cierra el tramo actual en el punto de rebote: posición actual, ya
+        // resuelta por combat.ts (misma posición que usa el evento
+        // 'projectile-wall' para el fogonazo/partículas de impacto).
+        streaks.update(streakIndex.current, streakOriginX.current, streakOriginZ.current, p.position.x, p.position.y);
+      }
+      if (isNewFlight || bounced) {
+        // Nace un trazo: al disparar (isNewFlight) o justo tras cerrar el
+        // anterior en el punto de rebote (bounced) — el nuevo tramo empieza
+        // exactamente donde acabó el rebote, encadenados.
         const color = WEAPON_COLOR[p.kind];
-        session.effects.wax.emit(
+        streakIndex.current = streaks.open(
           p.position.x,
           p.position.y,
-          p.radius * PROJECTILE_TRAIL_SIZE_FACTOR,
+          p.radius * PROJECTILE_STREAK_WIDTH_FACTOR,
           color.r,
           color.g,
           color.b,
+          p.kind === 'arrow' ? STREAK_TYPE_FROST : STREAK_TYPE_ARCANE,
         );
+        streakOriginX.current = p.position.x;
+        streakOriginZ.current = p.position.y;
+      } else {
+        // Vuelo normal: estira el trazo abierto hasta la posición actual —
+        // se ve crecer en vivo en vez de aparecer de golpe.
+        streaks.update(streakIndex.current, streakOriginX.current, streakOriginZ.current, p.position.x, p.position.y);
       }
+      lastTtl.current = p.ttl;
+      lastBounces.current = p.bouncesLeft;
     } else {
-      trailAccumulator.current = 0;
+      // Proyectil enemigo (o cualquier otro `kind`): no deja trazo, igual que
+      // antes no dejaba cera. Suelta el índice sin tocar la geometría del
+      // trazo viejo — ya quedó con su última posición válida en el último
+      // frame en que SÍ calificaba (streaks.ts: "cerrar" es simplemente dejar
+      // de llamar a update()).
+      streakIndex.current = -1;
     }
 
     const arrowGroup = arrowGroupRef.current;

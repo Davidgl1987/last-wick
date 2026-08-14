@@ -7,8 +7,9 @@ describe('clips (manifiesto de audio)', () => {
     expect(unique.size).toBe(SFX_CLIP_NAMES.length);
   });
 
-  it('tiene los 53 clips del pack', () => {
-    expect(SFX_CLIP_NAMES.length).toBe(53);
+  it('tiene los 52 clips activos del pack', () => {
+    expect(SFX_CLIP_NAMES.length).toBe(52);
+    expect(SFX_CLIP_NAMES).not.toContain('hero-slide-loop');
   });
 
   it('clipUrl compone bien con base "/"', () => {

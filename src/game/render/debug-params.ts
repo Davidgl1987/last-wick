@@ -1,14 +1,18 @@
 /**
  * Helpers de depuración por parámetros de URL (herramientas de playtest):
  * `?boss=<id|alias>` salta directo a la arena de un jefe, `?phase=2|3` fuerza
- * su fase inicial, y `?godmode` (presencia = activo; David 2026-07-15) hace
- * que el héroe reviva a vida máxima en vez de game-over al llegar a 0 hp — el
+ * su fase inicial, `?room=test` salta directo a la Sala de Pruebas (`testRoom`
+ * en rooms.ts: los 5 arquetipos de enemigo, foso, pinchos, 2 barriles, 2
+ * monedas, poción y llave — sin depender del azar de la mazmorra; David
+ * 2026-08-11), y `?godmode` (presencia = activo; David 2026-07-15) hace que
+ * el héroe reviva a vida máxima en vez de game-over al llegar a 0 hp — el
  * daño se sigue aplicando normal (hp baja, vignette, knockback) para poder
  * ver cuánto quita cada ataque durante la run completa (4 jefes + mazmorras).
- * Combina con `?boss` (arena de jefe suelta).
+ * Combina con `?boss` (arena de jefe suelta) y con `?room=test` (Sala de
+ * Pruebas).
  */
 
-import { getRoomPool } from '@/game/features/dungeon/rooms';
+import { getRoomPool, testRoom } from '@/game/features/dungeon/rooms';
 import type { RoomData } from '@/game/world/types';
 
 /**
@@ -40,6 +44,18 @@ export function readForcedBossPhase(): 2 | 3 | null {
   if (raw === '2') return 2;
   if (raw === '3') return 3;
   return null;
+}
+
+/**
+ * Sala de pruebas vía `?room=test` (herramienta de playtest, encargo de
+ * David 2026-08-11: probar todos los VFX en una sala fija con los 5
+ * arquetipos de enemigo sin depender del azar de la mazmorra). Único alias
+ * soportado por ahora; null si no hay parámetro o su valor no es 'test'.
+ */
+export function readForcedTestRoom(): RoomData | null {
+  const raw = new URLSearchParams(window.location.search).get('room');
+  if (raw === null) return null;
+  return raw.toLowerCase() === 'test' ? testRoom : null;
 }
 
 /**

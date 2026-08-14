@@ -21,12 +21,14 @@ import { Preload } from '@react-three/drei';
 import { useCallback, useEffect, useState } from 'react';
 import type { Material, Object3D } from 'three';
 import { getRoomPool } from '@/game/features/dungeon/rooms';
-import { readForcedBossPhase, readForcedBossRoom, readGodMode } from './debug-params';
+import { readForcedBossPhase, readForcedBossRoom, readForcedTestRoom, readGodMode } from './debug-params';
 import { AimInput } from '@/game/features/hero/AimInput';
 import { CandleLightView } from '@/game/features/hero/CandleLightView';
+import { FlashView } from '@/game/features/effects/FlashView';
 import { AmbientDustView } from '@/game/features/effects/AmbientDustView';
 import { ParticleView } from '@/game/features/effects/ParticleView';
 import { ShockwaveView } from '@/game/features/effects/ShockwaveView';
+import { StreakView } from '@/game/features/effects/StreakView';
 import { TrailView } from '@/game/features/effects/TrailView';
 import { WaxView } from '@/game/features/effects/WaxView';
 import { forceBossPhase } from '@/game/features/bosses/lifecycle';
@@ -114,8 +116,9 @@ export function GameRoot({
   // useState con inicializador: la sesión se crea una sola vez y nunca causa re-render.
   const [session] = useState(() => {
     // Modo dios de playtest (?godmode, herramienta B5 de David 2026-07-15):
-    // se lee UNA vez aquí y se aplica a los 3 modos por igual (run completa,
-    // arena de jefe suelta vía ?boss, playtest de sala del editor).
+    // se lee UNA vez aquí y se aplica a los 4 modos por igual (run completa,
+    // arena de jefe suelta vía ?boss, Sala de Pruebas vía ?room=test,
+    // playtest de sala del editor).
     const godMode = readGodMode();
     let s: GameSession;
     if (playtestRoom) {
@@ -127,21 +130,34 @@ export function GameRoot({
         const phase = readForcedBossPhase();
         if (phase) forceBossPhase(s.world, phase);
       } else {
-        // `seed` (2º parámetro) ya no se lee de la URL (era `?seed=`, ver
-        // debug-params.ts): la semilla es siempre aleatoria por run. El
-        // parámetro en sí se queda en `createDungeonGameSession` — los tests
-        // lo usan para determinismo.
-        s = createDungeonGameSession(getRoomPool(), null, godMode);
+        const testRoom = readForcedTestRoom();
+        if (testRoom) {
+          s = createGameSession(testRoom, godMode);
+        } else {
+          // `seed` (2º parámetro) ya no se lee de la URL (era `?seed=`, ver
+          // debug-params.ts): la semilla es siempre aleatoria por run. El
+          // parámetro en sí se queda en `createDungeonGameSession` — los tests
+          // lo usan para determinismo.
+          s = createDungeonGameSession(getRoomPool(), null, godMode);
+        }
       }
     }
     return s;
   });
   // Secuencia de run: cambia solo al reiniciar tras game-over/victoria (remonta el canvas).
   const [runSeq, setRunSeq] = useState(0);
+  // Estado de UI de frecuencia única: reaparece al comenzar otra run, pero no
+  // al avanzar de mazmorra dentro de la misma run.
+  const [showMicroTutorial, setShowMicroTutorial] = useState(true);
+
+  const handleFirstLaunch = useCallback(() => {
+    setShowMicroTutorial(false);
+  }, []);
 
   const handleRestart = useCallback(() => {
     restartSession(session);
     useUiStore.getState().resetRun();
+    setShowMicroTutorial(true);
     setRunSeq((n) => n + 1);
   }, [session]);
 
@@ -218,10 +234,15 @@ export function GameRoot({
             movimientos del héroe/sus proyectiles, sin desvanecido — ver
             wax.ts. */}
         <WaxView pool={session.effects.wax} />
+        {/* Rastro de proyectiles (feedback 2026-08-13): un trazo por tramo
+            recto de la trayectoria, pool independiente de la cera — ver
+            streaks.ts. */}
+        <StreakView pool={session.effects.streaks} />
         <ShockwaveView pool={session.effects.shockwaves} />
+        <FlashView pool={session.effects.flashes} />
         <AimIndicatorView session={session} />
         <CameraRig session={session} />
-        <AimInput session={session} />
+        <AimInput session={session} onLaunch={handleFirstLaunch} />
         {/* Post-procesado (Vignette/Noise/Bloom/ChromaticAberration, ver
             PostEffects.tsx): va DESPUÉS de todas las vistas (necesita que la
             escena ya exista para componer sobre ella) y ANTES de Preload,
@@ -270,7 +291,7 @@ export function GameRoot({
       </Canvas>
       <DamageVignette />
       <FpsCounter />
-      <HUD session={session} />
+      <HUD session={session} showMicroTutorial={showMicroTutorial} />
       <PauseModal session={session} onExitToTitle={onExitToTitle} />
       <BossRewardModal session={session} />
       <NextDungeonModal session={session} onAdvance={handleAdvanceDungeon} />

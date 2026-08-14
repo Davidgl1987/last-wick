@@ -70,8 +70,8 @@ const ENEMY_RADIUS_RENDER = 0.4;
  * no como una peana ajustada a los pies (punto de tuning).
  */
 export const ENEMY_GLOW_PUDDLE_RADIUS = ENEMY_RADIUS_RENDER * 2.5;
-/** Opacidad del charco, tenue como el resto de halos aditivos del juego (proyectiles, ver `assets.ts`) — punto de tuning. */
-export const ENEMY_GLOW_PUDDLE_OPACITY = 0.16;
+/** Opacidad del charco, tenue como el resto de halos aditivos del juego (proyectiles, ver `assets.ts`) — punto de tuning. Bajada de 0.16 a 0.13 junto con el resto (VFX_PLAN T0, ver el comentario largo sobre `enemyProjectileGlowHaloMaterials` en `assets.ts`). */
+export const ENEMY_GLOW_PUDDLE_OPACITY = 0.13;
 
 /**
  * Rig de "luz propia" de un enemigo, montado como HERMANO de `groupRef` (el

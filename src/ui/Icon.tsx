@@ -3,13 +3,16 @@
  * ~20px, con `fill="currentColor"` por defecto para heredar color por CSS
  * (igual que el resto de la UI). Sustituyen a los caracteres/emoji sueltos
  * que había en la UI del juego:
- *   - `flame`: unidad de vida del HUD (antes FlameIcon.tsx, movido aquí) y
- *     modo de ataque "Fuego" en WeaponBar.
+ *   - `flame`: unidad de vida del HUD (antes FlameIcon.tsx, movido aquí) —
+ *     SOLO eso; no lo reutilices para nada nuevo (ver `shard` más abajo).
  *   - `pause`: botón de pausa del HUD (antes el texto "❚❚").
  *   - `key`: llave del HUD (antes el emoji "🗝", que además rendería con la
  *     tipografía emoji del sistema en vez del estilo del juego).
- *   - `dot` / `spark`: modos de ataque "Cera"/"Hechizo" en WeaponBar (antes
- *     los caracteres "●"/"✦").
+ *   - `dot` / `spark` / `shard`: modos de ataque "Cera"/"Hechizo"/"Hielo" en
+ *     WeaponBar (antes los caracteres "●"/"✦"; `shard` es un carámbano
+ *     facetado, añadido 2026-08-11 cuando el modo `arrow` pasó de "Fuego" a
+ *     "Hielo" — deliberadamente un icono NUEVO en vez de reutilizar `flame`,
+ *     que sigue siendo solo el marcador de vidas del HUD).
  *   - `chevron`: flecha simple de una punta, apunta ARRIBA por defecto;
  *     rota con `style={{ transform: 'rotate(90deg)' }}` (0/90/180/-90 =
  *     arriba/derecha/abajo/izquierda) en vez de registrar 4 iconos casi
@@ -28,13 +31,24 @@
 import type { ReactNode, SVGAttributes } from 'react';
 import './icon.css';
 
-export type IconName = 'flame' | 'pause' | 'key' | 'dot' | 'spark' | 'chevron' | 'play' | 'check' | 'close' | 'target';
+export type IconName = 'flame' | 'pause' | 'key' | 'dot' | 'spark' | 'shard' | 'chevron' | 'play' | 'check' | 'close' | 'target';
 
 function renderGlyph(name: IconName): ReactNode {
   switch (name) {
     case 'flame':
-      // Punta hacia arriba, hendidura en la base (unidad de vida / ataque "Fuego").
+      // Punta hacia arriba, hendidura en la base (unidad de vida del HUD — únicamente eso, ver cabecera del fichero).
       return <path d="M12 2C9.8 5.5 6 10 6 14c0 2.8 1.6 5 3.6 6.3.7-1.6 1.4-3.3 2.4-4.5 1 1.2 1.7 2.9 2.4 4.5C16.4 19 18 16.8 18 14c0-4-3.8-8.5-6-12Z" />;
+    case 'shard':
+      // Carámbano/cristal facetado (modo de ataque "Hielo"): dos triángulos
+      // que comparten punta arriba/abajo, opacidad distinta para sugerir dos
+      // caras talladas captando la luz de forma distinta (mismo lenguaje
+      // low-poly que el proyectil 3D, ver ProjectileView.tsx).
+      return (
+        <>
+          <path d="M12 2 L6 8.5 L12 22 Z" />
+          <path d="M12 2 L18 8.5 L12 22 Z" fillOpacity="0.55" />
+        </>
+      );
     case 'pause':
       // Dos barras verticales.
       return (

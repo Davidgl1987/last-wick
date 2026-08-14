@@ -5,6 +5,7 @@
  */
 
 import * as THREE from 'three';
+import { vfxTexture } from './vfx-textures';
 
 // ── Geometrías unitarias (se escalan por mesh) ────────────────────────────
 
@@ -28,6 +29,19 @@ export const unitSpikeNeedle = new THREE.ConeGeometry(0.09, 0.32, 6);
 
 // ── Geometrías de proyectiles con forma (puntos 2/3/11 de playtest) ───────
 
+/**
+ * Cono facetado del cristal de hielo del proyectil `arrow` (arma "Hielo" en
+ * la UI desde 2026-08-11 — el identificador interno sigue siendo `arrow`,
+ * ver WeaponBar.tsx): MISMAS proporciones base que `unitCone` (radio 0.5,
+ * alto 1), pero con MUY pocos segmentos radiales (5, pentagonal) para
+ * leerse como un carámbano tallado en vez de un cono liso. No reutiliza
+ * `unitCone` directamente porque ese lo comparten 7 sitios más (hocico de
+ * enemigos, etc.) que sí deben quedarse lisos. `arrowMaterial` lleva
+ * `flatShading` (ver más abajo) — sin él, three.js sigue interpolando
+ * normales entre segmentos y un cono de pocos lados se seguiría viendo
+ * redondeado en vez de facetado.
+ */
+export const arrowCrystalGeometry = new THREE.ConeGeometry(0.5, 1, 5);
 /** Asta corta de la flecha, detrás del cono dominante (eje +Y local; se rota para alinear con +Z al orientarla). */
 export const arrowShaftGeometry = new THREE.CylinderGeometry(0.035, 0.035, 1, 8);
 /** Segmento del zigzag eléctrico del hechizo: caja alargada instanciada (grosor visible, punto 11). */
@@ -57,35 +71,27 @@ function createRadialTexture(): THREE.Texture {
 }
 
 /**
- * Textura radial BLANCA (centro opaco → borde transparente), generada UNA vez
- * y reutilizada por TODOS los halos de brillo falso (rama `estilo-oscuro`,
+ * Mapa compartido por TODOS los halos de brillo falso (rama `estilo-oscuro`,
  * punto 2 de playtest: "las monedas se ven de otra habitación sin iluminar
- * nada"). A diferencia de `createRadialTexture` (negra, para blob shadows),
- * esta es blanca porque cada halo la tiñe multiplicando por `material.color`
- * con blending ADITIVO (ver más abajo) — así un único mapa sirve para
- * cualquier color de brillo sin generar una textura por objeto.
+ * nada"). Hasta docs/plans/VFX_PLAN.md T0 era un degradado radial blanco→
+ * transparente generado por canvas (`createGlowHaloTexture`, retirada en ese
+ * cambio: sin más consumidores, habría quedado como código muerto). Ahora es
+ * `circle_c.png` (Kenney Light Masks, CC0 — ver `render/vfx-textures.ts` y
+ * `public/textures/vfx/README.md`): núcleo pequeño y brillante con caída
+ * larga, se lee como FUENTE PUNTUAL en vez de disco uniforme. Cada halo la
+ * sigue tiñendo multiplicando por `material.color` con blending ADITIVO (ver
+ * `glowPuddleMaterial` más abajo) — un único mapa sirve para cualquier color
+ * sin generar una textura por objeto, igual que antes del cambio.
+ *
+ * `circle_c` es RGB SIN alfa (ver la regla de blending en la cabecera de
+ * `vfx-textures.ts`): aquí es irrelevante porque `glowPuddleMaterial` SIEMPRE
+ * la usa con `AdditiveBlending`, nunca con blending normal — usarla así
+ * pintaría un cuadrado negro.
+ *
+ * A diferencia de `createRadialTexture` (negra, para blob shadows, arriba),
+ * que SÍ se queda intacta: esa nunca formó parte de este plan.
  */
-function createGlowHaloTexture(): THREE.Texture {
-  const size = 64;
-  const canvas = document.createElement('canvas');
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext('2d');
-  if (ctx) {
-    const gradient = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
-    gradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
-    gradient.addColorStop(0.5, 'rgba(255, 255, 255, 0.35)');
-    gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
-    ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, size, size);
-  }
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  return texture;
-}
-
-/** Mapa radial blanco→transparente compartido por todos los halos de brillo (ver `createGlowHaloTexture`). */
-export const glowHaloTexture = createGlowHaloTexture();
+export const glowHaloTexture = vfxTexture('circle_c');
 
 /**
  * Caché de materiales de "charco de luz falso" (ver `GlowPuddle.tsx`), CLAVE
@@ -101,10 +107,11 @@ const glowPuddleMaterialCache = new Map<string, THREE.MeshBasicMaterial>();
 
 /**
  * Material aditivo de charco de luz falso para un `color`+`opacity` dados:
- * `glowHaloTexture` (mapa radial blanco→transparente) teñido por
- * `material.color` con `AdditiveBlending` y `depthWrite:false` — el mismo
- * mecanismo barato que ya usaban los halos de proyectil enemigo,
- * indistinguible de una luz real desde la cámara cenital. CACHEADO por
+ * `glowHaloTexture` (mapa de luz falsa `circle_c.png`, ver su propio
+ * comentario más arriba) teñido por `material.color` con `AdditiveBlending`
+ * y `depthWrite:false` — el mismo mecanismo barato que ya usaban los halos de
+ * proyectil enemigo, indistinguible de una luz real desde la cámara cenital.
+ * CACHEADO por
  * `color`+`opacity` (ver `glowPuddleMaterialCache`): llamar a esta función
  * dentro de JSX o de un `useFrame` es seguro, nunca asigna memoria nueva
  * salvo la primera vez que se ve esa combinación exacta.
@@ -480,10 +487,18 @@ export const smallDotGeometry = new THREE.SphereGeometry(1, 10, 8);
 // ── Proyectiles ────────────────────────────────────────────────────────────
 
 // Colores alineados con los botones de arma del HUD (mapeo instantáneo
-// botón↔proyectil, feedback de playtest): flecha amarilla, hechizo violeta.
-export const arrowMaterial = new THREE.MeshLambertMaterial({ color: '#54c7ff' });
-/** Asta de la flecha (detrás del cono dominante): tono más oscuro, silueta de flecha reconocible. */
-export const arrowTipMaterial = new THREE.MeshLambertMaterial({ color: '#1f6fa1' });
+// botón↔proyectil, feedback de playtest): cuerpo amarillo, hielo azul,
+// hechizo violeta.
+/**
+ * Cuerpo principal del cristal de hielo (arma "Hielo"/`arrow`): `flatShading`
+ * para que `arrowCrystalGeometry` (cono de 5 caras) se lea con aristas
+ * nítidas entre facetas en vez de un sombreado suave que lo haría parecer un
+ * cono redondeado de baja resolución. También aplica a las esquirlas de
+ * `ArrowShape` (ProjectileView.tsx), que comparten este material.
+ */
+export const arrowMaterial = new THREE.MeshLambertMaterial({ color: '#54c7ff', flatShading: true });
+/** Base/asta del cristal de hielo (detrás del cono dominante) y esquirlas alrededor: tono más oscuro, misma `flatShading` que `arrowMaterial` para que todo el cristal se lea con el mismo lenguaje facetado. */
+export const arrowTipMaterial = new THREE.MeshLambertMaterial({ color: '#1f6fa1', flatShading: true });
 /** Zigzag eléctrico del hechizo (ronda 3, punto 11: sin núcleo, solo rayo): violeta más saturado/luminoso que el cuerpo. */
 export const spellBoltMaterial = new THREE.MeshBasicMaterial({
   color: '#c084fc',
@@ -543,17 +558,34 @@ export function enemyProjectileMaterialForTag(colorTag: string): THREE.MeshLambe
  * de cuerpo de arriba: generalizado a TODO proyectil enemigo (no solo los de
  * La Tormenta), el shooter clásico (sin `colorTag`) recibe el halo rojo por
  * defecto. Migrado a `glowPuddleMaterial` (cacheado por color+opacidad, ver
- * arriba) — mismos colores/opacidades exactos que antes, sin construir el
+ * arriba) — mismos colores exactos que antes, sin construir el
  * `MeshBasicMaterial` a mano por etiqueta.
+ *
+ * Opacidades bajadas de 0.16/0.18 a 0.13/0.15 (VFX_PLAN T0, swap de
+ * `glowHaloTexture` a `circle_c.png`): medido el PNG frente al degradado de
+ * canvas anterior (perfil radial de brillo por anillos), `circle_c` integra
+ * ~25% más energía total y su núcleo casi-blanco puro (brillo ≥0.95) cubre un
+ * área ~9× mayor en radio² (r≈0.15 del disco completo, frente a un punto
+ * ~r≈0.05 antes) — con el mismo `opacity`, el halo se leía más "quemado" y el
+ * `Bloom` de `PostEffects.tsx` lo amplificaba más de lo que hacía con el
+ * degradado suave anterior. La reducción (~19% y ~17%) sigue la misma
+ * proporción que la diferencia de energía medida, y mantiene el salto
+ * relativo entre el nivel base (0.16→0.13) y el de La Tormenta
+ * (0.18→0.15, siempre 0.02 por encima del base). Mismo ajuste aplicado en
+ * `ProjectileView.tsx`/`TorchView.tsx`/`RoomPropsView.tsx`/
+ * `TorchPropsView.tsx`/`EnemyLights.tsx` — sus constantes de opacidad se
+ * documentan unas a otras como "mismo valor que el resto de halos aditivos
+ * del juego"; bajar solo esta habría roto esa consistencia (proyectil de
+ * héroe más brillante que el de enemigo, antorcha más brillante que ambos).
  */
 const enemyProjectileGlowHaloMaterials: Record<string, THREE.MeshBasicMaterial> = {
-  '': glowPuddleMaterial('#ff3b3b', 0.16),
-  ram: glowPuddleMaterial(WEAPON_COLOR.body, 0.16),
-  arrow: glowPuddleMaterial(WEAPON_COLOR.arrow, 0.16),
-  spell: glowPuddleMaterial(WEAPON_COLOR.spell, 0.16),
-  'storm-spiral': glowPuddleMaterial(STORM_SPIRAL_PROJECTILE_COLOR, 0.18),
-  'storm-rings': glowPuddleMaterial(STORM_RINGS_PROJECTILE_COLOR, 0.18),
-  'storm-burst': glowPuddleMaterial(STORM_BURST_PROJECTILE_COLOR, 0.18),
+  '': glowPuddleMaterial('#ff3b3b', 0.13),
+  ram: glowPuddleMaterial(WEAPON_COLOR.body, 0.13),
+  arrow: glowPuddleMaterial(WEAPON_COLOR.arrow, 0.13),
+  spell: glowPuddleMaterial(WEAPON_COLOR.spell, 0.13),
+  'storm-spiral': glowPuddleMaterial(STORM_SPIRAL_PROJECTILE_COLOR, 0.15),
+  'storm-rings': glowPuddleMaterial(STORM_RINGS_PROJECTILE_COLOR, 0.15),
+  'storm-burst': glowPuddleMaterial(STORM_BURST_PROJECTILE_COLOR, 0.15),
 };
 
 /** Material de HALO del proyectil enemigo para su `colorTag` ('' u otra etiqueta sin mapear = clásico rojo). */

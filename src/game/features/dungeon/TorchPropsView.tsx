@@ -57,8 +57,8 @@ import { isPointInKnownRoom, useKnownRoomIds } from '@/game/render/known-rooms';
  * `torch-placements.ts`: la luz que sustituye alcanzaba más lejos).
  */
 const SHOPKEEPER_GLOW_PUDDLE_RADIUS = 1.8;
-/** Opacidad del charco: mismo valor que el resto de halos aditivos del juego. */
-const SHOPKEEPER_GLOW_PUDDLE_OPACITY = 0.16;
+/** Opacidad del charco: mismo valor que el resto de halos aditivos del juego — bajada de 0.16 a 0.13 junto con el resto (VFX_PLAN T0, ver el comentario largo sobre `enemyProjectileGlowHaloMaterials` en `assets.ts`). */
+const SHOPKEEPER_GLOW_PUDDLE_OPACITY = 0.13;
 
 function ShopkeeperGlow({ x, z }: { x: number; z: number }) {
   const glowRef = useRef<Mesh>(null);

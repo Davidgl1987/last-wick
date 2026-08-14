@@ -227,8 +227,12 @@ const CANDLE_GLOW_PUDDLE_RADIUS = 0.8;
  * color+opacidad exacto con las antorchas hace que `glowPuddleMaterial`
  * (cacheado por esa clave, ver `assets.ts`) devuelva el MISMO material ya
  * creado para ellas — cero materiales nuevos por poner velas en una sala.
+ * Bajada de 0.16 a 0.13 junto con el resto de halos aditivos (VFX_PLAN T0,
+ * ver el comentario largo sobre `enemyProjectileGlowHaloMaterials` en
+ * `assets.ts`) — sigue coincidiendo exacta con las otras dos, la caché no se
+ * rompe.
  */
-const CANDLE_GLOW_PUDDLE_OPACITY = 0.16;
+const CANDLE_GLOW_PUDDLE_OPACITY = 0.13;
 /** Altura de la llama sobre el suelo: justo por encima de la cera (`WALL_DECOR_MOUNT_Y + CANDLE_TARGET_HEIGHT`), un pelín más para que no quede enterrada en la punta del modelo. */
 const CANDLE_FLAME_HEIGHT = WALL_DECOR_MOUNT_Y + CANDLE_TARGET_HEIGHT + 0.02;
 /** Escala XZ/Y de la llama — mismas proporciones que `FLAME_SCALE_XZ`/`FLAME_SCALE_Y` de `TorchView.tsx`, reducidas a la mitad (misma proporción que `CANDLE_TARGET_HEIGHT`/`TORCH_WAX_HEIGHT` = 0.35/0.7): una llama de vela más pequeña que la de una antorcha de muro. */

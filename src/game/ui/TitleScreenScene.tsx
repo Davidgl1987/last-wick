@@ -25,13 +25,14 @@ import {
 } from '@/game/render/assets';
 import {
   candleEyeMaterial,
-  candleFlameMaterial,
   chaserEyeGlowMaterial,
   dummyEyeGlowMaterial,
   dummySkirtMaterial,
+  heroFlameMaterial,
   titleDustGeometry,
   titleDustMaterial,
   titleVoidMaterial,
+  WEAPON_COLOR_FLAME_HDR,
 } from '@/game/render/assets-dark';
 import type { KitModelName } from '@/game/render/kit-models';
 import { TitlePostEffects } from '@/game/render/PostEffects';
@@ -40,6 +41,14 @@ const ENTRY_DURATION = 1.35;
 const DOOR_OPENING_WIDTH = 3.35;
 const DOOR_Y_SCALE = 1.05;
 const DOOR_Z = -3.15;
+
+/**
+ * Eje de mundo reutilizado para el billboard CILÍNDRICO de la llama de
+ * `Lumora` (mismo criterio que `Y_AXIS` en `HeroView.tsx`): solo lectura,
+ * nunca se muta, así que un único objeto de módulo vale para todos los
+ * frames sin asignar nada nuevo.
+ */
+const Y_AXIS = new THREE.Vector3(0, 1, 0);
 
 function smoothstep(value: number): number {
   return value * value * (3 - 2 * value);
@@ -183,13 +192,51 @@ function Lumora() {
   const scale = 0.54 / width;
   const bodyTop = box.max.y * scale;
   const bodyGround = -box.min.y * scale;
+  // Billboard cilíndrico de la llama (David 2026-08-13, "para que todo sea
+  // igual": mismo `heroFlameMaterial`/quad que HeroView.tsx, con el mismo
+  // criterio — gira SOLO en Y para mirar a la cámara de ESTA escena
+  // (`TitleCamera`, propia del vestíbulo, no la del juego) y se mantiene
+  // vertical pase lo que pase con el balanceo del grupo). Quaternions
+  // reutilizados cada frame, cero asignaciones — mismo patrón que
+  // `flameBillboardQuat`/`flameTiltInverseQuat` en HeroView.tsx.
+  const flameBillboardQuat = useRef(new THREE.Quaternion());
+  const flameTiltInverseQuat = useRef(new THREE.Quaternion());
+
+  // `heroFlameMaterial` es un objeto MUTABLE compartido con el juego real
+  // (HeroView.tsx lerpea `.color` hacia el arma activa cada frame) — si el
+  // jugador vuelve al título tras una run con flecha/hechizo activo, el
+  // color quedaría teñido de azul/violeta en vez del cálido de Lumora. Se
+  // fija al color de cuerpo (el mismo que ya usaba `heroMaterial` de fondo)
+  // una vez al montar: aquí no hay cambio de arma que lerpear, así que basta
+  // con esto (no hace falta repetirlo cada frame).
+  useEffect(() => {
+    heroFlameMaterial.color.copy(WEAPON_COLOR_FLAME_HDR.body);
+  }, []);
 
   useFrame((state) => {
     const time = state.clock.elapsedTime;
     const pulse = 1 + Math.sin(time * 3.1) * 0.055 + Math.sin(time * 5.7) * 0.035;
-    if (flameRef.current) flameRef.current.scale.set(0.16 * pulse, 0.3 * pulse, 0.16 * pulse);
+    const group = groupRef.current;
+    const flame = flameRef.current;
+    if (flame) {
+      flame.scale.set(0.16 * pulse, 0.3 * pulse, 0.16 * pulse);
+      if (group) {
+        // `group.position` ya está en coordenadas de MUNDO (Lumora cuelga
+        // directamente de la escena, sin ancestro con transform propio) —
+        // mismo cálculo de yaw que HeroView.tsx, solo que aquí la posición
+        // del grupo es constante y la cámara es la de TitleCamera.
+        const camera = state.camera;
+        const yaw = Math.atan2(camera.position.x - group.position.x, camera.position.z - group.position.z);
+        flameBillboardQuat.current.setFromAxisAngle(Y_AXIS, yaw);
+        // Cancela el balanceo en Z del grupo (línea de abajo) igual que
+        // HeroView cancela la inclinación de `tiltGroup`: sin esto la llama
+        // heredaría ese balanceo y dejaría de leerse vertical.
+        flameTiltInverseQuat.current.copy(group.quaternion).invert();
+        flame.quaternion.copy(flameTiltInverseQuat.current).multiply(flameBillboardQuat.current);
+      }
+    }
     if (lightRef.current) lightRef.current.intensity = 18 + Math.sin(time * 3.1) * 1.2 + Math.sin(time * 5.7) * 0.7;
-    if (groupRef.current) groupRef.current.rotation.z = Math.sin(time * 0.75) * 0.012;
+    if (group) group.rotation.z = Math.sin(time * 0.75) * 0.012;
   });
 
   return (
@@ -199,7 +246,7 @@ function Lumora() {
         <mesh geometry={smallDotGeometry} material={candleEyeMaterial} position={[-0.105, 0, 0]} scale={[0.065, 0.1, 0.04]} />
         <mesh geometry={smallDotGeometry} material={candleEyeMaterial} position={[0.105, 0, 0]} scale={[0.065, 0.1, 0.04]} />
       </group>
-      <mesh ref={flameRef} geometry={unitCone} material={candleFlameMaterial} position={[0, bodyGround + bodyTop + 0.14, 0]} />
+      <mesh ref={flameRef} geometry={unitPlane} material={heroFlameMaterial} position={[0, bodyGround + bodyTop + 0.14, 0]} />
       <pointLight ref={lightRef} color="#ffc06c" distance={5.8} decay={2} position={[0, bodyGround + bodyTop + 0.22, 0.18]} />
       <mesh geometry={unitCircle} material={blobShadowMaterial} rotation-x={-Math.PI / 2} position={[0, 0.005, 0]} scale={0.48} />
     </group>

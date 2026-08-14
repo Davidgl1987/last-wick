@@ -16,16 +16,22 @@ import { frameClass, Icon, type IconName } from '@/ui';
 import './weapon-bar.css';
 
 /**
- * Nombres de la capa de presentación (Cera/Fuego/Hechizo) — los identificadores
+ * Nombres de la capa de presentación (Cera/Hielo/Hechizo) — los identificadores
  * internos `'body' | 'arrow' | 'spell'` (tipo `WeaponMode` del mundo simulado)
  * NO cambian, solo su etiqueta e icono aquí. Cada modo lleva el COLOR de su
  * ataque (mismo color que su proyectil/estela, feedback de playtest): cera
- * amarilla, fuego azul, hechizo violeta. Se aplica vía clase CSS
+ * amarilla, hielo azul, hechizo violeta. Se aplica vía clase CSS
  * `weapon-btn-<mode>` (colores en weapon-bar.css).
+ *
+ * `arrow` se llamó "Fuego" hasta 2026-08-11 (decisión de David: el proyectil
+ * siempre fue un cono azul hielo — `WEAPON_COLOR.arrow` en render/assets.ts
+ * — así que el concepto pasa a ser hielo en vez de recolorear a naranja).
+ * Icono propio `'shard'` (Icon.tsx) en vez de `'flame'`: ese icono dibuja
+ * las unidades de vida del HUD, no debe tocarse.
  */
 const MODES: { mode: WeaponMode; label: string; icon: IconName }[] = [
   { mode: 'body', label: 'Cera', icon: 'dot' },
-  { mode: 'arrow', label: 'Fuego', icon: 'flame' },
+  { mode: 'arrow', label: 'Hielo', icon: 'shard' },
   { mode: 'spell', label: 'Hechizo', icon: 'spark' },
 ];
 

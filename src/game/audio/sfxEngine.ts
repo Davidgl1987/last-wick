@@ -7,8 +7,8 @@
  *
  * Grafo por voz: `source → [lowpass?] → panner (StereoPanner) → gainDeVoz →
  * busGain (sfx|music) → masterGain → destination`. El bucle continuo
- * (`hero-slide-loop`) usa el mismo bus `sfx` con su propio `GainNode` de
- * ganancia rampeada en vez de crear una voz por llamada.
+ * (hoy el reloj de tienda `shop-opened`) usa el mismo bus `sfx` con su propio
+ * `GainNode` de ganancia rampeada en vez de crear una voz por llamada.
  *
  * TODO debe ser no-op seguro si no hay `AudioContext` (entorno `node` de
  * vitest — ver `vite.config.ts`, `environment: 'node'`, sin `window` global
@@ -110,7 +110,7 @@ interface LoopVoice {
   /** true mientras la rampa de apagado está en marcha (evita reprogramar un `stop` ya armado). */
   stopping: boolean;
 }
-/** Bucles continuos activos (hoy solo `hero-slide-loop`, pero el mecanismo es genérico). */
+/** Bucles continuos activos (hoy el reloj de tienda); el mecanismo es genérico. */
 const loops = new Map<SfxClipName, LoopVoice>();
 
 /**

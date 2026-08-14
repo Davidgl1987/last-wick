@@ -201,3 +201,114 @@
     transform: translateX(-50%) translateY(-10px);
   }
 }
+
+/* Microtutorial de primer lanzamiento: Lumora queda proyectada en el centro
+   por CameraRig, así que el gesto DOM puede acompañarla sin hacer cálculos ni
+   asignaciones por frame. Toda la capa ignora input; el canvas conserva el
+   mismo Pointer Events unificado para ratón y táctil. */
+.hud-microtutorial {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: min(310px, calc(100vw - 32px));
+  height: 150px;
+  transform: translate(-50%, -42%);
+  color: var(--ui-accent-hi);
+  pointer-events: none;
+  filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.85));
+}
+
+.hud-microtutorial-gesture {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 40px;
+  height: 52px;
+  animation: microtutorial-drag 2.4s var(--ui-ease-in) infinite;
+}
+
+.hud-microtutorial-finger {
+  display: block;
+  width: 40px;
+  height: 52px;
+}
+
+.hud-microtutorial-pull {
+  position: absolute;
+  top: 12px;
+  left: 18px;
+  width: 54px;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(233, 195, 124, 0.75), transparent);
+  transform-origin: left center;
+  animation: microtutorial-pull 2.4s var(--ui-ease-in) infinite;
+}
+
+.hud-microtutorial-pull::before {
+  content: '';
+  position: absolute;
+  left: -5px;
+  top: -5px;
+  width: 11px;
+  height: 11px;
+  border: 1px solid var(--ui-accent);
+  border-radius: 50%;
+  box-shadow: 0 0 7px rgba(233, 195, 124, 0.55);
+}
+
+.hud-microtutorial-text {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  transform: translateX(-50%);
+  padding: 6px 12px;
+  border-bottom: 1px solid rgba(233, 195, 124, 0.5);
+  background: rgba(11, 13, 20, 0.66);
+  color: var(--ui-text);
+  font-family: var(--font-display);
+  font-size: clamp(13px, 3.6vw, 16px);
+  font-weight: 700;
+  letter-spacing: 0.015em;
+  text-align: center;
+  white-space: nowrap;
+}
+
+@keyframes microtutorial-drag {
+  0%,
+  16% {
+    opacity: 0;
+    transform: translate(20px, 5px) scale(0.94);
+  }
+  24% {
+    opacity: 0.9;
+  }
+  68% {
+    opacity: 0.9;
+    transform: translate(-48px, 39px) scale(1);
+  }
+  78%,
+  100% {
+    opacity: 0;
+    transform: translate(-48px, 39px) scale(0.9);
+  }
+}
+
+@keyframes microtutorial-pull {
+  0%,
+  24% {
+    opacity: 0;
+    transform: rotate(-29deg) scaleX(0);
+  }
+  34% {
+    opacity: 0.8;
+  }
+  68% {
+    opacity: 0.8;
+    transform: rotate(-29deg) scaleX(1.42);
+  }
+  78%,
+  100% {
+    opacity: 0;
+    transform: rotate(-29deg) scaleX(1.42);
+  }
+}
