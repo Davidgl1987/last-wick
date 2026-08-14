@@ -11,6 +11,7 @@ import { ParticlePool } from '@/game/features/effects/particles';
 import { ShockwavePool } from '@/game/features/effects/shockwave';
 import { StreakPool } from '@/game/features/effects/streaks';
 import { TrailPool } from '@/game/features/effects/trail';
+import { WallMarkPool } from '@/game/features/effects/wallmarks';
 import { WaxPool } from '@/game/features/effects/wax';
 import { BOSS_DIFFICULTY_ORDER } from '@/game/features/bosses/registry';
 import { initBossEnemies } from '@/game/features/bosses/lifecycle';
@@ -47,6 +48,15 @@ export interface EffectsSession {
    * sala).
    */
   streaks: StreakPool;
+  /**
+   * Marcas de impacto en muro (encargo de David: "añade una marca en la
+   * pared donde impacten los proyectiles" — ver `features/effects/wallmarks.ts`):
+   * pool NUEVO e independiente de `streaks`, mismo criterio de persistencia
+   * (sobrevive a los cambios de SALA dentro de la misma mazmorra, se limpia
+   * explícitamente aquí abajo en los MISMOS puntos que `wax`/`streaks`, nunca
+   * en `advanceRoom`/lo que sea que cambie de sala).
+   */
+  wallMarks: WallMarkPool;
   shockwaves: ShockwavePool;
   /**
    * Fogonazos de impacto (VFX_PLAN T3): igual que `shockwaves`, geometría
@@ -65,6 +75,7 @@ function createEffectsSession(): EffectsSession {
     trail: new TrailPool(),
     wax: new WaxPool(),
     streaks: new StreakPool(),
+    wallMarks: new WallMarkPool(),
     shockwaves: new ShockwavePool(),
     flashes: new FlashPool(),
     state: createEffectsState(),
@@ -317,6 +328,9 @@ export function restartSession(session: GameSession): void {
   // Rastro de proyectiles (ver comentario de `EffectsSession.streaks`
   // arriba): mismo motivo y mismo punto que `wax`.
   session.effects.streaks.clear();
+  // Marcas de impacto en muro (ver comentario de `EffectsSession.wallMarks`
+  // arriba): mismo motivo y mismo punto que `wax`/`streaks`.
+  session.effects.wallMarks.clear();
 }
 
 /**
@@ -405,6 +419,8 @@ export function advanceToNextDungeon(session: GameSession): void {
   session.effects.wax.clear();
   // Rastro de proyectiles: mismo motivo y mismo punto que `wax`.
   session.effects.streaks.clear();
+  // Marcas de impacto en muro: mismo motivo y mismo punto que `wax`/`streaks`.
+  session.effects.wallMarks.clear();
 }
 
 /**

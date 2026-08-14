@@ -14,7 +14,7 @@ import { useEffect, useRef } from 'react';
 import { BossHealthBar } from '@/game/features/bosses/BossHealthBar';
 import { pauseGame, type GameSession } from '@/game/session/session';
 import { useUiStore } from '@/game/session/store';
-import { Button, Icon } from '@/ui';
+import { Button, frameClass, Icon } from '@/ui';
 import './hud.css';
 import { WeaponBar } from './WeaponBar';
 
@@ -129,7 +129,9 @@ export function HUD({ session, showMicroTutorial }: { session: GameSession; show
               />
             </svg>
           </div>
-          <span className="hud-microtutorial-text">Arrastra y suelta para lanzarte</span>
+          <span className={frameClass('plain', 'hud-microtutorial-text')}>
+            Arrastra y suelta para lanzarte
+          </span>
         </div>
       )}
       <BossHealthBar session={session} />

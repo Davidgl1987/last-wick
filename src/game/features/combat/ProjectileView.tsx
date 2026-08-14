@@ -50,6 +50,7 @@ import { getUpgradeLevel } from '@/game/session/upgrades';
 import { arrowCrystalGeometry, arrowMaterial, arrowShaftGeometry, arrowTipMaterial, enemyProjectileGlowHaloMaterialForTag, enemyProjectileMaterial, enemyProjectileMaterialForTag, glowPuddleMaterial, spellBoltMaterial, spellBoltSegmentGeometry, spellSparkGeometry, spellSparkMaterial, unitSphere, WEAPON_COLOR } from '@/game/render/assets';
 import { GLOW_PUDDLE_GROUND_Y, GlowPuddle } from '@/game/render/GlowPuddle';
 import { STREAK_TYPE_ARCANE, STREAK_TYPE_FROST } from '@/game/features/effects/streaks';
+import { WALL_MARK_TYPE_ARCANE, WALL_MARK_TYPE_FROST, wallNormalAt } from '@/game/features/effects/wallmarks';
 import { arrowWidthScaleForLevel } from './upgrade-visuals';
 
 /**
@@ -115,6 +116,42 @@ const PROJECTILE_VISUAL_SCALE = 0.8;
  */
 /** Ancho BASE del trazo como fracción de `p.radius` (el pool varía esto ±25%, ver `streaks.ts`): orden de magnitud del grosor visual del proyectil (cono de Hielo/zigzag del Hechizo), para que el rastro se lea como su estela real. */
 const PROJECTILE_STREAK_WIDTH_FACTOR = 1.1;
+
+/**
+ * Marca de impacto en muro (encargo de David: "añade una marca en la pared
+ * donde impacten los proyectiles" — ver `features/effects/wallmarks.ts` para
+ * el pool y la cabecera larga sobre por qué la normal se calcula por
+ * geometría de solo lectura, `wallNormalAt`, en vez de comparar velocidad
+ * antes/después: cubre por igual el REBOTE (velocidad "después" real) y el
+ * IMPACTO FINAL (flecha, o el último rebote del hechizo — ahí `p.velocity`
+ * ya está a (0,0) cuando el render vuelve a leer el proyectil) sin arriesgar
+ * una marca flotando en mitad de la sala cuando el proyectil muere contra un
+ * ENEMIGO o un BARRIL en vez de un muro. Llamada desde DOS sitios de
+ * `ProjectileSlot` más abajo: el rebote detectado por `bounced` (mismo
+ * `if` que cierra/abre el trazo) y la transición activo→inactivo de un
+ * proyectil que estaba siendo seguido por el trazo (streakIndex.current !==
+ * -1 en el frame anterior). Función de MÓDULO (no closure dentro de
+ * useFrame) para no asignar memoria por frame.
+ */
+function spawnWallMarkForImpact(session: GameSession, p: Projectile): void {
+  const world = session.world;
+  const normal = wallNormalAt(
+    p.position.x,
+    p.position.y,
+    p.radius,
+    world.obstacles,
+    world.dungeon === null ? world.bounds : null,
+  );
+  if (!normal) return; // No tocaba ningún muro: murió por otra causa (enemigo, barril, TTL) — sin marca.
+  session.effects.wallMarks.spawn(
+    p.position.x,
+    PROJECTILE_GROUP_HEIGHT,
+    p.position.y,
+    normal.x,
+    normal.z,
+    p.kind === 'arrow' ? WALL_MARK_TYPE_FROST : WALL_MARK_TYPE_ARCANE,
+  );
+}
 
 type ProjectileKind = Projectile['kind'];
 
@@ -329,6 +366,16 @@ function ProjectileSlot({ session, index }: { session: GameSession; index: numbe
     const group = groupRef.current;
     if (!group) return;
     if (!p.active) {
+      // Impacto FINAL contra un muro (flecha siempre, o el último rebote del
+      // hechizo sin bouncesLeft): solo si ESTE slot venía siendo seguido como
+      // vuelo de arco/hechizo del héroe (streakIndex.current !== -1, fijado
+      // en el frame anterior) — evita comprobar geometría en slots inactivos
+      // sin dueño o proyectiles enemigos, que nunca dejan marca. Ver
+      // `spawnWallMarkForImpact` para por qué no basta esta transición sola
+      // (necesita además que `p.position` toque de verdad un muro).
+      if (streakIndex.current !== -1) {
+        spawnWallMarkForImpact(session, p);
+      }
       group.visible = false;
       streakIndex.current = -1;
       return;
@@ -361,6 +408,9 @@ function ProjectileSlot({ session, index }: { session: GameSession; index: numbe
         // resuelta por combat.ts (misma posición que usa el evento
         // 'projectile-wall' para el fogonazo/partículas de impacto).
         streaks.update(streakIndex.current, streakOriginX.current, streakOriginZ.current, p.position.x, p.position.y);
+        // Marca de impacto en el muro contra el que acaba de rebotar (solo el
+        // Hechizo llega aquí: la flecha nunca rebota, bouncesLeft siempre 0).
+        spawnWallMarkForImpact(session, p);
       }
       if (isNewFlight || bounced) {
         // Nace un trazo: al disparar (isNewFlight) o justo tras cerrar el

@@ -233,10 +233,24 @@
   height: 52px;
 }
 
+/* Origen del gesto: la yema del dedo índice (la punta redondeada del path de
+   la mano, centrada en torno a (19.5, 8.5) en su viewBox de 40×52) queda justo
+   debajo-derecha de aquí. Se ancla FUERA del contorno (arriba-izquierda de la
+   punta, en el hueco vacío del viewBox) en vez de sobre él: con el ángulo de
+   -29deg de abajo, cualquier origen dentro o pegado al arco de la punta hace
+   que el primer tramo de la línea (antes de escapar del contorno) pinte por
+   encima del relleno semiopaco de la mano — "pintarla detrás" tampoco vale,
+   porque ese fill es rgba(18,21,34,0.9) y el stroke del contorno es opaco, así
+   que seguiría marcándose. Se mantiene el mismo ángulo (no se invierte la
+   estela): apunta hacia atrás/arriba-derecha mientras la animación hermana
+   `microtutorial-drag` mueve la mano hacia abajo-izquierda, como el hilo de
+   una honda tensándose entre un punto que queda relativamente fijo y el dedo
+   que se aleja — invertirla la haría leerse como estela de movimiento en la
+   MISMA dirección que la mano, perdiendo esa lectura de "tirando hacia atrás". */
 .hud-microtutorial-pull {
   position: absolute;
-  top: 12px;
-  left: 18px;
+  top: 2px;
+  left: 9px;
   width: 54px;
   height: 1px;
   background: linear-gradient(90deg, rgba(233, 195, 124, 0.75), transparent);
@@ -256,14 +270,22 @@
   box-shadow: 0 0 7px rgba(233, 195, 124, 0.55);
 }
 
-.hud-microtutorial-text {
+/* Marco `Frame` del kit (variante `plain`, ver src/ui/frame.css) en vez de un
+   borde a mano: mismo lenguaje visual que el resto de la app. Selector
+   compuesto `.hud-microtutorial-text.ui-frame` (no solo `.hud-microtutorial-text`)
+   para ganarle en especificidad a la `position: relative` de `.ui-frame` pase
+   lo que pase el orden de imports — mismo motivo que `.frame-plain.weapon-btn`
+   en weapon-bar.css, aquí aplicado a `position` en vez de a `--ui-frame-color`
+   (si perdiera, el texto dejaría de posicionarse absoluto y rompería el layout
+   del cartel). Padding en línea con el mínimo de 18px/lado que pide frame.css
+   para que el marco no tape el texto. */
+.hud-microtutorial-text.ui-frame {
   position: absolute;
   left: 50%;
   bottom: 0;
   transform: translateX(-50%);
-  padding: 6px 12px;
-  border-bottom: 1px solid rgba(233, 195, 124, 0.5);
-  background: rgba(11, 13, 20, 0.66);
+  padding: 14px 20px;
+  background: rgba(11, 13, 20, 0.72);
   color: var(--ui-text);
   font-family: var(--font-display);
   font-size: clamp(13px, 3.6vw, 16px);

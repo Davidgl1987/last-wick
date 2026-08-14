@@ -30,6 +30,7 @@ import { ParticleView } from '@/game/features/effects/ParticleView';
 import { ShockwaveView } from '@/game/features/effects/ShockwaveView';
 import { StreakView } from '@/game/features/effects/StreakView';
 import { TrailView } from '@/game/features/effects/TrailView';
+import { WallMarkView } from '@/game/features/effects/WallMarkView';
 import { WaxView } from '@/game/features/effects/WaxView';
 import { forceBossPhase } from '@/game/features/bosses/lifecycle';
 import { QueenColumnsView, QueenTethersView } from '@/game/features/bosses/queen/QueenColumnsView';
@@ -238,6 +239,10 @@ export function GameRoot({
             recto de la trayectoria, pool independiente de la cera — ver
             streaks.ts. */}
         <StreakView pool={session.effects.streaks} />
+        {/* Marcas de impacto en muro (encargo de David): escarcha/chispazo
+            arcano en la superficie vertical del muro, pool independiente del
+            rastro del suelo — ver wallmarks.ts. */}
+        <WallMarkView pool={session.effects.wallMarks} />
         <ShockwaveView pool={session.effects.shockwaves} />
         <FlashView pool={session.effects.flashes} />
         <AimIndicatorView session={session} />
