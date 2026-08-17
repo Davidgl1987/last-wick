@@ -277,16 +277,28 @@
   animation: microtutorial-pull 2.4s var(--ui-ease-in) infinite;
 }
 
-.hud-microtutorial-pull::before {
+/* El punto de agarre NO cuelga de `.hud-microtutorial-pull` (donde estaba
+   hasta 2026-08-14), sino del contenedor del gesto. Causa raíz de que la
+   estela "siguiera cruzando los dedos" después de dos intentos de moverla:
+   `.hud-microtutorial-pull` se anima con `scaleX(0→1.42)`, y un
+   pseudo-elemento HEREDA la transformación de su padre — así que el círculo
+   de 11px se estiraba en una ELIPSE de ~15.6px de ancho (con su box-shadow
+   estirado también) que a extensión completa invadía la yema del índice.
+   Ningún ajuste del origen podía arreglarlo: el invasor crecía con la
+   animación. Colgado del contenedor, que solo traslada y escala de forma
+   UNIFORME, el círculo se queda redondo y quieto en el punto de agarre. */
+.hud-microtutorial-gesture::before {
   content: '';
   position: absolute;
   left: -5px;
-  top: -5px;
+  top: -8px;
   width: 11px;
   height: 11px;
   border: 1px solid var(--ui-accent);
   border-radius: 50%;
   box-shadow: 0 0 7px rgba(233, 195, 124, 0.55);
+  opacity: 0;
+  animation: microtutorial-pull-dot 2.4s var(--ui-ease-in) infinite;
 }
 
 /* Marco `Frame` del kit (variante `plain`, ver src/ui/frame.css) en vez de un
@@ -351,5 +363,25 @@
   100% {
     opacity: 0;
     transform: rotate(-29deg) scaleX(1.42);
+  }
+}
+
+/* Solo la OPACIDAD de la estela, sin su transform: el punto de agarre aparece
+   y se apaga a la vez que ella, pero sin heredar el `scaleX` que lo deformaba
+   (ver el comentario de `.hud-microtutorial-gesture::before`). */
+@keyframes microtutorial-pull-dot {
+  0%,
+  24% {
+    opacity: 0;
+  }
+  34% {
+    opacity: 0.8;
+  }
+  68% {
+    opacity: 0.8;
+  }
+  78%,
+  100% {
+    opacity: 0;
   }
 }
