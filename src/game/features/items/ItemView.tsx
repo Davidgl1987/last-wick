@@ -52,6 +52,16 @@ import { useKnownRoomIds } from '@/game/render/known-rooms';
 import { coinMaterial, keyMaterial } from '@/game/render/assets';
 import { makeSilhouetteMaterial, SILHOUETTE_RENDER_ORDER } from '@/game/render/occlusion-silhouette';
 
+/**
+ * `coin: 0.3` sigue sirviendo tal cual tras poner la moneda DE PIE (encargo
+ * de David 2026-08-17, ver `CoinShape`/`ItemMesh` más abajo) — comprobado con
+ * cuenta, no a ojo: de pie la moneda ocupa ±COIN_RADIUS (0.24) en Y respecto
+ * al ancla del grupo, y el bob (`ItemMesh`) suma hasta ±0.05 más. En el peor
+ * caso (punto más bajo del bob) el borde inferior queda en
+ * `0.3 - 0.05 - 0.24 = 0.01` — sigue por encima de y=0, así que la moneda
+ * roza el suelo en el fondo del bob sin llegar a atravesarlo. No hace falta
+ * tocar este número.
+ */
 const ITEM_HEIGHT: Record<Item['kind'], number> = { coin: 0.3, potion: 0.32, key: 0.3, shopkeeper: 0 };
 /** Radio visual de la moneda (antes diámetro del cilindro plano de assets.ts; se conserva igual con la pieza del kit). */
 const COIN_RADIUS = 0.24;
@@ -241,14 +251,33 @@ coinBodyMaterial.transparent = true;
 const COIN_BODY_RENDER_ORDER = SILHOUETTE_RENDER_ORDER + 1;
 
 function CoinShape({ receiveShadow }: { receiveShadow: boolean }) {
-  const geometry = kitGeometry('coin');
+  const geometry = useMemo(() => {
+    const base = kitGeometry('coin');
+    // La moneda del kit nace TUMBADA (disco sobre el plano XZ: boundingBox
+    // ±0.0625 en Y, el eje vertical, frente a ±0.18 en X/Z — verificado
+    // contra el .gltf), pensada para leerse en planta, no para el vuelco
+    // clásico de moneda de videojuego. Mientras la moneda giraba sobre Z
+    // (rama especial que llevaba `ItemMesh`, ver su comentario) esta forma
+    // tumbada bastaba tal cual. Encargo de David 2026-08-17 ("que giren de
+    // la misma manera que las pociones"): la moneda pasa a girar sobre Y,
+    // igual que el resto de recogibles — pero un disco tumbado girando sobre
+    // su propio eje de simetría (Y) no cambiaría de aspecto en pantalla NI
+    // UN PÍXEL, así que primero hay que ponerla DE PIE. Un giro de 90° en X
+    // mueve el eje fino de Y a Z y dibuja la cara del disco en el plano XY —
+    // mismo patrón que `KeyShape` más abajo: clonar (NUNCA mutar la
+    // geometría cacheada que devuelve `kitGeometry`, que comparte cualquier
+    // otro consumidor futuro del kit) y aplicar el giro UNA sola vez aquí, no
+    // en cada mesh, así el cuerpo (`coinBodyMaterial`) y la silueta
+    // (`coinSilhouetteMaterial`) — dos meshes con la MISMA geometría — siguen
+    // coincidiendo exactamente sin duplicar la transformación.
+    const corrected = base.clone().rotateX(Math.PI / 2);
+    corrected.computeBoundingBox();
+    return corrected;
+  }, []);
   const nativeSize = useMemo(() => kitBoxSize(geometry), [geometry]);
-  // La moneda del kit YA nace con el mismo eje fino que el cilindro que
-  // sustituye: verificado contra el .gltf, el boundingBox mide ±0.0625 en Y
-  // (el eje vertical) frente a ±0.18 en X/Z — un disco tumbado sobre el
-  // plano XZ, igual que el CylinderGeometry de antes. El giro de vuelco
-  // sobre Z que aplica ItemMesh (canto visible al voltear) sigue
-  // funcionando sin corregir nada en la geometría.
+  // El giro de 90° en X no toca el eje X, así que `nativeSize.x` sigue siendo
+  // el diámetro real del disco (0.36) tanto tumbado como de pie: esta cuenta
+  // no necesita ningún ajuste por poner la moneda en pie.
   const scale = (COIN_RADIUS * 2) / nativeSize.x;
   return (
     <>
@@ -482,15 +511,19 @@ function ItemMesh({ session, itemId }: { session: GameSession; itemId: string })
       group.position.set(item.position.x, ITEM_HEIGHT[item.kind] + bob, item.position.y);
       if (isShopkeeper) {
         group.rotation.set(0, 0, 0);
-      } else if (item.kind === 'coin') {
-        // Moneda (ronda 3, punto 10: "que giren en el otro eje"): gira sobre
-        // el eje Z (perpendicular al que se usaba antes, X) para que se vea
-        // el volteo real (canto visible) con el otro "sentido" de vuelco en
-        // pantalla — rotar sobre el eje vertical Y no mostraría ningún cambio
-        // visual en un disco plano (ese es el único eje descartado).
-        group.rotation.set(0, 0, 0);
-        group.rotation.z = session.world.time * 2.4;
       } else {
+        // Giro sobre el eje vertical Y para TODOS los recogibles (moneda,
+        // poción, llave) — encargo de David 2026-08-17: "las monedas deben
+        // girar de la misma manera que las pociones". Antes la moneda tenía
+        // una rama propia que volteaba sobre Z (ronda 3, punto 10: "que
+        // giren en el otro eje"), porque con la geometría de entonces —
+        // tumbada sobre el plano XZ, ver historial de `CoinShape` — Y era el
+        // ÚNICO eje que no producía ningún cambio visual. Esa geometría ya no
+        // es la misma: `CoinShape` pone ahora la moneda DE PIE (giro de 90°
+        // en X aplicado una vez sobre la geometría clonada, ver ese
+        // comentario), así que gira sobre Y exactamente igual que el resto y
+        // produce el vuelco clásico cara→canto→cara sin necesitar una rama
+        // especial.
         group.rotation.set(0, session.world.time * 1.5, 0);
       }
     }
