@@ -118,10 +118,17 @@ export function HUD({ session, showMicroTutorial }: { session: GameSession; show
         <div className="hud-microtutorial" role="status">
           <div className="hud-microtutorial-gesture" aria-hidden="true">
             <span className="hud-microtutorial-pull" />
+            {/* La mano se pinta DESPUÉS de la estela y su punto de agarre (que
+                van antes en el DOM) y con relleno OPACO — no el rgba(...,0.9)
+                de antes: así cualquier tramo del gesto que le quede por detrás
+                queda tapado por construcción. Con el relleno semitransparente
+                se traslucía y se leía como "una línea cruzando los dedos"; tres
+                intentos de reubicarla por geometría no lo resolvieron (David,
+                2026-08-14). */}
             <svg className="hud-microtutorial-finger" viewBox="0 0 40 52" fill="none">
               <path
                 d="M15.5 25V8.5a4 4 0 0 1 8 0V21m0-5.5a4 4 0 0 1 8 0V27m0-6a4 4 0 0 1 7.5 2v12.5C39 44 33 50 24.5 50h-4.8c-5.2 0-8.1-2.7-10.8-7L2.5 33.2a4.2 4.2 0 0 1 6.7-5l6.3 6.1V25Z"
-                fill="rgba(18, 21, 34, 0.9)"
+                fill="#121522"
                 stroke="currentColor"
                 strokeWidth="2.2"
                 strokeLinecap="round"

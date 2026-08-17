@@ -154,10 +154,17 @@ function spawnWallMarkForImpact(session: GameSession, p: Projectile): void {
     world.dungeon === null ? world.bounds : null,
   );
   if (!normal) return; // No tocaba ningún muro/roca: murió por otra causa (enemigo, TTL) — sin marca.
+  // La marca va sobre la SUPERFICIE, no en el centro del proyectil: la física
+  // deja `p.position` a `p.radius` EXACTO de la cara tocada (es lo que hace
+  // `collideCircleAabb` al empujarlo fuera), así que usar esa posición tal cual
+  // dejaba la mancha flotando 0.18 u por delante de la pared — el "están un
+  // poco despegadas" de David (2026-08-14). Se retrocede el radio a lo largo de
+  // la normal para posarla en la cara; el margen mínimo contra el z-fighting lo
+  // sigue añadiendo `WALL_MARK_SURFACE_OFFSET` en la vista.
   session.effects.wallMarks.spawn(
-    p.position.x,
+    p.position.x - normal.x * p.radius,
     PROJECTILE_GROUP_HEIGHT,
-    p.position.y,
+    p.position.y - normal.z * p.radius,
     normal.x,
     normal.z,
     p.kind === 'arrow' ? WALL_MARK_TYPE_FROST : WALL_MARK_TYPE_ARCANE,
