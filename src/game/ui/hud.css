@@ -233,10 +233,43 @@
   height: 52px;
 }
 
+/* Origen del gesto: la yema del dedo índice (la punta redondeada del path de
+   la mano, centrada en torno a (19.5, 8.5) en su viewBox de 40×52, radio 4)
+   queda debajo-derecha de aquí. Se ancla FUERA del contorno (arriba-izquierda
+   de la punta, en el hueco vacío del viewBox) en vez de sobre él: con el
+   ángulo de -29deg de abajo, cualquier origen dentro o pegado al arco de la
+   punta hace que el primer tramo de la línea (antes de escapar del contorno)
+   pinte por encima del relleno semiopaco de la mano — "pintarla detrás"
+   tampoco vale, porque ese fill es rgba(18,21,34,0.9) y el stroke del
+   contorno es opaco, así que seguiría marcándose.
+
+   BUG (David, 2026-08-14, "la línea SIGUE cruzando la mano" tras un primer
+   intento con top:12/left:18 → top:2/left:9): el primer intento solo se
+   verificó "fuera del relleno" en el sentido binario (dentro/fuera), no la
+   DISTANCIA. Medido con `Path2D.isPointInFill` sobre la escena real
+   (`getScreenCTM` + muestreo del contorno, no a ojo): con top:2/left:9 el
+   ANILLO del `::before` (11px de diámetro, centrado a -5/-5 del pivote, o sea
+   básicamente ENCIMA del pivote) quedaba a 1.7-1.9px del contorno de la
+   yema — por debajo de su propio `box-shadow` de 7px de blur (más el
+   `drop-shadow` de 5px del contenedor `.hud-microtutorial`), así que el HALO
+   seguía pintando sobre la silueta aunque el trazo geométrico no la tocara:
+   de ahí que David lo siguiera viendo "cruzar" pese al primer ajuste. Un
+   tercer intento a ojo arriesgaba el mismo fallo, así que el pivote de abajo
+   se recalculó por DISTANCIA: con la punta en centro (19.5,8.5) radio 4 y el
+   anillo de radio 5.5 centrado ~(pivote+0.5,pivote), pivote=(0,-2.5) deja
+   ~12.6px de hueco real entre el borde del anillo y el contorno de la yema —
+   por encima del blur (7px) con margen, así que incluso el halo se queda
+   fuera de la silueta en todo momento. Se mantiene el mismo ángulo (no se
+   invierte la estela): apunta hacia atrás/arriba-derecha mientras la
+   animación hermana `microtutorial-drag` mueve la mano hacia abajo-izquierda,
+   como el hilo de una honda tensándose entre un punto que queda relativamente
+   fijo y el dedo que se aleja — invertirla la haría leerse como estela de
+   movimiento en la MISMA dirección que la mano, perdiendo esa lectura de
+   "tirando hacia atrás". */
 .hud-microtutorial-pull {
   position: absolute;
-  top: 12px;
-  left: 18px;
+  top: -3px;
+  left: 0px;
   width: 54px;
   height: 1px;
   background: linear-gradient(90deg, rgba(233, 195, 124, 0.75), transparent);
@@ -244,26 +277,46 @@
   animation: microtutorial-pull 2.4s var(--ui-ease-in) infinite;
 }
 
-.hud-microtutorial-pull::before {
+/* El punto de agarre NO cuelga de `.hud-microtutorial-pull` (donde estaba
+   hasta 2026-08-14), sino del contenedor del gesto. Causa raíz de que la
+   estela "siguiera cruzando los dedos" después de dos intentos de moverla:
+   `.hud-microtutorial-pull` se anima con `scaleX(0→1.42)`, y un
+   pseudo-elemento HEREDA la transformación de su padre — así que el círculo
+   de 11px se estiraba en una ELIPSE de ~15.6px de ancho (con su box-shadow
+   estirado también) que a extensión completa invadía la yema del índice.
+   Ningún ajuste del origen podía arreglarlo: el invasor crecía con la
+   animación. Colgado del contenedor, que solo traslada y escala de forma
+   UNIFORME, el círculo se queda redondo y quieto en el punto de agarre. */
+.hud-microtutorial-gesture::before {
   content: '';
   position: absolute;
   left: -5px;
-  top: -5px;
+  top: -8px;
   width: 11px;
   height: 11px;
   border: 1px solid var(--ui-accent);
   border-radius: 50%;
   box-shadow: 0 0 7px rgba(233, 195, 124, 0.55);
+  opacity: 0;
+  animation: microtutorial-pull-dot 2.4s var(--ui-ease-in) infinite;
 }
 
-.hud-microtutorial-text {
+/* Marco `Frame` del kit (variante `plain`, ver src/ui/frame.css) en vez de un
+   borde a mano: mismo lenguaje visual que el resto de la app. Selector
+   compuesto `.hud-microtutorial-text.ui-frame` (no solo `.hud-microtutorial-text`)
+   para ganarle en especificidad a la `position: relative` de `.ui-frame` pase
+   lo que pase el orden de imports — mismo motivo que `.frame-plain.weapon-btn`
+   en weapon-bar.css, aquí aplicado a `position` en vez de a `--ui-frame-color`
+   (si perdiera, el texto dejaría de posicionarse absoluto y rompería el layout
+   del cartel). Padding en línea con el mínimo de 18px/lado que pide frame.css
+   para que el marco no tape el texto. */
+.hud-microtutorial-text.ui-frame {
   position: absolute;
   left: 50%;
   bottom: 0;
   transform: translateX(-50%);
-  padding: 6px 12px;
-  border-bottom: 1px solid rgba(233, 195, 124, 0.5);
-  background: rgba(11, 13, 20, 0.66);
+  padding: 14px 20px;
+  background: rgba(11, 13, 20, 0.72);
   color: var(--ui-text);
   font-family: var(--font-display);
   font-size: clamp(13px, 3.6vw, 16px);
@@ -310,5 +363,25 @@
   100% {
     opacity: 0;
     transform: rotate(-29deg) scaleX(1.42);
+  }
+}
+
+/* Solo la OPACIDAD de la estela, sin su transform: el punto de agarre aparece
+   y se apaga a la vez que ella, pero sin heredar el `scaleX` que lo deformaba
+   (ver el comentario de `.hud-microtutorial-gesture::before`). */
+@keyframes microtutorial-pull-dot {
+  0%,
+  24% {
+    opacity: 0;
+  }
+  34% {
+    opacity: 0.8;
+  }
+  68% {
+    opacity: 0.8;
+  }
+  78%,
+  100% {
+    opacity: 0;
   }
 }

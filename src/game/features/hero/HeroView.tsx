@@ -23,6 +23,7 @@
 import { useFrame } from '@react-three/fiber';
 import { useEffect, useMemo, useRef } from 'react';
 import { Color, Quaternion, Vector3, type BufferGeometry, type Group, type Mesh } from 'three';
+import { ConvexGeometry } from 'three/examples/jsm/geometries/ConvexGeometry.js';
 import { dampAngleTowards } from '@/engine/geometry';
 import { kitGeometry } from '@/game/render/kit';
 import { makeSilhouetteMaterial, SILHOUETTE_RENDER_ORDER } from '@/game/render/occlusion-silhouette';
@@ -517,6 +518,177 @@ const CANDLE_SPIKE_SURFACE_XZ = 1;
 const CANDLE_SPIKE_SURFACE_Y = CANDLE_HALF_HEIGHT;
 
 /**
+ * Extrae los vértices de una `BufferGeometry` como `Vector3[]`, formato que
+ * pide `ConvexGeometry` (ver comentario grande de `buildHeroSilhouetteGeometry`
+ * más abajo). Genérica a propósito, sin acoplarse a la vela: si algún día
+ * hiciera falta un hull para otra pieza, esta función ya sirve.
+ */
+function bufferGeometryVertices(geometry: BufferGeometry): Vector3[] {
+  const position = geometry.attributes.position;
+  const vertices: Vector3[] = [];
+  for (let i = 0; i < position.count; i++) {
+    vertices.push(new Vector3().fromBufferAttribute(position, i));
+  }
+  return vertices;
+}
+
+/**
+ * Geometría de la SILUETA de oclusión del cuerpo: la ENVOLVENTE CONVEXA
+ * (`ConvexGeometry`) de la propia malla normalizada del héroe, en vez de un
+ * primitivo aproximado. Historial de este arreglo, porque costó dos
+ * intentos y el segundo explica por qué el primero falló:
+ *
+ * 1) Bug original (playtest 2026-08-17, David: "veo un reflejo de la llama
+ *    en modo espejo justo debajo de ella" — intuición suya y correcta:
+ *    sospechaba de la silueta; confirmado poniendo `visible={false}` en el
+ *    mesh de la silueta, la mancha desaparecía del todo). La silueta reusaba
+ *    la MISMA malla que el cuerpo, `heroCandleGeometry` (`candle_melted`
+ *    normalizada), que NO es convexa: tiene el cráter/goterón de cera
+ *    derretida en su parte alta. `heroSilhouetteMaterial` dibuja con
+ *    `depthFunc: GreaterDepth` ("píntame donde esté MÁS LEJOS que lo ya
+ *    escrito en el depth buffer"), pensado para compararse contra un muro
+ *    EXTERNO que tape al héroe. En una malla CÓNCAVA ese test se cumple
+ *    también contra el propio cuerpo: el borde del cráter y el fondo del
+ *    cráter son dos superficies frontales de la MISMA malla en el mismo
+ *    píxel — la primera escribe la profundidad cercana y la segunda (más
+ *    lejana) pasa el test sin que nada externo tape nada. Resultado: un
+ *    parche del color de arma (`WEAPON_COLOR.body`) con la forma del
+ *    cráter, pintado sobre el propio héroe. Mismo tipo de fallo que el ya
+ *    documentado para los ojos (`CANDLE_EYE_RENDER_ORDER`, más arriba) y
+ *    para la moneda (`coinBodyMaterial` en `assets.ts`), pero aquí por
+ *    CONCAVIDAD, no por z-fighting: no basta con reordenar el dibujo, la
+ *    malla en sí no puede tener dos caras frontales en el mismo píxel — la
+ *    solución tiene que ser CONVEXA por construcción.
+ *
+ * 2) Primer intento fallido: un `CylinderGeometry` de radio y alto fijos
+ *    (mismo criterio que la silueta esférica de los enemigos,
+ *    `EnemyViews.tsx` ≈línea 551), calibrado con una medida a mano
+ *    incompleta que asumía sección circular y remate plano. Verificado en
+ *    pantalla que NO valía — franjas grises verticales a lo largo del
+ *    cuerpo y una mancha gris en la parte alta, el halo permanente que ya
+ *    se sospechaba como riesgo. Medida completa de `candle_melted.glb` (ya
+ *    en el espacio normalizado, radio nominal 1, centrado en Y) que explica
+ *    por qué: la sección NO es un círculo, es un PRISMA DE 9 LADOS (vértices
+ *    cada 40°, en −170/−130/−90/−50/−10/30/70/110/150°) con radio
+ *    circunscrito (en los vértices) 1.0154 pero radio INSCRITO (en el centro
+ *    de cada cara plana) de solo 1.0154·cos(20°) ≈ 0.954 — ningún radio de
+ *    cilindro puede evitar sobresalir por el centro de las 9 caras planas
+ *    sin quedarse corto en los 9 vértices, de ahí las franjas verticales.
+ *    Además el remate superior del tramo de radio pleno es OBLICUO, no
+ *    plano: sus vértices van de y=0.894 (el más bajo) a y=1.793 (el más
+ *    alto), así que cualquier tope horizontal único deja parte de la pared
+ *    real por encima del cilindro en casi media vuelta — la mancha gris de
+ *    arriba. Un primitivo de revolución no puede seguir un contorno que no
+ *    es de revolución.
+ *
+ * 3) Arreglo de la CONCAVIDAD: el HULL CONVEXO de los vértices reales de
+ *    `heroCandleGeometry` (`bufferGeometryVertices` + `ConvexGeometry`, más
+ *    abajo). Por qué no produce halo: el hull contiene EXACTAMENTE los
+ *    mismos vértices que la malla real, así que su superficie coincide con
+ *    el contorno del modelo en todo punto convexo (el prisma de 9 lados, la
+ *    base, el remate oblicuo) y solo se aparta hacia FUERA en las
+ *    concavidades del perfil — aquí mínimas, el cráter de la mecha es un
+ *    hueco pequeño en la coronilla, no un socavón profundo. Y en la única
+ *    concavidad que sí cierra (la "tapa" imaginaria que el hull traza sobre
+ *    el cráter para quedar convexo), esa tapa queda MÁS CERCA de la cámara
+ *    que el fondo real del cráter — así que ahí el depth buffer la descarta
+ *    sola, sin ajuste manual alguno PARA ESE problema concreto (la
+ *    concavidad). Resuelve el punto 1 por completo, pero destapa un segundo
+ *    problema — ver punto 4. Construida en un `useMemo` propio (no
+ *    constante de módulo, a diferencia del intento del cilindro): a
+ *    diferencia de un primitivo de three.js, SÍ depende del kit cargado —
+ *    necesita los vértices reales de `heroCandleGeometry`, que solo existen
+ *    tras `normalizeHeroCandleGeometry()`.
+ *
+ * 4) Problema nuevo, destapado por el propio hull (playtest 2026-08-17,
+ *    SEGUNDA ronda; David: "el player tiene texturas que tiemblan donde no
+ *    debería, además de que parece que todavía tiene el reflejo de la
+ *    llama"). Verificado en pantalla: rayas claras PARPADEANTES por todo el
+ *    cuerpo y un parche fijo en la zona del cráter. Causa: Z-FIGHTING, no
+ *    auto-oclusión otra vez — el hull comparte con el cuerpo las caras
+ *    laterales del prisma de 9 lados (son EXACTAMENTE COPLANARES: mismos
+ *    vértices, por construcción del hull), pero su TRIANGULACIÓN interna es
+ *    distinta (`ConvexHull` no tiene por qué generar los mismos triángulos
+ *    que trajera el `.glb`), así que la profundidad interpolada de cada
+ *    malla en un píxel dado cae en valores casi iguales pero no idénticos, y
+ *    ese "casi" cambia de píxel a píxel y de frame a frame (la silueta
+ *    hereda el squash/stretch del cuerpo, así que el más mínimo cambio de
+ *    escala reordena qué malla gana el sorteo). Donde la profundidad del
+ *    hull sale, por puro margen de precisión de coma flotante, un pelín
+ *    MAYOR que la del cuerpo, `GreaterDepth` la da por buena: silueta
+ *    pintada sobre el héroe sin que nada externo lo tape, parpadeando según
+ *    el resultado del sorteo en cada frame — de ahí las rayas temblorosas
+ *    (caras laterales) y el parche persistente del cráter (zona con más
+ *    triángulos degenerados por la geometría irregular del goterón). Mismo
+ *    fenómeno ya documentado en este repo para los ojos
+ *    (`CANDLE_EYE_RENDER_ORDER`, arriba) y para la moneda
+ *    (`coinBodyMaterial`, `ItemView.tsx`), pero aquí no vale arreglarlo con
+ *    ORDEN de dibujo (`renderOrder`): el problema es la PROFUNDIDAD en sí,
+ *    no la cola de render — dos mallas coplanares seguirán empatando el
+ *    test de profundidad se dibujen en el orden que se dibujen.
+ *
+ * 5) Arreglo de la COPLANARIDAD: una "cáscara" — escalar la silueta un
+ *    pelín hacia FUERA (`SILHOUETTE_SHELL_SCALE`), nunca hacia dentro.
+ *    Contraintuitivo pero obligado: encogerla la dejaría ÍNTEGRA por detrás
+ *    de la superficie real del cuerpo, y entonces `GreaterDepth` pasaría
+ *    SIEMPRE en toda su extensión (más lejos que el cuerpo en cualquier
+ *    punto) — la silueta se vería constantemente, tapada o no, el bug
+ *    original pero generalizado a todo el cuerpo en vez de solo al cráter.
+ *    Agrandarla la deja SIEMPRE delante (o justo igual) que la superficie
+ *    real, así que sin oclusión externa la comparación `GreaterDepth` nunca
+ *    se cumple en ningún punto y la silueta no se ve; en cuanto un muro tapa
+ *    a ambas mallas, sigue viéndose por el mismo truco de siempre — la
+ *    cáscara no cambia CUÁNDO se ve la silueta, solo impide que compita con
+ *    el propio cuerpo por el mismo píxel de profundidad.
+ *    Magnitud (`SILHOUETTE_SHELL_SCALE = 1.03`, +3%): en unidades de mundo,
+ *    0.03 × HERO_RADIUS (0.24) ≈ 0.007 u — subpíxel a la distancia y FOV de
+ *    la cámara del juego (`CAMERA_OFFSET`, `render/cameraSettings.ts`),
+ *    comprobado en pantalla sobre suelo claro y sobre suelo oscuro sin borde
+ *    visible.
+ *    `SILHOUETTE_SHELL_LIFT`: al escalar UNIFORMEMENTE una geometría
+ *    centrada en el origen local (el hull nace centrado, porque nace de
+ *    vértices ya centrados en Y), la base también baja ese mismo 3%,
+ *    hundiéndose bajo la base real del cuerpo — y como el suelo del
+ *    escenario queda MÁS CERCA de cámara que esa base hundida, el depth
+ *    buffer destaparía ahí mismo una franja alrededor de los pies, el mismo
+ *    tipo de fallo que se está arreglando pero en la base en vez de en los
+ *    lados. `SILHOUETTE_SHELL_LIFT = CANDLE_HALF_HEIGHT · (SILHOUETTE_SHELL_SCALE
+ *    − 1)` sube el mesh en Y justo lo necesario para que su base vuelva a
+ *    coincidir con la base real del cuerpo; la coronilla queda ese mismo 3%
+ *    más alta de lo que ya estaba, invisible por la misma cuenta de
+ *    subpíxel de arriba.
+ *    Importante: la cáscara NO sustituye al hull del punto 3, lo
+ *    COMPLEMENTA — hacen falta los dos a la vez, cada uno resuelve un
+ *    problema distinto: el hull resuelve la CONCAVIDAD (auto-oclusión del
+ *    cráter contra sí mismo), la cáscara resuelve la COPLANARIDAD
+ *    (z-fighting del hull contra el cuerpo en las caras laterales). Quitar
+ *    cualquiera de los dos reabre el bug que ese paso arregla.
+ */
+function buildHeroSilhouetteGeometry(heroCandleGeometry: BufferGeometry): BufferGeometry {
+  return new ConvexGeometry(bufferGeometryVertices(heroCandleGeometry));
+}
+
+/**
+ * Factor de la "cáscara" de la silueta (punto 5 del historial de arriba):
+ * cuánto se agranda `heroSilhouetteGeometry` respecto al cuerpo real para
+ * que nunca compita con él por la misma profundidad en las caras laterales
+ * coplanares del hull (z-fighting). +3%, no un valor mayor "por si acaso":
+ * ya es indetectable en pantalla (0.03 × HERO_RADIUS ≈ 0.007 u de mundo,
+ * subpíxel a la cámara del juego) y agrandar más solo arriesgaría un halo
+ * perceptible sin ganar nada — ver el desglose completo en el punto 5.
+ */
+const SILHOUETTE_SHELL_SCALE = 1.03;
+/**
+ * Compensación en Y para que la base de la cáscara (que se hunde al escalar
+ * uniformemente una geometría centrada en el origen) vuelva a coincidir con
+ * la base real del cuerpo, en vez de destaparse contra el suelo — ver punto
+ * 5 del historial de arriba para la cuenta completa. Derivado de
+ * `SILHOUETTE_SHELL_SCALE` (no un número aparte) para que ambos efectos de
+ * la cáscara se muevan siempre juntos si algún día cambia el porcentaje.
+ */
+const SILHOUETTE_SHELL_LIFT = CANDLE_HALF_HEIGHT * (SILHOUETTE_SHELL_SCALE - 1);
+
+/**
  * Adapta la vela del kit a la convención local que ya usaba el cilindro al que
  * sustituye: RADIO 1 y CENTRADA en el origen (el modelo del pack nace apoyado
  * en su base, con el ancho que le tocó al artista). Se hace una sola vez sobre
@@ -555,6 +727,16 @@ export function HeroView({ session }: { session: GameSession }) {
   // La vela del kit, normalizada una vez por montaje (el kit ya está precargado
   // cuando GameRoot monta, ver App.tsx).
   const heroCandleGeometry = useMemo(() => normalizeHeroCandleGeometry(), []);
+  // Hull convexo de esa misma malla, para la silueta de oclusión (ver
+  // comentario grande de `buildHeroSilhouetteGeometry` más arriba). Depende
+  // de `heroCandleGeometry` (necesita sus vértices reales), así que no puede
+  // ser una constante de módulo como los demás geometry/material de
+  // `render/assets.ts` — se recalcula solo si `heroCandleGeometry` cambia
+  // (en la práctica, nunca tras el montaje: ambos useMemo llevan deps fijas).
+  const heroSilhouetteGeometry = useMemo(
+    () => buildHeroSilhouetteGeometry(heroCandleGeometry),
+    [heroCandleGeometry],
+  );
   const candleTiltGroupRef = useRef<Group>(null);
   const bodyRef = useRef<Mesh>(null);
   const shadowRef = useRef<Mesh>(null);
@@ -976,13 +1158,32 @@ export function HeroView({ session }: { session: GameSession }) {
       <group ref={candleTiltGroupRef}>
         <mesh ref={bodyRef} geometry={heroCandleGeometry} material={heroMaterial} scale={HERO_RADIUS}>
           {/*
-            Silueta de oclusión: MISMA geometría, como HIJA del cuerpo para
-            heredar gratis su escala, su squash/stretch y su parpadeo de
-            i-frames — si viviera fuera habría que replicar los cuatro en cada
-            frame y podría desincronizarse. Solo se ve donde algo tapa al
-            héroe (ver occlusion-silhouette.ts).
+            Silueta de oclusión: HULL CONVEXO de la propia malla del cuerpo
+            (`heroSilhouetteGeometry`) envuelto en una CÁSCARA ligeramente
+            mayor (`SILHOUETTE_SHELL_SCALE`/`SILHOUETTE_SHELL_LIFT`) — ver el
+            comentario grande de `buildHeroSilhouetteGeometry` más arriba
+            (puntos 1-5) para el historial completo: el hull resuelve por sí
+            solo la CONCAVIDAD (el cráter de cera se autoocluía y se veía
+            como un "reflejo de la llama en espejo"), pero al ser coplanar
+            con las caras laterales del cuerpo con una triangulación distinta
+            metía Z-FIGHTING (rayas parpadeantes); la cáscara lo evita
+            agrandando la silueta un pelín hacia FUERA (nunca hacia dentro,
+            o pasaría el test de profundidad siempre) para que nunca compita
+            con el cuerpo por el mismo píxel de profundidad, con `position`
+            compensando el hundimiento de la base que provoca escalar
+            uniformemente una geometría centrada en el origen. Sigue como
+            HIJA del cuerpo para heredar gratis su escala, su squash/stretch
+            y su parpadeo de i-frames — si viviera fuera habría que replicar
+            los tres en cada frame y podría desincronizarse. Solo se ve
+            donde algo tapa al héroe (ver occlusion-silhouette.ts).
           */}
-          <mesh geometry={heroCandleGeometry} material={heroSilhouetteMaterial} renderOrder={SILHOUETTE_RENDER_ORDER} />
+          <mesh
+            geometry={heroSilhouetteGeometry}
+            material={heroSilhouetteMaterial}
+            renderOrder={SILHOUETTE_RENDER_ORDER}
+            scale={SILHOUETTE_SHELL_SCALE}
+            position={[0, SILHOUETTE_SHELL_LIFT, 0]}
+          />
           {/* Pinchos del Erizo de Acero (F5): 12 pre-creados, visibilidad por nivel. */}
           {SPIKE_DIRECTIONS.map((_, i) => (
             <mesh

@@ -5,25 +5,80 @@
  * enemy.hp <= 0 recién cruzado a través del evento 'enemy-died').
  */
 
-import { COIN_MAGNET_RADIUS_BY_LEVEL, COIN_MAGNET_SPEED, ITEM_PICKUP_RADIUS, POTION_HEAL } from './constants';
+import {
+  COIN_DROP_MIN_SEPARATION,
+  COIN_DROP_PLACEMENT_ATTEMPTS,
+  COIN_MAGNET_RADIUS_BY_LEVEL,
+  COIN_MAGNET_SPEED,
+  ITEM_PICKUP_RADIUS,
+  POTION_HEAL,
+} from './constants';
 import { pushEvent, type EventQueue } from '@/engine/events';
 import type { Item, World } from '@/game/world/types';
 
+/** Distancia a la moneda ACTIVA más cercana (`Infinity` si no hay ninguna). */
+function distanceToNearestActiveCoin(world: World, x: number, y: number): number {
+  let nearest = Infinity;
+  for (let i = 0; i < world.items.length; i++) {
+    const item = world.items[i];
+    if (!item.active || item.kind !== 'coin') continue;
+    const dist = Math.hypot(item.position.x - x, item.position.y - y);
+    if (dist < nearest) nearest = dist;
+  }
+  return nearest;
+}
+
+/**
+ * Reubica `(x, y)` si cae demasiado cerca de otra moneda ya activa (playtest
+ * 2026-08-14: "las monedas no deberían salir tan juntas como para que se
+ * superpongan" — varios enemigos muriendo a la vez, o un jefe soltando
+ * `COIN_DROPS_BY_KIND.boss` monedas de golpe, ver step.ts `collectDeadDrops`,
+ * piden posiciones casi coincidentes al ser cada ángulo/radio un sorteo
+ * independiente).
+ *
+ * Prueba puntos alternativos alrededor del punto pedido, en un anillo de
+ * radio creciente por intento y ángulo aleatorio (determinista vía
+ * `world.rng`, igual que el resto de la sim — nunca `Math.random`). Acotado a
+ * `COIN_DROP_PLACEMENT_ATTEMPTS`: si ninguno alcanza la separación mínima
+ * (sala/esquina abarrotada de drops), se queda con el MEJOR candidato visto
+ * (mayor distancia a la moneda más cercana), nunca reintenta sin límite —
+ * mismo criterio que `PLACEMENT_ATTEMPTS` en room-props.ts.
+ */
+function separateCoinDrop(world: World, x: number, y: number): { x: number; y: number } {
+  let bestX = x;
+  let bestY = y;
+  let bestDist = distanceToNearestActiveCoin(world, x, y);
+  for (let attempt = 0; attempt < COIN_DROP_PLACEMENT_ATTEMPTS && bestDist < COIN_DROP_MIN_SEPARATION; attempt++) {
+    const angle = world.rng() * Math.PI * 2;
+    const spread = COIN_DROP_MIN_SEPARATION * (1 + attempt * 0.5);
+    const cx = x + Math.cos(angle) * spread;
+    const cy = y + Math.sin(angle) * spread;
+    const dist = distanceToNearestActiveCoin(world, cx, cy);
+    if (dist > bestDist) {
+      bestDist = dist;
+      bestX = cx;
+      bestY = cy;
+    }
+  }
+  return { x: bestX, y: bestY };
+}
+
 /** Activa una moneda suelta en la posición dada (drop de enemigo). Reutiliza el pool de items si hay slots inactivos, si no, añade uno nuevo (los drops son eventos raros, no hot path de 60Hz). */
 export function dropCoinAt(world: World, x: number, y: number): void {
+  const pos = separateCoinDrop(world, x, y);
   for (let i = 0; i < world.items.length; i++) {
     const item = world.items[i];
     if (!item.active && item.kind === 'coin') {
       item.active = true;
-      item.position.x = x;
-      item.position.y = y;
+      item.position.x = pos.x;
+      item.position.y = pos.y;
       return;
     }
   }
   world.items.push({
     id: `coin-drop-${world.items.length}-${Math.floor(world.time * 1000)}`,
     kind: 'coin',
-    position: { x, y },
+    position: { x: pos.x, y: pos.y },
     active: true,
   });
 }

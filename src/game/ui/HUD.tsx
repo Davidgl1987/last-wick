@@ -14,7 +14,7 @@ import { useEffect, useRef } from 'react';
 import { BossHealthBar } from '@/game/features/bosses/BossHealthBar';
 import { pauseGame, type GameSession } from '@/game/session/session';
 import { useUiStore } from '@/game/session/store';
-import { Button, Icon } from '@/ui';
+import { Button, frameClass, Icon } from '@/ui';
 import './hud.css';
 import { WeaponBar } from './WeaponBar';
 
@@ -118,10 +118,33 @@ export function HUD({ session, showMicroTutorial }: { session: GameSession; show
         <div className="hud-microtutorial" role="status">
           <div className="hud-microtutorial-gesture" aria-hidden="true">
             <span className="hud-microtutorial-pull" />
+            {/* La mano se pinta DESPUÉS de la estela y su punto de agarre (que
+                van antes en el DOM) y con relleno OPACO — no el rgba(...,0.9)
+                de antes: así cualquier tramo del gesto que le quede por detrás
+                queda tapado por construcción. El `d` es un ÚNICO subpath
+                CERRADO (un solo M...Z, sin `m`/`M` intermedios): antes cada
+                dedo se dibujaba como un subpath aparte (encadenados con "m"),
+                y los lados que quedaban DENTRO de la silueta rellena (los
+                tramos verticales del borde derecho del índice y del corazón)
+                se seguían trazando con stroke, así que se veían como líneas
+                cruzando la mano. Al recorrer todo el contorno exterior en un
+                solo trazo cerrado, cada segmento dibujado cae en el borde
+                real de la silueta y no queda ninguna línea interna (David,
+                2026-08-17).
+
+                Los dedos plegados son DOS ARCOS convexos tangentes (`a`), no
+                una línea quebrada: el primer intento de contorno cerrado los
+                dibujó como zigzag de segmentos rectos y David lo leyó como
+                "una sierra" (2026-08-17, misma ronda). Con arcos de radio ~4
+                — el mismo que la yema del índice — el borde superior del puño
+                queda ondulado como en cualquier icono de mano, y el trazo de
+                2.2 no los empasta (comparado en pantalla a 1×, 2× y 4× contra
+                una variante de tres nudillos más pequeños, que sí se empastaba
+                al tamaño real de 40×52 px). */}
             <svg className="hud-microtutorial-finger" viewBox="0 0 40 52" fill="none">
               <path
-                d="M15.5 25V8.5a4 4 0 0 1 8 0V21m0-5.5a4 4 0 0 1 8 0V27m0-6a4 4 0 0 1 7.5 2v12.5C39 44 33 50 24.5 50h-4.8c-5.2 0-8.1-2.7-10.8-7L2.5 33.2a4.2 4.2 0 0 1 6.7-5l6.3 6.1V25Z"
-                fill="rgba(18, 21, 34, 0.9)"
+                d="M15.5 25V8.5a4 4 0 0 1 8 0V19.5a4 4 0 0 1 7.9.7a3.7 3.7 0 0 1 7.1 2.3v13C39 44 33 50 24.5 50h-4.8c-5.2 0-8.1-2.7-10.8-7L2.5 33.2a4.2 4.2 0 0 1 6.7-5l6.3 6.1V25Z"
+                fill="#121522"
                 stroke="currentColor"
                 strokeWidth="2.2"
                 strokeLinecap="round"
@@ -129,7 +152,9 @@ export function HUD({ session, showMicroTutorial }: { session: GameSession; show
               />
             </svg>
           </div>
-          <span className="hud-microtutorial-text">Arrastra y suelta para lanzarte</span>
+          <span className={frameClass('plain', 'hud-microtutorial-text')}>
+            Arrastra y suelta para lanzarte
+          </span>
         </div>
       )}
       <BossHealthBar session={session} />
