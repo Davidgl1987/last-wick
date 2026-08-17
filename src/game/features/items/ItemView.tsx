@@ -205,6 +205,41 @@ const coinSilhouetteMaterial = makeSilhouetteMaterial(coinMaterial.color);
 const potionSilhouetteMaterial = makeSilhouetteMaterial('#4ade80');
 const keySilhouetteMaterial = makeSilhouetteMaterial(keyMaterial.color);
 
+/**
+ * Cuerpo de la moneda: clon DEDICADO de `kitWarmGlowMaterial` (no el
+ * compartido, que también usa `PotionShape`), solo para poder ponerle
+ * `transparent: true` sin arrastrar a la poción con él.
+ *
+ * Por qué (playtest, 2026-08-14: "las monedas son un poco transparentes, no
+ * tienen que serlo"): MISMO bug, MISMA causa raíz que los ojos de la vela
+ * arreglados un día antes (ver `CANDLE_EYE_RENDER_ORDER` en HeroView.tsx) —
+ * verificado a mano en el navegador (dos monedas lado a lado, misma pose,
+ * alternando temporalmente cuál de las dos llevaba la silueta: el color
+ * extra seguía SIEMPRE a la copia con silueta, nunca a la posición en el
+ * mundo, aislando la causa): el cuerpo opaco de la moneda
+ * (`kitWarmGlowMaterial`) y su silueta
+ * (`coinSilhouetteMaterial`, `depthFunc: GreaterDepth`, ver
+ * `occlusion-silhouette.ts`) son la MISMA geometría en la MISMA transformada,
+ * pero al salir de DOS `drawcall`s de programas de shader distintos
+ * (Lambert vs Basic) su profundidad interpolada no siempre cae en el mismo
+ * valor exacto del depth buffer — el margen de la GPU es mínimo, pero cuando
+ * la silueta cae "un pelín más lejos" que su propio cuerpo, `GreaterDepth` la
+ * da por buena y la pinta encima aunque NADA la esté tapando, restándole
+ * cuerpo a la moneda (el mismo síntoma que David describe).
+ *
+ * Mismo arreglo que los ojos: three.js dibuja SIEMPRE toda la cola opaca
+ * antes que la transparente, así que un `renderOrder` alto en un material
+ * opaco nunca basta para colarse después de la silueta (que ya es
+ * transparente). Pasar el cuerpo a la cola transparente (`transparent:
+ * true`) + `COIN_BODY_RENDER_ORDER` (por encima de `SILHOUETTE_RENDER_ORDER`)
+ * lo pinta DESPUÉS de la silueta, tape o no tape algo real — y el depthTest
+ * normal (sin tocar) lo sigue ocultando correctamente detrás de un muro de
+ * verdad, exactamente como antes.
+ */
+const coinBodyMaterial = kitWarmGlowMaterial.clone();
+coinBodyMaterial.transparent = true;
+const COIN_BODY_RENDER_ORDER = SILHOUETTE_RENDER_ORDER + 1;
+
 function CoinShape({ receiveShadow }: { receiveShadow: boolean }) {
   const geometry = kitGeometry('coin');
   const nativeSize = useMemo(() => kitBoxSize(geometry), [geometry]);
@@ -217,7 +252,13 @@ function CoinShape({ receiveShadow }: { receiveShadow: boolean }) {
   const scale = (COIN_RADIUS * 2) / nativeSize.x;
   return (
     <>
-      <mesh geometry={geometry} material={kitWarmGlowMaterial} scale={scale} receiveShadow={receiveShadow} />
+      <mesh
+        geometry={geometry}
+        material={coinBodyMaterial}
+        scale={scale}
+        receiveShadow={receiveShadow}
+        renderOrder={COIN_BODY_RENDER_ORDER}
+      />
       {/* Silueta de oclusión (ver comentario junto a `coinSilhouetteMaterial`): MISMA
           geometría/escala que el mesh de arriba, sin `receiveShadow` (símbolo plano). */}
       <mesh geometry={geometry} material={coinSilhouetteMaterial} scale={scale} renderOrder={SILHOUETTE_RENDER_ORDER} />

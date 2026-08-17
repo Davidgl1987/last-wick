@@ -57,9 +57,38 @@
  * sin necesitar ninguna de las dos velocidades, y no se ve afectado por
  * futuras formas nuevas de desactivar un proyectil (no depende de conocer
  * la lista completa de "causas de muerte que NO son un muro").
+ *
+ * ── Obstáculos CON VOLUMEN (rocas y otros props sólidos) ────────────────────
+ * `wallNormalAt()` recibe `world.obstacles` (no solo los segmentos de muro):
+ * ese array YA incluye las rocas de la sala — `Obstacle` (world/types.ts) es
+ * "un segmento de muro/puerta cerrada O una roca", indistinguibles aquí a
+ * propósito (misma resolución AABB del punto más cercano para ambos, ver
+ * `buildRoomEntities` en world/create.ts, que convierte cada hazard
+ * `kind: 'rock'` en un `Obstacle` con su AABB). Es la MISMA lista que usa
+ * `stepHeroProjectileCollisions` (combat.ts) para resolver la colisión real,
+ * así que una roca golpeada ya se resuelve aquí sin cambios adicionales
+ * (verificado: impacto recto y en esquina contra un `Obstacle` no-muro dan la
+ * normal correcta, mismos tests que un segmento de muro).
+ *
+ * Lo que SÍ queda fuera de `world.obstacles` — a propósito — son los
+ * BARRILES (`world.barrels`, `Barrel` en world/types.ts): un barril no es un
+ * `Obstacle` estático, es una entidad que EXPLOTA y desaparece
+ * (`HazardView.tsx`: `group.visible = !barrel.exploded`, sin restos con
+ * volumen). Un proyectil detenido por un barril (`stepBarrels`, hazards.ts)
+ * no debe dejar marca: si se dejara caer al criterio normal de
+ * `wallNormalAt` (que no sabe de barriles), buscaría la superficie sólida
+ * MÁS CERCANA a esa posición — con frecuencia ninguna, pero si el barril
+ * estaba cerca de una roca o de la pared exterior, generaría una marca ahí,
+ * a veces a distancia notable del barril real y siempre en una superficie
+ * que no fue la que realmente recibió el golpe. `touchesExplodedBarrel()`
+ * cierra ese hueco por construcción (mismo espíritu que `wallNormalAt`:
+ * comprobación geométrica directa, no inferencia por causa de muerte) —
+ * `spawnWallMarkForImpact` (ProjectileView.tsx) la consulta ANTES de
+ * `wallNormalAt` y corta ahí: mejor ninguna marca que una marca flotando
+ * donde ya no queda ningún volumen.
  */
 
-import type { AABB } from '@/engine/geometry';
+import type { AABB, Vec2 } from '@/engine/geometry';
 
 /** Tipo de marca: decide qué de los 2 `InstancedMesh` de `WallMarkView` recibe la instancia. SUS VALORES son el índice de malla — cambiarlos exige revisar `WallMarkView.tsx` a la vez (mismo criterio que `STREAK_TYPE_*` en streaks.ts). */
 export const WALL_MARK_TYPE_FROST = 0;
@@ -224,4 +253,41 @@ function innerBoundsSurfaceNormal(x: number, y: number, radius: number, bounds: 
   if (y <= minY + WALL_TOUCH_EPSILON) return { x: 0, z: -1 };
   if (y >= maxY - WALL_TOUCH_EPSILON) return { x: 0, z: 1 };
   return null;
+}
+
+// ── Exclusión de barriles (ver cabecera del módulo) ─────────────────────────
+
+/** Subconjunto de `Barrel` (world/types.ts) que necesita `touchesExplodedBarrel`: sin `id`/`roomId`/`landingAt`, que no hacen falta aquí. */
+export interface ExplodedBarrelLike {
+  readonly position: Vec2;
+  readonly radius: number;
+  readonly exploded: boolean;
+}
+
+/**
+ * true si el círculo `(x,y,radius)` toca un barril YA EXPLOTADO de la lista
+ * (ver cabecera del módulo: un barril reventado no tiene volumen visual, así
+ * que nunca debe recibir marca). Ignora los barriles todavía en pie —
+ * `stepBarrels` (hazards.ts) marca `exploded=true` en el MISMO tick en que
+ * detona por un proyectil del héroe, así que un proyectil desactivado por un
+ * barril siempre lo encuentra ya explotado en este chequeo; un barril intacto
+ * simplemente no es la causa de ningún impacto (`stepBarrels` lo habría
+ * detonado, no dejado pasar el proyectil de largo).
+ *
+ * Comparación EXACTA (sin colchón de tolerancia, a diferencia de
+ * `WALL_TOUCH_EPSILON`): la posición que llega aquí es la que `stepBarrels`
+ * ya usó para decidir el contacto ese mismo tick (mismo `circleTouchesEntity`,
+ * sin push-out de por medio que la desplace), así que no hace falta margen de
+ * colchón adicional.
+ */
+export function touchesExplodedBarrel(x: number, y: number, radius: number, barrels: readonly ExplodedBarrelLike[]): boolean {
+  for (let i = 0; i < barrels.length; i++) {
+    const barrel = barrels[i];
+    if (!barrel.exploded) continue;
+    const dx = x - barrel.position.x;
+    const dy = y - barrel.position.y;
+    const rr = radius + barrel.radius;
+    if (dx * dx + dy * dy <= rr * rr) return true;
+  }
+  return false;
 }

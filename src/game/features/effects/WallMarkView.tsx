@@ -78,8 +78,23 @@ const arcaneWallMarkMaterial = new THREE.MeshBasicMaterial({
   opacity: 1,
 });
 
-/** Separación a lo largo de la normal del muro para no z-fightear con la geometría del kit (mismo motivo que el jitter de altura de StreakView/WaxView, pero aquí horizontal, a lo largo de la normal, no en Y). */
-const WALL_MARK_SURFACE_OFFSET = 0.03;
+/**
+ * Separación a lo largo de la normal del muro para no z-fightear con la
+ * geometría del kit (mismo motivo que el jitter de altura de StreakView/
+ * WaxView, pero aquí horizontal, a lo largo de la normal, no en Y).
+ *
+ * Bajado de 0.03 a 0.01 (playtest, David: "las manchas en la pared están un
+ * poco despegadas") — con 0.03 la mancha quedaba visiblemente flotando por
+ * delante de la superficie del muro/roca real del kit KayKit. No puede ser 0:
+ * el muro es geometría real (no un plano perfecto), así que un quad coplanar
+ * exacto SÍ parpadea (dos superficies compitiendo por el mismo depth en el
+ * z-buffer). 0.01 es el margen más pequeño que sigue evitando ese parpadeo a
+ * la escala de esta escena (cámara a ~10-15 u de distancia típica, near=0.5/
+ * far=80 en GameRoot.tsx): un orden de magnitud por debajo del grosor de
+ * muro (WALL_THICKNESS) y de cualquier imperfección de geometría del kit, así
+ * que la mancha queda pegada a la superficie sin z-fighting perceptible.
+ */
+const WALL_MARK_SURFACE_OFFSET = 0.01;
 /** Fuera de vista: mismo truco que StreakView/WaxView/ParticleView para "ocultar" una instancia sin desmontarla. */
 const HIDDEN_Y = -1000;
 

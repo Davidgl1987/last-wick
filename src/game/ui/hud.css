@@ -234,23 +234,42 @@
 }
 
 /* Origen del gesto: la yema del dedo índice (la punta redondeada del path de
-   la mano, centrada en torno a (19.5, 8.5) en su viewBox de 40×52) queda justo
-   debajo-derecha de aquí. Se ancla FUERA del contorno (arriba-izquierda de la
-   punta, en el hueco vacío del viewBox) en vez de sobre él: con el ángulo de
-   -29deg de abajo, cualquier origen dentro o pegado al arco de la punta hace
-   que el primer tramo de la línea (antes de escapar del contorno) pinte por
-   encima del relleno semiopaco de la mano — "pintarla detrás" tampoco vale,
-   porque ese fill es rgba(18,21,34,0.9) y el stroke del contorno es opaco, así
-   que seguiría marcándose. Se mantiene el mismo ángulo (no se invierte la
-   estela): apunta hacia atrás/arriba-derecha mientras la animación hermana
-   `microtutorial-drag` mueve la mano hacia abajo-izquierda, como el hilo de
-   una honda tensándose entre un punto que queda relativamente fijo y el dedo
-   que se aleja — invertirla la haría leerse como estela de movimiento en la
-   MISMA dirección que la mano, perdiendo esa lectura de "tirando hacia atrás". */
+   la mano, centrada en torno a (19.5, 8.5) en su viewBox de 40×52, radio 4)
+   queda debajo-derecha de aquí. Se ancla FUERA del contorno (arriba-izquierda
+   de la punta, en el hueco vacío del viewBox) en vez de sobre él: con el
+   ángulo de -29deg de abajo, cualquier origen dentro o pegado al arco de la
+   punta hace que el primer tramo de la línea (antes de escapar del contorno)
+   pinte por encima del relleno semiopaco de la mano — "pintarla detrás"
+   tampoco vale, porque ese fill es rgba(18,21,34,0.9) y el stroke del
+   contorno es opaco, así que seguiría marcándose.
+
+   BUG (David, 2026-08-14, "la línea SIGUE cruzando la mano" tras un primer
+   intento con top:12/left:18 → top:2/left:9): el primer intento solo se
+   verificó "fuera del relleno" en el sentido binario (dentro/fuera), no la
+   DISTANCIA. Medido con `Path2D.isPointInFill` sobre la escena real
+   (`getScreenCTM` + muestreo del contorno, no a ojo): con top:2/left:9 el
+   ANILLO del `::before` (11px de diámetro, centrado a -5/-5 del pivote, o sea
+   básicamente ENCIMA del pivote) quedaba a 1.7-1.9px del contorno de la
+   yema — por debajo de su propio `box-shadow` de 7px de blur (más el
+   `drop-shadow` de 5px del contenedor `.hud-microtutorial`), así que el HALO
+   seguía pintando sobre la silueta aunque el trazo geométrico no la tocara:
+   de ahí que David lo siguiera viendo "cruzar" pese al primer ajuste. Un
+   tercer intento a ojo arriesgaba el mismo fallo, así que el pivote de abajo
+   se recalculó por DISTANCIA: con la punta en centro (19.5,8.5) radio 4 y el
+   anillo de radio 5.5 centrado ~(pivote+0.5,pivote), pivote=(0,-2.5) deja
+   ~12.6px de hueco real entre el borde del anillo y el contorno de la yema —
+   por encima del blur (7px) con margen, así que incluso el halo se queda
+   fuera de la silueta en todo momento. Se mantiene el mismo ángulo (no se
+   invierte la estela): apunta hacia atrás/arriba-derecha mientras la
+   animación hermana `microtutorial-drag` mueve la mano hacia abajo-izquierda,
+   como el hilo de una honda tensándose entre un punto que queda relativamente
+   fijo y el dedo que se aleja — invertirla la haría leerse como estela de
+   movimiento en la MISMA dirección que la mano, perdiendo esa lectura de
+   "tirando hacia atrás". */
 .hud-microtutorial-pull {
   position: absolute;
-  top: 2px;
-  left: 9px;
+  top: -3px;
+  left: 0px;
   width: 54px;
   height: 1px;
   background: linear-gradient(90deg, rgba(233, 195, 124, 0.75), transparent);

@@ -29,6 +29,18 @@ export const COIN_DROP_MIN_RADIUS = 0.25;
 export const COIN_DROP_MAX_RADIUS = 0.6;
 
 /**
+ * Separación mínima entre monedas dropeadas (playtest 2026-08-14: "las
+ * monedas no deberían salir tan juntas como para que se superpongan"), en u —
+ * del orden del diámetro visual de la moneda (`COIN_RADIUS = 0.24` en
+ * `features/items/ItemView.tsx`, capa de render). Este módulo es sim pura y
+ * no puede importar de `render/`, así que el valor se DUPLICA a propósito:
+ * si `COIN_RADIUS` cambia alguna vez, actualizar también aquí.
+ */
+export const COIN_DROP_MIN_SEPARATION = 0.5;
+/** Intentos de reubicación en `separateCoinDrop` (items.ts) antes de aceptar la mejor posición encontrada — nunca un bucle sin límite. */
+export const COIN_DROP_PLACEMENT_ATTEMPTS = 6;
+
+/**
  * Imán de monedas (Canto de Urraca, docs/plans/ECONOMY_PLAN.md F2): radio de
  * atracción por nivel. Índice 0 sin usar (nivel 0 = sin imán, `stepItems` no
  * consulta este array en ese caso).

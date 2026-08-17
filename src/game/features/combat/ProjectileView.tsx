@@ -50,7 +50,7 @@ import { getUpgradeLevel } from '@/game/session/upgrades';
 import { arrowCrystalGeometry, arrowMaterial, arrowShaftGeometry, arrowTipMaterial, enemyProjectileGlowHaloMaterialForTag, enemyProjectileMaterial, enemyProjectileMaterialForTag, glowPuddleMaterial, spellBoltMaterial, spellBoltSegmentGeometry, spellSparkGeometry, spellSparkMaterial, unitSphere, WEAPON_COLOR } from '@/game/render/assets';
 import { GLOW_PUDDLE_GROUND_Y, GlowPuddle } from '@/game/render/GlowPuddle';
 import { STREAK_TYPE_ARCANE, STREAK_TYPE_FROST } from '@/game/features/effects/streaks';
-import { WALL_MARK_TYPE_ARCANE, WALL_MARK_TYPE_FROST, wallNormalAt } from '@/game/features/effects/wallmarks';
+import { touchesExplodedBarrel, WALL_MARK_TYPE_ARCANE, WALL_MARK_TYPE_FROST, wallNormalAt } from '@/game/features/effects/wallmarks';
 import { arrowWidthScaleForLevel } from './upgrade-visuals';
 
 /**
@@ -126,15 +126,26 @@ const PROJECTILE_STREAK_WIDTH_FACTOR = 1.1;
  * IMPACTO FINAL (flecha, o el último rebote del hechizo — ahí `p.velocity`
  * ya está a (0,0) cuando el render vuelve a leer el proyectil) sin arriesgar
  * una marca flotando en mitad de la sala cuando el proyectil muere contra un
- * ENEMIGO o un BARRIL en vez de un muro. Llamada desde DOS sitios de
- * `ProjectileSlot` más abajo: el rebote detectado por `bounced` (mismo
- * `if` que cierra/abre el trazo) y la transición activo→inactivo de un
- * proyectil que estaba siendo seguido por el trazo (streakIndex.current !==
- * -1 en el frame anterior). Función de MÓDULO (no closure dentro de
- * useFrame) para no asignar memoria por frame.
+ * ENEMIGO en vez de un muro. Llamada desde DOS sitios de `ProjectileSlot` más
+ * abajo: el rebote detectado por `bounced` (mismo `if` que cierra/abre el
+ * trazo) y la transición activo→inactivo de un proyectil que estaba siendo
+ * seguido por el trazo (streakIndex.current !== -1 en el frame anterior).
+ * Función de MÓDULO (no closure dentro de useFrame) para no asignar memoria
+ * por frame.
+ *
+ * BARRIL (playtest, David: "las manchas en los assets como piedras salen muy
+ * desplazadas" — un barril, visualmente, es tan "asset con volumen" como una
+ * roca): `touchesExplodedBarrel` corta ANTES de consultar `wallNormalAt`, ver
+ * su docstring en wallmarks.ts. Sin este corte, un proyectil detenido por un
+ * barril caía al criterio normal de `wallNormalAt` — casi siempre sin
+ * ninguna superficie cerca (sin marca, inofensivo), pero si el barril estaba
+ * junto a una roca o al muro exterior, encontraba ESA superficie y dejaba una
+ * marca ahí, potencialmente lejos del barril real que de verdad paró el
+ * proyectil (y el barril, reventado, ya no tiene volumen que la sostenga).
  */
 function spawnWallMarkForImpact(session: GameSession, p: Projectile): void {
   const world = session.world;
+  if (touchesExplodedBarrel(p.position.x, p.position.y, p.radius, world.barrels)) return;
   const normal = wallNormalAt(
     p.position.x,
     p.position.y,
@@ -142,7 +153,7 @@ function spawnWallMarkForImpact(session: GameSession, p: Projectile): void {
     world.obstacles,
     world.dungeon === null ? world.bounds : null,
   );
-  if (!normal) return; // No tocaba ningún muro: murió por otra causa (enemigo, barril, TTL) — sin marca.
+  if (!normal) return; // No tocaba ningún muro/roca: murió por otra causa (enemigo, TTL) — sin marca.
   session.effects.wallMarks.spawn(
     p.position.x,
     PROJECTILE_GROUP_HEIGHT,

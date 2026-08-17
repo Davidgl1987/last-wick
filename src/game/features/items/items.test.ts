@@ -8,8 +8,8 @@
 import { describe, expect, it } from 'vitest';
 import { applyDamageToEnemy } from '@/game/features/combat/combat';
 import { createEventQueue, drainEvents, type GameEvent } from '@/engine/events';
-import { COIN_MAGNET_RADIUS_BY_LEVEL } from './constants';
-import { stepItems } from './items';
+import { COIN_DROP_MIN_SEPARATION, COIN_MAGNET_RADIUS_BY_LEVEL } from './constants';
+import { dropCoinAt, stepItems } from './items';
 import { stepWorld } from '@/game/world/step';
 import { createWorld } from '@/game/world/create';
 import type { EnemySpawn, ItemSpawn, RoomData, World } from '@/game/world/types';
@@ -156,6 +156,53 @@ describe('drop de moneda al morir un enemigo', () => {
     const xBefore = world.hero.position.x;
     stepWorld(world, events);
     expect(world.hero.position.x).toBeGreaterThan(xBefore);
+  });
+});
+
+describe('separación entre monedas dropeadas (playtest: "no deberían salir tan juntas como para que se superpongan")', () => {
+  it('dos monedas soltadas en el mismo punto acaban separadas al menos COIN_DROP_MIN_SEPARATION', () => {
+    const world = makeWorld();
+    dropCoinAt(world, 5, 5);
+    dropCoinAt(world, 5, 5);
+    const coins = world.items.filter((i) => i.kind === 'coin' && i.active);
+    expect(coins).toHaveLength(2);
+    const dist = Math.hypot(coins[0].position.x - coins[1].position.x, coins[0].position.y - coins[1].position.y);
+    expect(dist).toBeGreaterThanOrEqual(COIN_DROP_MIN_SEPARATION - 1e-6);
+  });
+
+  it('tres monedas soltadas en el mismo punto quedan todas separadas por pares', () => {
+    const world = makeWorld();
+    dropCoinAt(world, -2, 4);
+    dropCoinAt(world, -2, 4);
+    dropCoinAt(world, -2, 4);
+    const coins = world.items.filter((i) => i.kind === 'coin' && i.active);
+    expect(coins).toHaveLength(3);
+    for (let i = 0; i < coins.length; i++) {
+      for (let j = i + 1; j < coins.length; j++) {
+        const dist = Math.hypot(coins[i].position.x - coins[j].position.x, coins[i].position.y - coins[j].position.y);
+        expect(dist).toBeGreaterThanOrEqual(COIN_DROP_MIN_SEPARATION - 1e-6);
+      }
+    }
+  });
+
+  it('un jefe soltando 10 monedas en el mismo punto no se cuelga (intentos acotados) y todas quedan activas con posición finita', () => {
+    const world = makeWorld();
+    for (let i = 0; i < 10; i++) dropCoinAt(world, 3, 3);
+    const coins = world.items.filter((i) => i.kind === 'coin' && i.active);
+    expect(coins).toHaveLength(10);
+    for (const coin of coins) {
+      expect(Number.isFinite(coin.position.x)).toBe(true);
+      expect(Number.isFinite(coin.position.y)).toBe(true);
+    }
+  });
+
+  it('una moneda lejos de cualquier otra no se reubica (se queda exactamente donde se pidió)', () => {
+    const world = makeWorld();
+    dropCoinAt(world, 0, 0);
+    dropCoinAt(world, 10, 10);
+    const far = world.items.find((i) => i.kind === 'coin' && i.active && i.position.x > 5);
+    expect(far?.position.x).toBe(10);
+    expect(far?.position.y).toBe(10);
   });
 });
 
