@@ -9,14 +9,14 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { Preload } from '@react-three/drei';
 import { useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
-import type { Group, Mesh, PointLight, Points } from 'three';
+import type { Group, PointLight, Points } from 'three';
 import { kitGeometry, kitGeometryPart, kitMaterial, kitWarmMaterial } from '@/game/render/kit';
 import { kitBoxSize, kitGroundOffset, kitTopAlignOffset, kitXZCenteredGeometry } from '@/game/render/kit-fit';
+import { CANDLE_HALF_HEIGHT } from '@/game/render/hero-candle';
 import {
   blobShadowMaterial,
   chaserMaterial,
   dummyMaterial,
-  heroMaterial,
   smallDotGeometry,
   unitCircle,
   unitCone,
@@ -24,7 +24,6 @@ import {
   unitSphere,
 } from '@/game/render/assets';
 import {
-  candleEyeMaterial,
   chaserEyeGlowMaterial,
   dummyEyeGlowMaterial,
   dummySkirtMaterial,
@@ -36,19 +35,12 @@ import {
 } from '@/game/render/assets-dark';
 import type { KitModelName } from '@/game/render/kit-models';
 import { TitlePostEffects } from '@/game/render/PostEffects';
+import { CandleModel } from '@/game/features/hero/CandleModel';
 
 const ENTRY_DURATION = 1.35;
 const DOOR_OPENING_WIDTH = 3.35;
 const DOOR_Y_SCALE = 1.05;
 const DOOR_Z = -3.15;
-
-/**
- * Eje de mundo reutilizado para el billboard CILÍNDRICO de la llama de
- * `Lumora` (mismo criterio que `Y_AXIS` en `HeroView.tsx`): solo lectura,
- * nunca se muta, así que un único objeto de módulo vale para todos los
- * frames sin asignar nada nuevo.
- */
-const Y_AXIS = new THREE.Vector3(0, 1, 0);
 
 function smoothstep(value: number): number {
   return value * value * (3 - 2 * value);
@@ -180,27 +172,39 @@ function MansionDoor({ entering }: { entering: boolean }) {
   );
 }
 
+/**
+ * Radio de la vela de Lumora, en las mismas unidades de mundo que antes
+ * (`scale = 0.54/width` con el modelo sin normalizar equivalía a un
+ * DIÁMETRO de 0.54 ⇒ radio 0.27 — ver el historial en `HeroView.tsx` de
+ * `visualRadius`/`HERO_RADIUS` para el mismo concepto aplicado al héroe).
+ * Ahora que Lumora monta `<CandleModel>` (radio 1 normalizado, el mismo
+ * componente que el héroe — ver `features/hero/CandleModel.tsx`), este es el
+ * ÚNICO número que hace falta para plantar la vela a su tamaño real — mismo
+ * criterio que `scale={HERO_RADIUS}` en `HeroView.tsx`.
+ *
+ * ~12% mayor que `HERO_RADIUS` (0.24) A PROPÓSITO: primer plano del
+ * vestíbulo del título. Antes de compartir `CandleModel`, ese 12% solo
+ * garantizadamente se aplicaba al CUERPO (Lumora recomponía la llama y los
+ * ojos con números propios, sin relación matemática con los del héroe); con
+ * `CandleModel` escalando cuerpo, silueta, ojos y llama UNIFORMEMENTE por
+ * este único `scale`, la MISMA proporción del 12% se aplica a las cuatro
+ * piezas por construcción — ver la VERIFICACIÓN DE PROPORCIÓN en la cabecera
+ * de `CandleModel.tsx` para la cuenta completa de que la llama ya no puede
+ * descuadrarse entre título y juego.
+ */
+const LUMORA_CANDLE_RADIUS = 0.27;
+
 function Lumora() {
   const groupRef = useRef<Group>(null);
-  const flameRef = useRef<Mesh>(null);
   const lightRef = useRef<PointLight>(null);
-  // La misma pieza `candle_melted` que `HeroView` normaliza para Lumora.
-  const candle = useMemo(() => kitXZCenteredGeometry(kitGeometry('candle_melted')), []);
-  const box = candle.boundingBox;
-  if (!box) throw new Error('la vela del kit no trae boundingBox calculado');
-  const width = Math.max(box.max.x - box.min.x, box.max.z - box.min.z);
-  const scale = 0.54 / width;
-  const bodyTop = box.max.y * scale;
-  const bodyGround = -box.min.y * scale;
-  // Billboard cilíndrico de la llama (David 2026-08-13, "para que todo sea
-  // igual": mismo `heroFlameMaterial`/quad que HeroView.tsx, con el mismo
-  // criterio — gira SOLO en Y para mirar a la cámara de ESTA escena
-  // (`TitleCamera`, propia del vestíbulo, no la del juego) y se mantiene
-  // vertical pase lo que pase con el balanceo del grupo). Quaternions
-  // reutilizados cada frame, cero asignaciones — mismo patrón que
-  // `flameBillboardQuat`/`flameTiltInverseQuat` en HeroView.tsx.
-  const flameBillboardQuat = useRef(new THREE.Quaternion());
-  const flameTiltInverseQuat = useRef(new THREE.Quaternion());
+  // Altura de la BOCA de la vela (el techo) sobre el suelo, en unidades de
+  // mundo: sigue haciendo falta aquí solo para posicionar la `pointLight`
+  // (más abajo) — `<CandleModel>` ya no necesita que Lumora le pase nada de
+  // esto, calcula la misma cuenta internamente a partir de su propio
+  // `scale`. La vela normalizada mide `2·CANDLE_HALF_HEIGHT` de alto con la
+  // base en y=0 (ver `render/hero-candle.ts`), escalada aquí por
+  // `LUMORA_CANDLE_RADIUS`.
+  const mouthY = 2 * CANDLE_HALF_HEIGHT * LUMORA_CANDLE_RADIUS;
 
   // `heroFlameMaterial` es un objeto MUTABLE compartido con el juego real
   // (HeroView.tsx lerpea `.color` hacia el arma activa cada frame) — si el
@@ -215,39 +219,29 @@ function Lumora() {
 
   useFrame((state) => {
     const time = state.clock.elapsedTime;
-    const pulse = 1 + Math.sin(time * 3.1) * 0.055 + Math.sin(time * 5.7) * 0.035;
-    const group = groupRef.current;
-    const flame = flameRef.current;
-    if (flame) {
-      flame.scale.set(0.16 * pulse, 0.3 * pulse, 0.16 * pulse);
-      if (group) {
-        // `group.position` ya está en coordenadas de MUNDO (Lumora cuelga
-        // directamente de la escena, sin ancestro con transform propio) —
-        // mismo cálculo de yaw que HeroView.tsx, solo que aquí la posición
-        // del grupo es constante y la cámara es la de TitleCamera.
-        const camera = state.camera;
-        const yaw = Math.atan2(camera.position.x - group.position.x, camera.position.z - group.position.z);
-        flameBillboardQuat.current.setFromAxisAngle(Y_AXIS, yaw);
-        // Cancela el balanceo en Z del grupo (línea de abajo) igual que
-        // HeroView cancela la inclinación de `tiltGroup`: sin esto la llama
-        // heredaría ese balanceo y dejaría de leerse vertical.
-        flameTiltInverseQuat.current.copy(group.quaternion).invert();
-        flame.quaternion.copy(flameTiltInverseQuat.current).multiply(flameBillboardQuat.current);
-      }
-    }
     if (lightRef.current) lightRef.current.intensity = 18 + Math.sin(time * 3.1) * 1.2 + Math.sin(time * 5.7) * 0.7;
-    if (group) group.rotation.z = Math.sin(time * 0.75) * 0.012;
+    if (groupRef.current) groupRef.current.rotation.z = Math.sin(time * 0.75) * 0.012;
   });
 
   return (
     <group ref={groupRef} position={[0, 0.02, 2.35]}>
-      <mesh geometry={candle} material={heroMaterial} position={[0, bodyGround, 0]} scale={scale} />
-      <group position={[0, bodyGround + bodyTop * 0.56, 0.265]}>
-        <mesh geometry={smallDotGeometry} material={candleEyeMaterial} position={[-0.105, 0, 0]} scale={[0.065, 0.1, 0.04]} />
-        <mesh geometry={smallDotGeometry} material={candleEyeMaterial} position={[0.105, 0, 0]} scale={[0.065, 0.1, 0.04]} />
-      </group>
-      <mesh ref={flameRef} geometry={unitPlane} material={heroFlameMaterial} position={[0, bodyGround + bodyTop + 0.14, 0]} />
-      <pointLight ref={lightRef} color="#ffc06c" distance={5.8} decay={2} position={[0, bodyGround + bodyTop + 0.22, 0.18]} />
+      {/*
+        Cuerpo, silueta de oclusión, ojos y llama: el MISMO componente que
+        monta el héroe jugable (`<CandleModel>`, `features/hero/CandleModel.tsx`
+        — encargo de David, 2026-08-18: "debería haber un componente que lo
+        pinte todo, tanto en el título como en el juego"). Antes de esto,
+        Lumora recomponía el cuerpo (`normalizeHeroCandleGeometry` a mano),
+        los ojos (números sueltos: separación 0.105, escala [0.065, 0.1,
+        0.04], Z 0.265, altura `mouthY·0.56`) y la llama (dos `<group>`
+        anidados con `LUMORA_CANDLE_RADIUS` y la `CANDLE_FLAME_ANCHOR_Y`
+        importada de `HeroView.tsx`) — tres recetas manuales que ya no hacen
+        falta: Lumora no pasa ninguna ref (no anima squash, mirada ni
+        Firmeza) ni `children` (sin pinchos ni escudo), solo decide `scale`
+        —`LUMORA_CANDLE_RADIUS`— y dónde va, este `<group>` de aquí fuera con
+        su balanceo en Z.
+      */}
+      <CandleModel scale={LUMORA_CANDLE_RADIUS} />
+      <pointLight ref={lightRef} color="#ffc06c" distance={5.8} decay={2} position={[0, mouthY + 0.22, 0.18]} />
       <mesh geometry={unitCircle} material={blobShadowMaterial} rotation-x={-Math.PI / 2} position={[0, 0.005, 0]} scale={0.48} />
     </group>
   );

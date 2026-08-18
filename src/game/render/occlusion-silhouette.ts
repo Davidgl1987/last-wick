@@ -55,10 +55,24 @@ const SILHOUETTE_OPACITY = 0.55;
  * Material de silueta para un color dado. Se crea UNO por color y se
  * comparte — mismo criterio que `assets.ts`: los materiales se crean una vez
  * al cargar el módulo, nunca por frame ni por instancia.
+ *
+ * `alphaMap` opcional (encargo de David, 2026-08-18, "dale silueta también
+ * cuando esté detrás del muro" a la llama): la silueta del cuerpo/ojos/cirios
+ * es una malla más o menos maciza, así que un color plano sobre su propia
+ * geometría ya basta. La llama es un QUAD con una textura de fuego recortada
+ * (`flame.png`, Light Mask) — sin `alphaMap`, la silueta pintaría el
+ * CUADRADO entero del quad, no la forma de la llama. Pasar la misma textura
+ * como `alphaMap` recorta el color plano por su canal de luminancia (three.js
+ * lee el canal VERDE del `alphaMap`; `flame.png` escribe el mismo valor en
+ * los tres canales RGB, así que da igual cuál lea) sin heredar ningún otro
+ * criterio de `heroFlameMaterial` (nada de `AdditiveBlending`: ver el
+ * comentario de `heroFlameSilhouetteMaterial` en `assets-dark.ts` para el
+ * porqué de mantener blending normal aquí).
  */
-export function makeSilhouetteMaterial(color: THREE.ColorRepresentation): THREE.MeshBasicMaterial {
+export function makeSilhouetteMaterial(color: THREE.ColorRepresentation, alphaMap?: THREE.Texture): THREE.MeshBasicMaterial {
   return new THREE.MeshBasicMaterial({
     color,
+    alphaMap,
     depthFunc: THREE.GreaterDepth,
     depthWrite: false,
     transparent: true,

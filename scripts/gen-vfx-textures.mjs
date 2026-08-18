@@ -184,48 +184,156 @@ function bolt() {
   return f;
 }
 
-// ── 3. Llama: silueta de llama con núcleo brillante (Light Mask aditiva) ──
+// ── 3. Llama: MISMA silueta que el icono 'flame' del HUD (Light Mask aditiva) ──
+/**
+ * Encargo de David (2026-08-17, con captura): "podríamos reutilizar el mismo
+ * asset que se usa para las llamas de vida y darle algo de movimiento/
+ * escalado para que simule una llama" — quiere que la llama 3D del héroe deje
+ * de tener su propia silueta (las tres "lenguas" con base redondeada de la
+ * ronda anterior, `tongue()`, ya retirada de aquí) y use la MISMA forma que
+ * el icono de vida del HUD, para que un jugador reconozca el mismo símbolo en
+ * los dos sitios.
+ *
+ * Ese icono es el caso `'flame'` de `renderGlyph` en `src/ui/Icon.tsx`,
+ * viewBox 24×24, path exacto (se cita aquí para que se vea de dónde sale la
+ * forma, no se parsea en tiempo de ejecución — este script no tiene canvas ni
+ * parser SVG):
+ *
+ *   M12 2C9.8 5.5 6 10 6 14c0 2.8 1.6 5 3.6 6.3.7-1.6 1.4-3.3 2.4-4.5
+ *   1 1.2 1.7 2.9 2.4 4.5C16.4 19 18 16.8 18 14c0-4-3.8-8.5-6-12Z
+ *
+ * Desglosando ese path a mano (M = punta, dos C simétricas bajan por los
+ * lados hasta el ancho máximo, dos c/c encadenadas trazan la hendidura
+ * central de la base): punta en (12,2); ancho máximo (medio ancho 6, de
+ * x=6 a x=18) en y=14; de ahí el contorno EXTERIOR sigue bajando y
+ * estrechándose hasta los dos "dedos" del borde inferior, en (9.6,20.3) y
+ * (14.4,20.3); entre esos dos puntos el borde INTERIOR de la hendidura sube
+ * hasta un pico en (12,15.8) — la muesca en forma de V que separa los dos
+ * dedos.
+ *
+ * PRIMER INTENTO (descartado): aproximar la forma con dos perfiles
+ * analíticos — un ancho exterior unimodal por altura y una "hendidura" en
+ * coseno por columna. Al mirar el PNG resultante, David lo describió así:
+ * "sale un rombo de lados casi rectos con un agujero CIRCULAR enorme en la
+ * base". Causa: `Math.pow` con exponentes fijos da lados casi RECTOS (un
+ * rombo/cometa, no el contorno bulboso real) y el coseno de la hendidura
+ * subía en TODO el ancho de cada fila en vez de solo cerca del eje, así que
+ * la muesca estrecha en V del icono se convertía en un semicírculo enorme.
+ * Dos fórmulas inventadas nunca iban a reproducir seis curvas de Bézier
+ * concretas más que por casualidad — se abandona la aproximación.
+ *
+ * ARREGLO: RASTERIZAR EL PATH DE VERDAD. Las seis curvas cúbicas de arriba
+ * se muestrean (`BEZIER_STEPS` pasos cada una, fórmula estándar de Bézier
+ * cúbica) y se acumulan en un polígono cerrado; cada píxel se resuelve con
+ * un test punto-en-polígono (ray casting, par-impar) con supersampling para
+ * el antialiasado. Es más caro que una fórmula cerrada, pero determinista y
+ * EXACTO — la única forma de que la hendidura salga estrecha en vez de un
+ * agujero, y de que los lados salgan curvos en vez de rectos.
+ */
+/** Pasos de muestreo por curva de Bézier — suficientes para que el polígono se vea curvo, no facetado, incluso ampliado. */
+const BEZIER_STEPS = 64;
+/** Supersampling por eje (4×4 = 16 muestras/píxel) para el antialiasado por cobertura real, en vez de heurísticas de distancia al borde. */
+const SUPERSAMPLE = 4;
 function flame() {
   const f = makeField();
   const baseY = 232;
   const tipY = 16;
   const H = baseY - tipY;
-  /**
-   * Una sola lengua de fuego: eje CURVADO (una llama nunca sube recta) y ancho
-   * con ondulación de amplitud alta, para que el contorno tenga lóbulos en vez
-   * de ser la silueta de una gota — el defecto exacto que hay que evitar
-   * ("que no se vea un cono tal cual").
-   */
-  const tongue = (xOff, scale, lean, wob, heightMul, gain) => {
-    for (let y = 0; y < SIZE; y++) {
-      const yb = baseY;
-      const yt = baseY - H * heightMul;
-      if (y < yt || y > yb) continue;
-      const t = (yb - y) / (yb - yt); // 0 base, 1 punta
-      // Eje curvado: se inclina progresivamente y ondula.
-      const cx = 128 + xOff + lean * Math.pow(t, 1.7) * 26 + Math.sin(t * 4.1 + wob) * 7 * t;
-      // Ancho: hombro ancho abajo, cintura, y lóbulos por la ondulación.
-      const base = 58 * scale * Math.pow(1 - t, 0.42) * (1 - Math.pow(t, 3.2));
-      const lobes = 1 + 0.30 * Math.sin(t * 8.5 + wob * 2.3) + 0.16 * Math.sin(t * 15.0 + wob);
-      const w = base * lobes;
-      if (w <= 0.5) continue;
-      for (let x = 0; x < SIZE; x++) {
-        const dx = Math.abs(x + 0.5 - cx);
-        if (dx > w + 2) continue;
-        const edge = Math.max(0, Math.min(1, (w - dx) / 2.2 + 0.5));
-        // Núcleo brillante en el eje y en la parte baja (donde arde fuerte).
-        const core = Math.pow(Math.max(0, 1 - dx / Math.max(w, 1)), 1.4) * (0.40 + 0.60 * Math.pow(1 - t, 1.1));
-        const v = edge * (0.26 + 0.74 * core) * gain;
-        const i = y * SIZE + x;
-        if (v > f[i]) f[i] = v;
-      }
+  const cx = 128;
+  // Escala UNIFORME del viewBox 24×24 al canvas: el rango y∈[2,20.3] (altura
+  // real 18.3, ver comentario grande de arriba) debe caer en [tipY,baseY]
+  // (H=216px), y la MISMA escala se usa en X para no deformar la silueta —
+  // estirar un eje distinto del otro es precisamente lo que ya salió mal en
+  // el primer intento (ahí el problema era la fórmula, no la escala, pero la
+  // lección es la misma: no tocar la proporción real del icono).
+  const iconScale = H / 18.3;
+  const toPx = (px, py) => ({ x: cx + (px - 12) * iconScale, y: tipY + (py - 2) * iconScale });
+
+  // Los 6 tramos del path, ya en absoluto (verificados segmento a segmento):
+  // cada uno es [control1, control2, fin] — el punto de PARTIDA de cada
+  // tramo es el `fin` del anterior (o (12,2) para el primero, la punta).
+  const SEGMENTS = [
+    [{ x: 9.8, y: 5.5 }, { x: 6, y: 10 }, { x: 6, y: 14 }],
+    [{ x: 6, y: 16.8 }, { x: 7.6, y: 19 }, { x: 9.6, y: 20.3 }],
+    [{ x: 10.3, y: 18.7 }, { x: 11.0, y: 17.0 }, { x: 12.0, y: 15.8 }],
+    [{ x: 13.0, y: 17.0 }, { x: 13.7, y: 18.7 }, { x: 14.4, y: 20.3 }],
+    [{ x: 16.4, y: 19 }, { x: 18, y: 16.8 }, { x: 18, y: 14 }],
+    [{ x: 18, y: 10 }, { x: 14.2, y: 5.5 }, { x: 12, y: 2 }],
+  ];
+  let start = { x: 12, y: 2 };
+  const poly = [toPx(start.x, start.y)];
+  for (const [c1, c2, end] of SEGMENTS) {
+    for (let i = 1; i <= BEZIER_STEPS; i++) {
+      // Fórmula estándar de Bézier cúbica: B(t) = (1−t)³P0 + 3(1−t)²tP1 +
+      // 3(1−t)t²P2 + t³P3.
+      const t = i / BEZIER_STEPS;
+      const mt = 1 - t;
+      const a = mt * mt * mt;
+      const b = 3 * mt * mt * t;
+      const c = 3 * mt * t * t;
+      const d = t * t * t;
+      const px = a * start.x + b * c1.x + c * c2.x + d * end.x;
+      const py = a * start.y + b * c1.y + c * c2.y + d * end.y;
+      poly.push(toPx(px, py));
     }
+    start = end;
+  }
+
+  // Bounding box del polígono (+2px de margen) para no recorrer los 256×256
+  // enteros: la silueta real ocupa solo ~142×216px.
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const p of poly) {
+    if (p.x < minX) minX = p.x;
+    if (p.x > maxX) maxX = p.x;
+    if (p.y < minY) minY = p.y;
+    if (p.y > maxY) maxY = p.y;
+  }
+  minX = Math.max(0, Math.floor(minX) - 2);
+  maxX = Math.min(SIZE - 1, Math.ceil(maxX) + 2);
+  minY = Math.max(0, Math.floor(minY) - 2);
+  maxY = Math.min(SIZE - 1, Math.ceil(maxY) + 2);
+
+  // Punto-en-polígono por ray casting, regla par-impar: cuenta cuántas
+  // aristas cruza la semirrecta horizontal hacia +X desde (px,py).
+  const inside = (px, py) => {
+    let hit = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const xi = poly[i].x, yi = poly[i].y;
+      const xj = poly[j].x, yj = poly[j].y;
+      if (yi > py !== yj > py && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi) hit = !hit;
+    }
+    return hit;
   };
-  // Lengua principal + dos secundarias más bajas y estrechas: el conjunto se
-  // lee como fuego vivo, no como una forma sólida.
-  tongue(0, 1.0, 0.35, 0.0, 1.0, 1.0);
-  tongue(-26, 0.52, -0.9, 2.1, 0.62, 0.9);
-  tongue(24, 0.44, 1.1, 4.3, 0.5, 0.85);
+
+  const WMAX_PX = 6 * iconScale; // medio ancho máximo del icono, referencia para el núcleo de abajo (no para el relleno)
+  for (let y = minY; y <= maxY; y++) {
+    const t = Math.max(0, Math.min(1, (baseY - y) / H)); // 0 base, 1 punta — para el núcleo
+    for (let x = minX; x <= maxX; x++) {
+      // Cobertura real del polígono en este píxel, por supersampling —
+      // ANTIALIASADO EXACTO, no una heurística de distancia al borde como
+      // usaba el intento anterior (esas heurísticas fueron justo lo que
+      // convirtió una hendidura estrecha en un agujero enorme).
+      let hits = 0;
+      for (let sy = 0; sy < SUPERSAMPLE; sy++) {
+        const py = y + (sy + 0.5) / SUPERSAMPLE;
+        for (let sx = 0; sx < SUPERSAMPLE; sx++) {
+          const px = x + (sx + 0.5) / SUPERSAMPLE;
+          if (inside(px, py)) hits++;
+        }
+      }
+      if (hits === 0) continue;
+      const coverage = hits / (SUPERSAMPLE * SUPERSAMPLE);
+      // Núcleo brillante hacia el eje y hacia la parte baja (donde arde
+      // fuerte) — mismo espíritu que todas las versiones anteriores de esta
+      // textura: sin núcleo, una silueta de cobertura plana se lee como una
+      // calcomanía recortada, no como fuego con volumen.
+      const absdx = Math.abs(x + 0.5 - cx);
+      const core = Math.pow(Math.max(0, 1 - absdx / WMAX_PX), 1.4) * (0.40 + 0.60 * Math.pow(1 - t, 1.1));
+      const val = coverage * (0.30 + 0.70 * core);
+      const i = y * SIZE + x;
+      if (val > f[i]) f[i] = val;
+    }
+  }
   return f;
 }
 
