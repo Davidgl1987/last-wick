@@ -35,6 +35,7 @@ import {
   trailMaterial,
   WEAPON_COLOR,
 } from './assets';
+import { makeSilhouetteMaterial } from './occlusion-silhouette';
 import { vfxTexture } from './vfx-textures';
 
 // ── Bloom HDR: emissive de los emisores reales (rama post-procesado, fase 4) ──
@@ -311,6 +312,46 @@ export const heroFlameMaterial = new THREE.MeshBasicMaterial({
   blending: THREE.AdditiveBlending,
   depthWrite: false,
 });
+
+/**
+ * Silueta de oclusión de la llama (`occlusion-silhouette.ts`; encargo de
+ * David, 2026-08-18: "dale silueta también cuando esté detrás del muro" — el
+ * cuerpo ya tiene la suya, `heroSilhouetteMaterial` más abajo, pero la llama
+ * no, así que tras un muro la vela se veía "apagada"). Montada por
+ * `CandleFlame.tsx` como hijo del propio quad de la llama, con la MISMA
+ * geometría (`unitPlane`) y `renderOrder={SILHOUETTE_RENDER_ORDER}` — ver
+ * ese fichero para el porqué de colgarla ahí (hereda posición/escala/pulso
+ * del quad padre gratis, sin recalcular nada por frame).
+ *
+ * `makeSilhouetteMaterial(color, alphaMap)` en vez de reconstruir el
+ * material a mano: comparte los mismos flags que ya usan el cuerpo/ojos
+ * (`depthFunc: GreaterDepth`, `depthWrite: false`, `fog: false`, la misma
+ * `SILHOUETTE_OPACITY`) — un solo sitio que definir "qué es una silueta" en
+ * este proyecto. `alphaMap: vfxTexture('flame')` (la MISMA textura de
+ * `heroFlameMaterial`, reutilizada — three.js soporta que una textura sirva
+ * de `map` en un material y de `alphaMap` en otro a la vez) es lo que recorta
+ * el color plano con la forma real de la llama en vez de pintar el cuadrado
+ * entero del quad.
+ *
+ * Blending NORMAL (el `MeshBasicMaterial` por defecto — sin `blending:
+ * AdditiveBlending` a propósito, a diferencia de `heroFlameMaterial`): a
+ * través de un muro esto es un SÍMBOLO de lectura (como cualquier otra
+ * silueta del juego), no un emisor de luz — aditivo sumaría brillo sobre lo
+ * que hay detrás del muro, que no es lo que pide "que se vea la llama
+ * apagada", es leerla igual que el resto de la vela tapada.
+ *
+ * Color LDR (`WEAPON_COLOR.body`, no `WEAPON_COLOR_FLAME_HDR`): mismo
+ * criterio que `heroSilhouetteMaterial` (`HeroView.tsx`) y `aimDotMaterial`
+ * (`assets.ts`) — `WEAPON_COLOR_FLAME_HDR` va multiplicada ×`BLOOM_
+ * EMISSIVE_INTENSITY` para cruzar el umbral de Bloom (ver su comentario más
+ * arriba), y una silueta NO debe florecer: si usara la versión HDR, el color
+ * "plano" de la silueta saldría muy por encima de 1 y el postproceso la
+ * trataría como otro emisor de luz detrás del muro. `HeroView.tsx` lerpea
+ * este `.color` hacia el arma activa cada frame, igual que ya hace con
+ * `heroSilhouetteMaterial`/`aimDotMaterial` — la silueta de la llama sigue al
+ * arma tanto como la llama real.
+ */
+export const heroFlameSilhouetteMaterial = makeSilhouetteMaterial(WEAPON_COLOR.body.clone(), vfxTexture('flame'));
 
 // ── Pantalla de título 3D ──────────────────────────────────────
 

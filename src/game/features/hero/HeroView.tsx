@@ -3,6 +3,12 @@
  * dinámicas). Lee la sim en useFrame y muta los object3D directamente, con
  * interpolación entre ticks.
  *
+ * El modelo de la vela en sí (cuerpo, silueta de oclusión, ojos y llama) se
+ * pinta con `<CandleModel>` (`./CandleModel.tsx`), COMPARTIDO con Lumora
+ * (`TitleScreenScene.tsx`) — este fichero le pasa refs para seguir animando
+ * las piezas que le son propias (squash/estiramiento, i-frames, mirada) y le
+ * añade como `children` los adornos exclusivos del héroe (pinchos, escudo).
+ *
  * Feedback visual:
  * - Parpadeo durante los i-frames (GDD §6) y caída al foso (fase 2).
  * - Squash & stretch vertical (SOLO render): estiramiento con la velocidad,
@@ -21,13 +27,12 @@
  */
 
 import { useFrame } from '@react-three/fiber';
-import { useEffect, useMemo, useRef } from 'react';
-import { Color, Quaternion, Vector3, type BufferGeometry, type Group, type Mesh } from 'three';
-import { ConvexGeometry } from 'three/examples/jsm/geometries/ConvexGeometry.js';
+import { useEffect, useRef } from 'react';
+import { Color, Quaternion, Vector3, type Group, type Mesh } from 'three';
 import { dampAngleTowards } from '@/engine/geometry';
-import { kitGeometry } from '@/game/render/kit';
-import { makeSilhouetteMaterial, SILHOUETTE_RENDER_ORDER } from '@/game/render/occlusion-silhouette';
+import { CANDLE_HALF_HEIGHT } from '@/game/render/hero-candle';
 import { HERO_RADIUS } from './constants';
+import { CandleModel, CANDLE_FLAME_ANCHOR_Y, heroSilhouetteMaterial } from './CandleModel';
 import { PIT_FALL_DURATION } from '@/game/features/hazards/constants';
 import { HERO_WAX_EMIT_DISTANCE, WAX_TYPE_ARCANE, WAX_TYPE_FROST, WAX_TYPE_WAX } from '@/game/features/effects/wax';
 import { getUpgradeLevel } from '@/game/session/upgrades';
@@ -36,32 +41,15 @@ import type { WeaponMode } from '@/game/world/types';
 import {
   aimDotMaterial,
   blobShadowMaterial,
-  heroMaterial,
   heroShieldMaterial,
   heroSpikeGeometry,
   heroSpikeMaterial,
-  smallDotGeometry,
   unitCircle,
-  unitPlane,
   unitSphere,
   WEAPON_COLOR,
 } from '@/game/render/assets';
-import {
-  candleEyeMaterial,
-  HERO_WAX_COLOR,
-  heroFlameMaterial,
-  WEAPON_COLOR_FLAME_HDR,
-} from '@/game/render/assets-dark';
+import { HERO_WAX_COLOR, heroFlameMaterial, heroFlameSilhouetteMaterial, WEAPON_COLOR_FLAME_HDR } from '@/game/render/assets-dark';
 import { boulderScaleFactor, cometStretchFactor, shieldBubbleOpacity, spikeCountForLevel } from './upgrade-visuals';
-
-/**
- * Silueta del héroe a través de lo que lo tape (ver `occlusion-silhouette.ts`
- * para el truco de `GreaterDepth`). Su color sigue al del arma activa, igual
- * que la llama y el punto de puntería: si la silueta se quedara de un color
- * fijo, sería la única pieza del héroe que no responde al arma, y el color de
- * arma es justo lo que el jugador usa para saber con qué está disparando.
- */
-const heroSilhouetteMaterial = makeSilhouetteMaterial(WEAPON_COLOR.body.clone());
 
 /** Frecuencia del parpadeo de invulnerabilidad (alternancias por segundo). */
 const IFRAME_BLINK_HZ = 12;
@@ -151,156 +139,40 @@ const CANDLE_VERTICAL_STRETCH_PER_SPEED = STRETCH_PER_SPEED * 0.5;
  * proporción de la vela, no solo la chata de antes.
  */
 const CANDLE_PIVOT_HEIGHT_FRACTION = 0;
-/**
- * Nombre de la pieza del kit que hace de CUERPO del héroe (prueba pedida por
- * David, 2026-08-05: "probar a utilizar la vela más ancha que hay en el kit
- * como personaje, incluyendo los ojos"). De las velas sueltas del pack todas
- * miden lo mismo de ancho (0.33) y lo que cambia es el alto, así que "la más
- * ancha" en PROPORCIÓN es la derretida (0.33 × 0.70). Cambiar esta constante
- * a `'candle'` (0.33 × 0.87, más estilizada) es todo lo que hace falta para
- * probar la otra: el resto del fichero deriva sus medidas de la geometría, no
- * de números fijos. `candle_lit` NO sirve: trae su propia llama modelada y el
- * héroe ya pone la suya, animada.
- */
-const HERO_CANDLE_MODEL = 'candle_melted';
 
 /**
- * Mitad del alto de la vela EN SU ESPACIO LOCAL, donde el radio vale 1 (misma
- * convención que tenía `heroCandleGeometry`, el cilindro de ronda 7: radio 1,
- * alto 2.8 ⇒ mitad 1.4). Mantiene la base pinchada al pivote pase lo que pase
- * con el escalado vertical (squash o estiramiento).
+ * `HERO_CANDLE_MODEL` y `CANDLE_HALF_HEIGHT` (la proporción real del modelo,
+ * en espacio normalizado a radio 1) viven en `render/hero-candle.ts` junto a
+ * `normalizeHeroCandleGeometry` — extraídas de aquí en un primer paso
+ * (encargo de David, 2026-08-18: "debería usarse el mismo modelo y la misma
+ * llama en todos sitios") para que `TitleScreenScene.tsx` (Lumora) consumiera
+ * exactamente la MISMA normalización que el héroe, en vez de la suya propia.
  *
- * Ya NO es un 1.4 fijo: se calcula a partir de la proporción real del modelo
- * del kit (`normalizeHeroCandle` más abajo), porque la vela del pack es más
- * esbelta que el cilindro que sustituye y ese número manda sobre otras tres
- * medidas ya afinadas en playtest — dónde va la llama, dónde los ojos y dónde
- * se clavan los pinchos del Erizo de Acero. Derivarlas todas de aquí es lo que
- * permite cambiar `HERO_CANDLE_MODEL` sin volver a tunear nada a ojo.
- *
- * La silueta se normaliza por el RADIO (no por el alto) a propósito: en la
- * ronda 7 David corrigió justo esto — "has cambiado el modelo y no la hitbox,
- * te pedí lo contrario" —, así que el ancho visible tiene que seguir siendo
- * exactamente el de la hitbox (`HERO_RADIUS`), ni generoso ni tacaño, y el
- * alto es el que le toque al modelo.
- *
- * El número: `candle_melted` mide 0.33 de ancho por 0.70 de alto, así que
- * normalizada a radio 1 (ancho 2) su alto es 2·0.70/0.33 = 4.24 y su mitad,
- * 2.12. Va escrito como constante en vez de leerse del `boundingBox` porque
- * este módulo se importa ANTES de que el kit esté precargado (App.tsx monta el
- * juego después, pero el import es estático) y `kitGeometry` lanzaría. A cambio
- * `normalizeHeroCandleGeometry` comprueba en tiempo de ejecución que el modelo
- * real coincide con este número y avisa por consola si algún día deja de
- * hacerlo.
+ * Segundo paso del mismo encargo, mismo día ("debería haber un componente
+ * que lo pinte todo, tanto en el título como en el juego"): el cuerpo, la
+ * silueta de oclusión, los ojos y el ancla de la llama —todo lo que
+ * depende de esta proporción salvo los pinchos, que siguen siendo cosa
+ * exclusiva del héroe— se mudaron a `./CandleModel.tsx`, montado tanto aquí
+ * como en `TitleScreenScene.tsx`. `CANDLE_FLAME_ANCHOR_Y` sigue
+ * IMPORTÁNDOSE aquí (este fichero todavía necesita su valor para
+ * reposicionar `flameAnchorRef` cada frame según `visualRadius`, ver el
+ * `useFrame` más abajo); `CANDLE_EYE_Y` y el resto de constantes de los ojos
+ * ya NO se usan en este fichero en absoluto (viven enteramente dentro de
+ * `CandleModel.tsx`, que no necesita reposicionarlas cada frame). Solo
+ * `CANDLE_SPIKE_SURFACE_Y` se queda aquí, derivada de `CANDLE_HALF_HEIGHT`
+ * igual que antes: los pinchos son un adorno exclusivo del héroe que cuelga
+ * de `bodyRef` como `children` de `CandleModel`, nunca de Lumora.
  */
-const CANDLE_HALF_HEIGHT = 2.12;
 
 /**
- * Ojos de la vela, reajustados a la vela fina y alta de ronda 7 (radio local
- * 1, alto local 2.8 — ver comentario de `CANDLE_PIVOT_HEIGHT_FRACTION` y de
- * `heroCandleGeometry` en `render/assets.ts`).
- *
- * Cuenta de ALTURAS (números en × visualRadius; visualRadius ≈ HERO_RADIUS a
- * nivel base de Firmeza): con `CANDLE_PIVOT_HEIGHT_FRACTION = 0`, `tiltGroup`
- * (y por tanto la base del cilindro) vive en mundo a y=0 exacto. `candleGroup`
- * (padre de los ojos) tiene y local = `visualRadius · (1 −
- * CANDLE_PIVOT_HEIGHT_FRACTION)` = 1.00·visualRadius — nótese que esta cuenta
- * se CANCELA sola respecto a `CANDLE_PIVOT_HEIGHT_FRACTION` (tiltGroup.y +
- * candleGroup.y_local = fracción + (1−fracción) = 1 siempre), así que
- * `candleGroup` cae en el mismo sitio absoluto pase lo que pase con el
- * pivote. El cilindro (alto local 2.8, base en y=0) ocupa en altura absoluta
- * [0, 2.8]·visualRadius, así que el origen de `candleGroup` (1.00) cae al
- * 1.00/2.8 ≈ 36% de la altura — bastante por debajo de donde deben ir los
- * ojos. `CANDLE_EYE_Y` = 0.68·HERO_RADIUS los sube a 1.68·visualRadius
- * absolutos ⇒ 1.68/2.8 = 60% de la altura del cilindro (pedido original:
- * 55-65%, se mantiene el mismo criterio que en rondas anteriores). Esta Y ya
- * estaba bien: se verificó con la aritmética de arriba y no se toca.
- *
- * BUG encontrado en playtest ronda 8 ("los ojos han desaparecido"): la Z de
- * antes (0.9·HERO_RADIUS) los dejaba DENTRO del cilindro. El radio ABSOLUTO
- * real de la superficie del cuerpo (ver `body.scale.set(scaleXZ, ...)` en
- * useFrame) es `scaleXZ` ≈ `visualRadius` (radio LOCAL 1 del cilindro ×
- * `visualRadius`) — y `visualRadius` ≈ `HERO_RADIUS` a nivel base de
- * Firmeza. Con Z = 0.9·HERO_RADIUS ≈ 0.9·visualRadius, los ojos quedaban al
- * 90% del radio real (100% = superficie): EMBEBIDOS un 10% dentro del sólido,
- * ocultos por el propio cuerpo en el z-test de profundidad (de ahí que "no se
- * vean" en vez de solo "se vean mal"). Fix: sacarlos justo fuera de la
- * superficie, al 102% del radio.
+ * Ojos de la vela: constantes de posición/tamaño/separación
+ * (`CANDLE_EYE_SEPARATION`/`_X`/`_Y`/`_Z`/`_SCALE`) y todo su historial de
+ * playtest se mudaron a `./CandleModel.tsx` (encargo de David, 2026-08-18:
+ * "un componente que lo pinte todo, tanto en el título como en el juego") —
+ * este fichero ya no las necesita: `eyeGroupRef`, más abajo, solo fija cada
+ * frame la ROTACIÓN en Y (la mirada), nunca la posición/tamaño de la carita,
+ * que ahora es enteramente cosa del componente.
  */
-/**
- * Agrandados ×2 (playtest 2026-07-26, David: "agranda los ojos de todos,
- * incluida la vela"): de los 5 personajes con ojos (4 arquetipos + vela),
- * la vela partía siendo el MÁS PEQUEÑO de todos en términos absolutos (ancho
- * 0.105·HERO_RADIUS = 0.105·0.24 ≈ 0.025u, frente a 0.045-0.19u de los
- * arquetipos) — incluso más fino que el Acechador, el más ranurado de los
- * 4. Mismo factor ×2 que Vigía/Acechador (los otros dos "pequeños" del
- * criterio), NO más agresivo: la carita simple de la vela lleva muchas
- * rondas de playtest afinándose (ver historial de esta sección) y un
- * salto mayor la desproporcionaría respecto al resto de su diseño.
- *
- * Separación entre CENTROS de ambos ojos, en × HERO_RADIUS (juntos, carita
- * del concept; misma proporción que ronda 6 respecto al nuevo diámetro del
- * cilindro, radio local 1 en vez de 0.85). Sube también ×2 junto con el
- * tamaño (0.33→0.66): si solo creciera el tamaño del ojo, los dos óvalos se
- * solaparían en el centro (radio 0.21·HERO_RADIUS > separación media
- * 0.165·HERO_RADIUS de antes) — al escalar tamaño Y separación por el MISMO
- * factor, toda la carita crece como un "zoom" uniforme y conserva
- * exactamente las mismas proporciones internas (mismo hueco relativo entre
- * ojos) que ya estaban verificadas.
- */
-const CANDLE_EYE_SEPARATION = 0.66;
-const CANDLE_EYE_X = (HERO_RADIUS * CANDLE_EYE_SEPARATION) / 2;
-/**
- * 60% de la altura del cuerpo, que es la proporción validada en rondas
- * anteriores (antes salía de un 0.68 fijo sobre el cilindro de alto local
- * 2.8: (1.00+0.68)/2.8 = 60%). Derivado ahora de `CANDLE_HALF_HEIGHT` para que
- * la carita no se descuelgue si cambia el modelo de vela: absoluto =
- * 0.6·(2·semialto), y este offset es local a `candleGroup`, que vive en
- * 1.00·visualRadius.
- */
-const CANDLE_EYE_Y = HERO_RADIUS * (0.6 * (2 * CANDLE_HALF_HEIGHT) - 1);
-/**
- * Radio local del cilindro (1, ronda 7) × visualRadius/HERO_RADIUS: antes al
- * 102% (JUSTO fuera de la superficie real, ver BUG de ronda 8 arriba). Al
- * agrandar el ojo ×2 (ronda 2026-07-26) su semi-grosor en Z también se
- * duplica (0.06·HERO_RADIUS → 0.12·HERO_RADIUS, +0.06·HERO_RADIUS): si se
- * dejara el 102% intacto, el FRENTE del ojo (Z + semi-grosor) se adelantaría
- * esos mismos 0.06·HERO_RADIUS de más, flotando más de lo que ya flotaba.
- * Se retrasa el multiplicador esa misma cantidad (1.02−0.06=0.96) para que
- * el frente del ojo quede en la MISMA profundidad absoluta que antes de
- * agrandarlo — ni más hundido ni más flotando de lo que ya estaba (mismo
- * criterio que `DUMMY_EYE_Z`/`CHASER_FACE_RADIUS` en los arquetipos).
- */
-const CANDLE_EYE_Z = HERO_RADIUS * 0.96;
-/**
- * Tamaño de cada ojo, en × HERO_RADIUS (se achica junto con el resto de la
- * vela al reducirse HERO_RADIUS en ronda 7, y crece con ella si sube por
- * Firmeza — ver `visualRadius` en useFrame). Historial: "un punto más
- * grandes" en ronda 9 → ×2 en playtest 2026-07-26 (ver comentario de
- * `CANDLE_EYE_SEPARATION` arriba).
- */
-const CANDLE_EYE_SCALE: [number, number, number] = [HERO_RADIUS * 0.21, HERO_RADIUS * 0.32, HERO_RADIUS * 0.12];
-
-/**
- * `renderOrder` de los ojos: por encima de `SILHOUETTE_RENDER_ORDER` (David
- * 2026-08-13: "los ojos parece que tienen también la máscara de cuando estás
- * tapado por la pared, y deberían ser negros siempre"). Causa raíz: los ojos
- * son opacos y se asientan casi en la superficie del cuerpo, así que el
- * depth buffer los ve como "algo delante del cuerpo" — justo lo que
- * `heroSilhouetteMaterial` (`depthFunc: GreaterDepth`, ver
- * `occlusion-silhouette.ts`) interpreta como oclusión externa, así que se
- * pintaba encima suyo (color de arma a través de ellos) incluso sin ningún
- * muro de por medio. `candleEyeMaterial` pasa a `transparent: true`
- * (`assets-dark.ts`) para que los ojos entren en la cola TRANSPARENTE de
- * three.js — la única forma de que un `renderOrder` los sitúe después de la
- * silueta, que también es transparente: three.js dibuja siempre toda la cola
- * opaca antes que la transparente, así que un renderOrder alto en un
- * material opaco nunca los habría colado después de la silueta. Con esto
- * detrás de la silueta en orden de dibujo (y el depthTest normal, sin tocar,
- * que los sigue ocultando correctamente contra un muro real más cercano en
- * el buffer), los ojos quedan siempre negros salvo cuando de verdad les tapa
- * algo.
- */
-const CANDLE_EYE_RENDER_ORDER = SILHOUETTE_RENDER_ORDER + 1;
 
 /**
  * Orientación de la mirada (playtest ronda 8, punto 3b: "deben mirar hacia
@@ -381,85 +253,18 @@ const WAX_TRAIL_SIZE_FACTOR = 1.15;
 const WAX_TELEPORT_GUARD = 3;
 
 /**
- * Héroe = vela: la llama/ojos viven en un grupo aparte (`candleGroupRef`), NO
- * como hijo directo del mesh del cuerpo (`bodyRef`) — un hijo de `bodyRef`
- * heredaría gratis su squash/estiramiento vertical, y una llama deformándose
- * igual que la cera se leería raro. Ambos (`bodyRef` y `candleGroupRef`) SÍ
- * son hijos de
- * `candleTiltGroupRef` (el pivote de la base, ver arriba): la inclinación
- * los arrastra a los dos por igual ("la llama y los ojos deben acompañar la
- * inclinación", punto 1 de playtest), pero solo `bodyRef` recibe además el
- * escalado de squash/estiramiento.
- *
- * MATIZ (feedback de David 2026-08-12, llama → billboard): lo de arriba
- * sigue siendo cierto para los OJOS y para la POSICIÓN de la llama (su pivote
- * se sigue desplazando con el lean, heredado de `candleTiltGroupRef` sin
- * tocar nada). Pero la ROTACIÓN PROPIA de la llama ya no acompaña la
- * inclinación: es un billboard cilíndrico que se cancela contra la rotación
- * de `candleTiltGroupRef` para quedarse siempre vertical en mundo (ver el
- * bloque `flame` del useFrame más abajo, comentario largo ahí). Igual que una
- * llama real, que por flotabilidad se queda derecha aunque la cera se ladee.
- *
- * Llama: pulso de tamaño (punto 3 de playtest ronda 4: "parece que se
- * balancea, mejor que crezca y decrezca") — suma de dos senos a frecuencias
- * inconmensuradas (barato, sin asignaciones) que modulan una escala
- * UNIFORME. Nunca modula su POSICIÓN local (eliminada: ya no hay balanceo);
- * su ROTACIÓN local sí se escribe cada frame, pero para el billboard de
- * cámara, no para ningún balanceo.
+ * Llama y ancla de la llama: `FLAME_BASE_SCALE`, `FLAME_GAP` y
+ * `CANDLE_FLAME_ANCHOR_Y` (con todo su historial de playtest — cuatro etapas
+ * de tuning de `FLAME_GAP` más el cambio de significado de "centro" a "base"
+ * del refactor de `CandleFlame.tsx`) se mudaron a `./CandleModel.tsx`
+ * (encargo de David, 2026-08-18: "un componente que lo pinte todo, tanto en
+ * el título como en el juego"). `CANDLE_FLAME_ANCHOR_Y` sigue IMPORTADA aquí
+ * abajo: este `useFrame` todavía necesita su valor para reposicionar
+ * `flameAnchorRef` cada frame según `visualRadius` (Firmeza en vivo) —
+ * `CandleModel` ya la usa internamente para el valor estático por defecto,
+ * que es todo lo que necesita Lumora, pero el héroe sigue siendo dueño del
+ * reescalado en vivo, ver el `useFrame` más abajo.
  */
-const FLAME_PULSE_FREQ_A = 3.1;
-const FLAME_PULSE_FREQ_B = 5.7;
-/**
- * Altura de la llama (× visualRadius, offset LOCAL dentro de `candleGroup`,
- * que a su vez cae siempre en 1.00·visualRadius absoluto — ver comentario de
- * `CANDLE_EYE_Y` arriba): reajustada a la vela alta de ronda 7 para que la
- * BASE de la llama (su centro menos su propio semi-alto, `FLAME_BASE_SCALE ·
- * 1.8 / 2`) quede justo sobre la boca del cilindro (techo en 2.8·visualRadius,
- * ver comentario de `CANDLE_EYE_Y`).
- *
- * Ronda 8 (playtest, "la llama hazla un poco más grande"): `FLAME_BASE_SCALE`
- * sube de 0.5 a 0.7 (+40%, dentro del 35-45% pedido). Recalculado
- * `FLAME_HEIGHT_FACTOR` en consecuencia para que la base siga asentada en la
- * boca del cilindro (si no, la llama más grande se hundiría visualmente
- * dentro de la vela): semi-alto = 0.7 · 1.8 / 2 = 0.63·visualRadius ⇒ centro
- * deseado = 2.8 + 0.63 = 3.43 ⇒ offset local = 3.43 − 1.00 = 2.43.
- */
-const FLAME_BASE_SCALE = 0.7;
-/**
- * Hueco entre la boca de la vela y la base visible de la llama, en ×
- * visualRadius (playtest 2026-08-13, David: "parece que tiene reflejo" —
- * veía un brillo lechoso sobre el cuerpo en vez de una llama). Diagnosticado
- * con la escena real (posición de mundo del billboard vía consola): sin este
- * término la base de la llama caía EXACTAMENTE en la boca del cilindro, hueco
- * cero, y desde la cámara elevada de CameraRig (~56° sobre la horizontal) las
- * dos siluetas se funden en pantalla en una sola mancha — más aún con el tono
- * casi blanco que deja el tonemap ACES sobre el amarillo pálido en HDR
- * (`WEAPON_COLOR_FLAME_HDR`), que no contrasta con la cera clara
- * (`HERO_WAX_COLOR`). Empujar la llama este margen hacia arriba basta para
- * que quede una franja oscura visible entre cera y fuego y la llama vuelva a
- * leerse como llama, sin tocar el tinte ni separarla tanto que parezca un
- * elemento aparte flotando sobre la vela.
- */
-const FLAME_GAP = 0.6;
-/**
- * Centro de la llama, en × visualRadius y LOCAL a `candleGroup` (que vive en
- * 1.00·visualRadius absoluto). Se calcula, no se tunea: boca de la vela
- * (2·semialto) + el semialto de la propia llama (`FLAME_BASE_SCALE · 1.8 / 2`)
- * + el hueco `FLAME_GAP` − el 1.00 del grupo padre. Así la BASE de la llama
- * queda asentada a `FLAME_GAP` justo por encima de la boca sea cual sea el
- * modelo de vela, que es lo que se afinó a mano en la ronda 8 ("la llama
- * hazla un poco más grande") y lo que se rompería al cambiar de pieza si el
- * número siguiera siendo fijo.
- */
-const FLAME_HEIGHT_FACTOR = 2 * CANDLE_HALF_HEIGHT + (FLAME_BASE_SCALE * 1.8) / 2 - 1 + FLAME_GAP;
-/** Amplitud del pulso de tamaño de la llama: ±15%, pedido explícito de playtest. */
-const FLAME_PULSE_AMPLITUDE = 0.15;
-/**
- * Eje de mundo reutilizado para el billboard CILÍNDRICO de la llama (ver
- * bloque `flame` del useFrame): solo lectura, nunca se muta, así que un único
- * objeto de módulo vale para todos los frames sin asignar nada nuevo.
- */
-const Y_AXIS = new Vector3(0, 1, 0);
 
 /**
  * Gesto de victoria (playtest 2026-07-15, David: "quizá algún gesto de
@@ -518,233 +323,32 @@ const CANDLE_SPIKE_SURFACE_XZ = 1;
 const CANDLE_SPIKE_SURFACE_Y = CANDLE_HALF_HEIGHT;
 
 /**
- * Extrae los vértices de una `BufferGeometry` como `Vector3[]`, formato que
- * pide `ConvexGeometry` (ver comentario grande de `buildHeroSilhouetteGeometry`
- * más abajo). Genérica a propósito, sin acoplarse a la vela: si algún día
- * hiciera falta un hull para otra pieza, esta función ya sirve.
+ * Silueta de oclusión del cuerpo (hull convexo + cáscara) y sus
+ * funciones auxiliares (`bufferGeometryVertices`, `buildHeroSilhouetteGeometry`)
+ * se mudaron a `./CandleModel.tsx`, con todo su historial de playtest (los
+ * cinco puntos: concavidad del cráter, primer intento fallido con
+ * `CylinderGeometry`, hull convexo, z-fighting descubierto y la cáscara que
+ * lo arregla) intactos — este fichero ya no construye la silueta, solo la
+ * consume vía `heroSilhouetteMaterial` (importado más arriba) para lerpear
+ * su color hacia el arma activa en el `useFrame` de abajo.
  */
-function bufferGeometryVertices(geometry: BufferGeometry): Vector3[] {
-  const position = geometry.attributes.position;
-  const vertices: Vector3[] = [];
-  for (let i = 0; i < position.count; i++) {
-    vertices.push(new Vector3().fromBufferAttribute(position, i));
-  }
-  return vertices;
-}
-
-/**
- * Geometría de la SILUETA de oclusión del cuerpo: la ENVOLVENTE CONVEXA
- * (`ConvexGeometry`) de la propia malla normalizada del héroe, en vez de un
- * primitivo aproximado. Historial de este arreglo, porque costó dos
- * intentos y el segundo explica por qué el primero falló:
- *
- * 1) Bug original (playtest 2026-08-17, David: "veo un reflejo de la llama
- *    en modo espejo justo debajo de ella" — intuición suya y correcta:
- *    sospechaba de la silueta; confirmado poniendo `visible={false}` en el
- *    mesh de la silueta, la mancha desaparecía del todo). La silueta reusaba
- *    la MISMA malla que el cuerpo, `heroCandleGeometry` (`candle_melted`
- *    normalizada), que NO es convexa: tiene el cráter/goterón de cera
- *    derretida en su parte alta. `heroSilhouetteMaterial` dibuja con
- *    `depthFunc: GreaterDepth` ("píntame donde esté MÁS LEJOS que lo ya
- *    escrito en el depth buffer"), pensado para compararse contra un muro
- *    EXTERNO que tape al héroe. En una malla CÓNCAVA ese test se cumple
- *    también contra el propio cuerpo: el borde del cráter y el fondo del
- *    cráter son dos superficies frontales de la MISMA malla en el mismo
- *    píxel — la primera escribe la profundidad cercana y la segunda (más
- *    lejana) pasa el test sin que nada externo tape nada. Resultado: un
- *    parche del color de arma (`WEAPON_COLOR.body`) con la forma del
- *    cráter, pintado sobre el propio héroe. Mismo tipo de fallo que el ya
- *    documentado para los ojos (`CANDLE_EYE_RENDER_ORDER`, más arriba) y
- *    para la moneda (`coinBodyMaterial` en `assets.ts`), pero aquí por
- *    CONCAVIDAD, no por z-fighting: no basta con reordenar el dibujo, la
- *    malla en sí no puede tener dos caras frontales en el mismo píxel — la
- *    solución tiene que ser CONVEXA por construcción.
- *
- * 2) Primer intento fallido: un `CylinderGeometry` de radio y alto fijos
- *    (mismo criterio que la silueta esférica de los enemigos,
- *    `EnemyViews.tsx` ≈línea 551), calibrado con una medida a mano
- *    incompleta que asumía sección circular y remate plano. Verificado en
- *    pantalla que NO valía — franjas grises verticales a lo largo del
- *    cuerpo y una mancha gris en la parte alta, el halo permanente que ya
- *    se sospechaba como riesgo. Medida completa de `candle_melted.glb` (ya
- *    en el espacio normalizado, radio nominal 1, centrado en Y) que explica
- *    por qué: la sección NO es un círculo, es un PRISMA DE 9 LADOS (vértices
- *    cada 40°, en −170/−130/−90/−50/−10/30/70/110/150°) con radio
- *    circunscrito (en los vértices) 1.0154 pero radio INSCRITO (en el centro
- *    de cada cara plana) de solo 1.0154·cos(20°) ≈ 0.954 — ningún radio de
- *    cilindro puede evitar sobresalir por el centro de las 9 caras planas
- *    sin quedarse corto en los 9 vértices, de ahí las franjas verticales.
- *    Además el remate superior del tramo de radio pleno es OBLICUO, no
- *    plano: sus vértices van de y=0.894 (el más bajo) a y=1.793 (el más
- *    alto), así que cualquier tope horizontal único deja parte de la pared
- *    real por encima del cilindro en casi media vuelta — la mancha gris de
- *    arriba. Un primitivo de revolución no puede seguir un contorno que no
- *    es de revolución.
- *
- * 3) Arreglo de la CONCAVIDAD: el HULL CONVEXO de los vértices reales de
- *    `heroCandleGeometry` (`bufferGeometryVertices` + `ConvexGeometry`, más
- *    abajo). Por qué no produce halo: el hull contiene EXACTAMENTE los
- *    mismos vértices que la malla real, así que su superficie coincide con
- *    el contorno del modelo en todo punto convexo (el prisma de 9 lados, la
- *    base, el remate oblicuo) y solo se aparta hacia FUERA en las
- *    concavidades del perfil — aquí mínimas, el cráter de la mecha es un
- *    hueco pequeño en la coronilla, no un socavón profundo. Y en la única
- *    concavidad que sí cierra (la "tapa" imaginaria que el hull traza sobre
- *    el cráter para quedar convexo), esa tapa queda MÁS CERCA de la cámara
- *    que el fondo real del cráter — así que ahí el depth buffer la descarta
- *    sola, sin ajuste manual alguno PARA ESE problema concreto (la
- *    concavidad). Resuelve el punto 1 por completo, pero destapa un segundo
- *    problema — ver punto 4. Construida en un `useMemo` propio (no
- *    constante de módulo, a diferencia del intento del cilindro): a
- *    diferencia de un primitivo de three.js, SÍ depende del kit cargado —
- *    necesita los vértices reales de `heroCandleGeometry`, que solo existen
- *    tras `normalizeHeroCandleGeometry()`.
- *
- * 4) Problema nuevo, destapado por el propio hull (playtest 2026-08-17,
- *    SEGUNDA ronda; David: "el player tiene texturas que tiemblan donde no
- *    debería, además de que parece que todavía tiene el reflejo de la
- *    llama"). Verificado en pantalla: rayas claras PARPADEANTES por todo el
- *    cuerpo y un parche fijo en la zona del cráter. Causa: Z-FIGHTING, no
- *    auto-oclusión otra vez — el hull comparte con el cuerpo las caras
- *    laterales del prisma de 9 lados (son EXACTAMENTE COPLANARES: mismos
- *    vértices, por construcción del hull), pero su TRIANGULACIÓN interna es
- *    distinta (`ConvexHull` no tiene por qué generar los mismos triángulos
- *    que trajera el `.glb`), así que la profundidad interpolada de cada
- *    malla en un píxel dado cae en valores casi iguales pero no idénticos, y
- *    ese "casi" cambia de píxel a píxel y de frame a frame (la silueta
- *    hereda el squash/stretch del cuerpo, así que el más mínimo cambio de
- *    escala reordena qué malla gana el sorteo). Donde la profundidad del
- *    hull sale, por puro margen de precisión de coma flotante, un pelín
- *    MAYOR que la del cuerpo, `GreaterDepth` la da por buena: silueta
- *    pintada sobre el héroe sin que nada externo lo tape, parpadeando según
- *    el resultado del sorteo en cada frame — de ahí las rayas temblorosas
- *    (caras laterales) y el parche persistente del cráter (zona con más
- *    triángulos degenerados por la geometría irregular del goterón). Mismo
- *    fenómeno ya documentado en este repo para los ojos
- *    (`CANDLE_EYE_RENDER_ORDER`, arriba) y para la moneda
- *    (`coinBodyMaterial`, `ItemView.tsx`), pero aquí no vale arreglarlo con
- *    ORDEN de dibujo (`renderOrder`): el problema es la PROFUNDIDAD en sí,
- *    no la cola de render — dos mallas coplanares seguirán empatando el
- *    test de profundidad se dibujen en el orden que se dibujen.
- *
- * 5) Arreglo de la COPLANARIDAD: una "cáscara" — escalar la silueta un
- *    pelín hacia FUERA (`SILHOUETTE_SHELL_SCALE`), nunca hacia dentro.
- *    Contraintuitivo pero obligado: encogerla la dejaría ÍNTEGRA por detrás
- *    de la superficie real del cuerpo, y entonces `GreaterDepth` pasaría
- *    SIEMPRE en toda su extensión (más lejos que el cuerpo en cualquier
- *    punto) — la silueta se vería constantemente, tapada o no, el bug
- *    original pero generalizado a todo el cuerpo en vez de solo al cráter.
- *    Agrandarla la deja SIEMPRE delante (o justo igual) que la superficie
- *    real, así que sin oclusión externa la comparación `GreaterDepth` nunca
- *    se cumple en ningún punto y la silueta no se ve; en cuanto un muro tapa
- *    a ambas mallas, sigue viéndose por el mismo truco de siempre — la
- *    cáscara no cambia CUÁNDO se ve la silueta, solo impide que compita con
- *    el propio cuerpo por el mismo píxel de profundidad.
- *    Magnitud (`SILHOUETTE_SHELL_SCALE = 1.03`, +3%): en unidades de mundo,
- *    0.03 × HERO_RADIUS (0.24) ≈ 0.007 u — subpíxel a la distancia y FOV de
- *    la cámara del juego (`CAMERA_OFFSET`, `render/cameraSettings.ts`),
- *    comprobado en pantalla sobre suelo claro y sobre suelo oscuro sin borde
- *    visible.
- *    `SILHOUETTE_SHELL_LIFT`: al escalar UNIFORMEMENTE una geometría
- *    centrada en el origen local (el hull nace centrado, porque nace de
- *    vértices ya centrados en Y), la base también baja ese mismo 3%,
- *    hundiéndose bajo la base real del cuerpo — y como el suelo del
- *    escenario queda MÁS CERCA de cámara que esa base hundida, el depth
- *    buffer destaparía ahí mismo una franja alrededor de los pies, el mismo
- *    tipo de fallo que se está arreglando pero en la base en vez de en los
- *    lados. `SILHOUETTE_SHELL_LIFT = CANDLE_HALF_HEIGHT · (SILHOUETTE_SHELL_SCALE
- *    − 1)` sube el mesh en Y justo lo necesario para que su base vuelva a
- *    coincidir con la base real del cuerpo; la coronilla queda ese mismo 3%
- *    más alta de lo que ya estaba, invisible por la misma cuenta de
- *    subpíxel de arriba.
- *    Importante: la cáscara NO sustituye al hull del punto 3, lo
- *    COMPLEMENTA — hacen falta los dos a la vez, cada uno resuelve un
- *    problema distinto: el hull resuelve la CONCAVIDAD (auto-oclusión del
- *    cráter contra sí mismo), la cáscara resuelve la COPLANARIDAD
- *    (z-fighting del hull contra el cuerpo en las caras laterales). Quitar
- *    cualquiera de los dos reabre el bug que ese paso arregla.
- */
-function buildHeroSilhouetteGeometry(heroCandleGeometry: BufferGeometry): BufferGeometry {
-  return new ConvexGeometry(bufferGeometryVertices(heroCandleGeometry));
-}
-
-/**
- * Factor de la "cáscara" de la silueta (punto 5 del historial de arriba):
- * cuánto se agranda `heroSilhouetteGeometry` respecto al cuerpo real para
- * que nunca compita con él por la misma profundidad en las caras laterales
- * coplanares del hull (z-fighting). +3%, no un valor mayor "por si acaso":
- * ya es indetectable en pantalla (0.03 × HERO_RADIUS ≈ 0.007 u de mundo,
- * subpíxel a la cámara del juego) y agrandar más solo arriesgaría un halo
- * perceptible sin ganar nada — ver el desglose completo en el punto 5.
- */
-const SILHOUETTE_SHELL_SCALE = 1.03;
-/**
- * Compensación en Y para que la base de la cáscara (que se hunde al escalar
- * uniformemente una geometría centrada en el origen) vuelva a coincidir con
- * la base real del cuerpo, en vez de destaparse contra el suelo — ver punto
- * 5 del historial de arriba para la cuenta completa. Derivado de
- * `SILHOUETTE_SHELL_SCALE` (no un número aparte) para que ambos efectos de
- * la cáscara se muevan siempre juntos si algún día cambia el porcentaje.
- */
-const SILHOUETTE_SHELL_LIFT = CANDLE_HALF_HEIGHT * (SILHOUETTE_SHELL_SCALE - 1);
-
-/**
- * Adapta la vela del kit a la convención local que ya usaba el cilindro al que
- * sustituye: RADIO 1 y CENTRADA en el origen (el modelo del pack nace apoyado
- * en su base, con el ancho que le tocó al artista). Se hace una sola vez sobre
- * una copia — nunca se muta la geometría cacheada de `kitGeometry`, que
- * comparte cualquier otro uso del kit.
- *
- * Escala UNIFORME por el radio (no independiente por eje): estirar solo el alto
- * deformaría el goterón de cera, que es justo lo que da personalidad a esta
- * pieza. El alto resultante es el que dicte el modelo, y `CANDLE_HALF_HEIGHT`
- * ya está calculado para él.
- */
-function normalizeHeroCandleGeometry(): BufferGeometry {
-  const source = kitGeometry(HERO_CANDLE_MODEL);
-  const box = source.boundingBox;
-  if (!box) throw new Error('la vela del kit no trae boundingBox calculado');
-  const radius = Math.max(box.max.x - box.min.x, box.max.z - box.min.z) / 2;
-  const scale = 1 / radius;
-  const centerY = (box.max.y + box.min.y) / 2;
-  const normalized = source.clone().translate(0, -centerY, 0).scale(scale, scale, scale);
-  normalized.computeBoundingBox();
-
-  // Comprobación de que `CANDLE_HALF_HEIGHT` (constante, porque este módulo se
-  // importa antes de que el kit esté cargado) sigue describiendo al modelo
-  // real. Si algún día se cambia `HERO_CANDLE_MODEL` y se olvida el número,
-  // esto lo dice en vez de dejar la llama flotando y los ojos descolgados.
-  const realHalfHeight = (normalized.boundingBox?.max.y ?? 0);
-  if (Math.abs(realHalfHeight - CANDLE_HALF_HEIGHT) > 0.02) {
-    console.warn(
-      `[HeroView] CANDLE_HALF_HEIGHT=${CANDLE_HALF_HEIGHT} no cuadra con '${HERO_CANDLE_MODEL}' (real ${realHalfHeight.toFixed(2)}): actualízalo o la llama, los ojos y los pinchos quedarán fuera de sitio.`,
-    );
-  }
-  return normalized;
-}
-
 export function HeroView({ session }: { session: GameSession }) {
-  // La vela del kit, normalizada una vez por montaje (el kit ya está precargado
-  // cuando GameRoot monta, ver App.tsx).
-  const heroCandleGeometry = useMemo(() => normalizeHeroCandleGeometry(), []);
-  // Hull convexo de esa misma malla, para la silueta de oclusión (ver
-  // comentario grande de `buildHeroSilhouetteGeometry` más arriba). Depende
-  // de `heroCandleGeometry` (necesita sus vértices reales), así que no puede
-  // ser una constante de módulo como los demás geometry/material de
-  // `render/assets.ts` — se recalcula solo si `heroCandleGeometry` cambia
-  // (en la práctica, nunca tras el montaje: ambos useMemo llevan deps fijas).
-  const heroSilhouetteGeometry = useMemo(
-    () => buildHeroSilhouetteGeometry(heroCandleGeometry),
-    [heroCandleGeometry],
-  );
+  // Cuerpo, silueta de oclusión, ojos y llama: normalización del kit, hull
+  // convexo, y todo su montaje viven ahora en `<CandleModel>` (ver el
+  // comentario grande de `./CandleModel.tsx` para el contrato completo) —
+  // este componente ya no calcula ninguna geometría propia, solo le pasa las
+  // refs de las piezas que necesita seguir animando cada frame.
   const candleTiltGroupRef = useRef<Group>(null);
   const bodyRef = useRef<Mesh>(null);
   const shadowRef = useRef<Mesh>(null);
   const shieldRef = useRef<Mesh>(null);
   const spikeRefs = useRef<(Mesh | null)[]>([]);
-  // Héroe = vela (ver comentario de FLAME_PULSE_FREQ_A más arriba).
+  // Héroe = vela (ver comentario grande más arriba).
   const candleGroupRef = useRef<Group>(null);
-  const flameRef = useRef<Mesh>(null);
+  // Ancla de la llama compartida (`CandleFlame`, ver comentario grande más
+  // arriba): solo posición/escala, la propia `CandleFlame` gestiona el resto
+  // por sí sola cada frame a partir de su `parent`.
+  const flameAnchorRef = useRef<Group>(null);
   // Mirada de los ojos (playtest ronda 8, punto 3b): grupo que rota en Y
   // (ver EYE_FACE_LERP_STIFFNESS arriba) + último ángulo válido conservado
   // mientras el héroe está parado (mismo patrón que chaserFaceAngle en
@@ -783,12 +387,6 @@ export function HeroView({ session }: { session: GameSession }) {
   // criterio que el resto del render de esta rama).
   const candleTiltAxis = useRef(new Vector3());
   const candleTiltQuat = useRef(new Quaternion());
-  // Billboard cilíndrico de la llama (ver bloque `flame` del useFrame):
-  // quaternion de mundo objetivo (solo yaw, mirando a cámara) y scratch para
-  // el inverso de la rotación de `candleTiltGroupRef` que hay que cancelar —
-  // ambos reutilizados cada frame, cero asignaciones.
-  const flameBillboardQuat = useRef(new Quaternion());
-  const flameTiltInverseQuat = useRef(new Quaternion());
 
   // Pose de los pinchos (F5): fija al montar (ver CANDLE_SPIKE_SURFACE_*
   // arriba) — nunca en useFrame, son hijos estáticos del mesh del héroe
@@ -808,7 +406,7 @@ export function HeroView({ session }: { session: GameSession }) {
     });
   }, []);
 
-  useFrame((state, delta) => {
+  useFrame((_state, delta) => {
     const world = session.world;
     const hero = world.hero;
     const alpha = session.renderAlpha;
@@ -853,14 +451,19 @@ export function HeroView({ session }: { session: GameSession }) {
     // en `.color` directamente, pero contra `WEAPON_COLOR_FLAME_HDR` (versión
     // YA escalada ×`BLOOM_EMISSIVE_INTENSITY`), no contra `targetColor` (LDR):
     // `targetColor` lo siguen usando tal cual `aimDotMaterial`/
-    // `heroSilhouetteMaterial` dos líneas más abajo, así que no se puede
-    // reescalar in-place sin romperlos. `aimDotMaterial` sigue siendo Basic
-    // sin `map`: su lerp sigue en `.color` LDR como siempre.
+    // `heroSilhouetteMaterial`/`heroFlameSilhouetteMaterial` más abajo, así
+    // que no se puede reescalar in-place sin romperlos. `aimDotMaterial`
+    // sigue siendo Basic sin `map`: su lerp sigue en `.color` LDR como
+    // siempre. `heroFlameSilhouetteMaterial` (silueta de la llama tras un
+    // muro, `assets-dark.ts`, encargo de David 2026-08-18) es EXACTAMENTE
+    // como `heroSilhouetteMaterial`: LDR, nunca `WEAPON_COLOR_FLAME_HDR` (una
+    // silueta no debe florecer, ver el comentario de ese material).
     const targetColor = WEAPON_COLOR[hero.weaponMode];
     const colorK = 1 - Math.exp(-WEAPON_COLOR_LERP_STIFFNESS * delta);
     heroFlameMaterial.color.lerp(WEAPON_COLOR_FLAME_HDR[hero.weaponMode], colorK);
     aimDotMaterial.color.lerp(targetColor, colorK);
     heroSilhouetteMaterial.color.lerp(targetColor, colorK);
+    heroFlameSilhouetteMaterial.color.lerp(targetColor, colorK);
 
     // Cambio de arma: burst de partículas del color NUEVO alrededor del
     // héroe (feedback inmediato, independiente del lerp de color que sigue
@@ -1052,62 +655,17 @@ export function HeroView({ session }: { session: GameSession }) {
       // cambio (ver comentario de CANDLE_PIVOT_HEIGHT_FRACTION).
       candleGroup.position.set(0, visualRadius * (1 - CANDLE_PIVOT_HEIGHT_FRACTION), 0);
     }
-    const flame = flameRef.current;
-    if (flame) {
-      // Pulso de tamaño (punto 3 de playtest ronda 4): SIN oscilación de
-      // posición local (eliminada, ya no "balancea"), solo escala UNIFORME,
-      // con la misma suma de senos barata de siempre (frecuencias
-      // inconmensuradas, sin asignaciones, sin estroboscopia).
-      const pulseA = Math.sin(world.time * FLAME_PULSE_FREQ_A);
-      const pulseB = Math.sin(world.time * FLAME_PULSE_FREQ_B);
-      const pulse = 1 + (pulseA * 0.6 + pulseB * 0.4) * FLAME_PULSE_AMPLITUDE;
-      flame.position.set(0, visualRadius * FLAME_HEIGHT_FACTOR, 0);
-
-      // Billboard CILÍNDRICO (feedback de David 2026-08-12: la llama pasa de
-      // `unitCone` a un quad `unitPlane` con `heroFlameMaterial`, textura
-      // `flame.png`). "Cilíndrico" y no ESFÉRICO a propósito: copiar
-      // `camera.quaternion` entero (como hace el billboard esférico de
-      // ParticleView.tsx, pensado para chispas sin "arriba" propio)
-      // inclinaría la llama con el PITCH de la cámara — CameraRig.tsx mira
-      // siempre desde `CAMERA_OFFSET=(0,9.5,6.2)`, ~56° sobre la horizontal —
-      // y una llama tumbada hacia la cámara no se lee como fuego ardiendo
-      // hacia arriba. Un billboard cilíndrico solo gira en YAW (eje Y),
-      // manteniendo su eje vertical fijo al de mundo.
-      //
-      // Yaw calculado con posiciones REALES (cámara vs. hero en XZ), no con
-      // una constante — sigue siendo correcto si el encuadre de CameraRig
-      // cambia algún día. Se usa (x,z) del héroe como proxy de la posición
-      // real de la llama (que puede desplazarse hasta ~0.4u de ahí por el
-      // lean, ver más abajo): a la distancia real de la cámara (11-24u según
-      // zoom) el error angular es ≤2°, imperceptible, y no compensa cargar
-      // aquí con la posición de mundo exacta de la llama.
-      //
-      // `flame` cuelga de `candleGroupRef` (nunca rota) que a su vez cuelga
-      // de `tiltGroup` (SÍ rota con el lean de la vela, ver más arriba) — fijar
-      // aquí solo `flame.quaternion = billboard` NO bastaría: heredaría
-      // también la rotación de `tiltGroup` y la llama quedaría inclinada con
-      // la vela, exactamente lo que se quiere evitar. Se cancela esa herencia
-      // multiplicando por su inversa antes del yaw objetivo (worldQuat =
-      // tiltGroup.quaternion ⊗ localQuat ⇒ localQuat = tiltGroup.quaternion⁻¹
-      // ⊗ billboard), así el resultado en pantalla es SIEMPRE vertical, se
-      // incline o no la vela — a diferencia de los ojos (que si acompañan el
-      // lean en rotación, ver comentario junto a `candleGroupRef` arriba), la
-      // llama solo hereda el lean en POSICIÓN (su pivote sigue desplazándose
-      // con la inclinación vía la jerarquía, sin tocar nada de eso), como una
-      // llama real que por flotabilidad se queda derecha aunque la cera se
-      // ladee.
-      const camera = state.camera;
-      const yaw = Math.atan2(camera.position.x - x, camera.position.z - z);
-      flameBillboardQuat.current.setFromAxisAngle(Y_AXIS, yaw);
-      if (tiltGroup) {
-        flameTiltInverseQuat.current.copy(tiltGroup.quaternion).invert();
-        flame.quaternion.copy(flameTiltInverseQuat.current).multiply(flameBillboardQuat.current);
-      } else {
-        flame.quaternion.copy(flameBillboardQuat.current);
-      }
-
-      const flameScale = visualRadius * FLAME_BASE_SCALE * pulse;
-      flame.scale.set(flameScale, flameScale * 1.8, flameScale);
+    // Ancla de la llama compartida (ver comentario grande más arriba y
+    // `CandleFlame.tsx`): solo posición (la boca de la vela, escalada por
+    // `visualRadius` para que suba/baje con Firmeza igual que el resto del
+    // cuerpo) y escala — `CandleFlame`, dentro, resuelve billboard, adelanto
+    // hacia cámara, vaivén y pulso por sí sola cada frame, así que aquí no
+    // hace falta tocar nada más. Nunca hace falta `.visible`: hereda el
+    // `blinkOn` de `candleGroup`, su padre, como los ojos.
+    const flameAnchor = flameAnchorRef.current;
+    if (flameAnchor) {
+      flameAnchor.position.set(0, visualRadius * CANDLE_FLAME_ANCHOR_Y, 0);
+      flameAnchor.scale.setScalar(visualRadius);
     }
 
     // Mirada de los ojos (punto 3b de playtest ronda 8): apuntando >
@@ -1156,34 +714,31 @@ export function HeroView({ session }: { session: GameSession }) {
   return (
     <>
       <group ref={candleTiltGroupRef}>
-        <mesh ref={bodyRef} geometry={heroCandleGeometry} material={heroMaterial} scale={HERO_RADIUS}>
-          {/*
-            Silueta de oclusión: HULL CONVEXO de la propia malla del cuerpo
-            (`heroSilhouetteGeometry`) envuelto en una CÁSCARA ligeramente
-            mayor (`SILHOUETTE_SHELL_SCALE`/`SILHOUETTE_SHELL_LIFT`) — ver el
-            comentario grande de `buildHeroSilhouetteGeometry` más arriba
-            (puntos 1-5) para el historial completo: el hull resuelve por sí
-            solo la CONCAVIDAD (el cráter de cera se autoocluía y se veía
-            como un "reflejo de la llama en espejo"), pero al ser coplanar
-            con las caras laterales del cuerpo con una triangulación distinta
-            metía Z-FIGHTING (rayas parpadeantes); la cáscara lo evita
-            agrandando la silueta un pelín hacia FUERA (nunca hacia dentro,
-            o pasaría el test de profundidad siempre) para que nunca compita
-            con el cuerpo por el mismo píxel de profundidad, con `position`
-            compensando el hundimiento de la base que provoca escalar
-            uniformemente una geometría centrada en el origen. Sigue como
-            HIJA del cuerpo para heredar gratis su escala, su squash/stretch
-            y su parpadeo de i-frames — si viviera fuera habría que replicar
-            los tres en cada frame y podría desincronizarse. Solo se ve
-            donde algo tapa al héroe (ver occlusion-silhouette.ts).
-          */}
-          <mesh
-            geometry={heroSilhouetteGeometry}
-            material={heroSilhouetteMaterial}
-            renderOrder={SILHOUETTE_RENDER_ORDER}
-            scale={SILHOUETTE_SHELL_SCALE}
-            position={[0, SILHOUETTE_SHELL_LIFT, 0]}
-          />
+        {/*
+          Cuerpo, silueta de oclusión, ojos y llama: componente COMPARTIDO
+          con Lumora (`./CandleModel.tsx`, encargo de David 2026-08-18:
+          "debería haber un componente que lo pinte todo, tanto en el título
+          como en el juego"). Se le pasan las refs porque el héroe SÍ
+          necesita seguir animando estas piezas cada frame —squash/
+          estiramiento y parpadeo de i-frames en el cuerpo (`bodyRef`),
+          reescalado del ancla de la llama por Firmeza (`candleGroupRef`/
+          `flameAnchorRef`), yaw de la mirada (`eyeGroupRef`), todo en el
+          `useFrame` de arriba—; Lumora monta el mismo componente sin ninguna
+          de las cuatro. `scale={HERO_RADIUS}` es solo el valor INICIAL
+          (igual que antes lo era `scale={HERO_RADIUS}` en el `<mesh>` del
+          cuerpo): el `useFrame` de arriba lo sobreescribe cada frame vía las
+          refs con `visualRadius`, nunca con números propios — la posición
+          RELATIVA de cada pieza (dónde cae la boca, dónde el ancla de la
+          llama, dónde los ojos) la fija el componente, este fichero solo
+          decide la escala absoluta en vivo.
+        */}
+        <CandleModel
+          scale={HERO_RADIUS}
+          bodyRef={bodyRef}
+          candleGroupRef={candleGroupRef}
+          flameAnchorRef={flameAnchorRef}
+          eyeGroupRef={eyeGroupRef}
+        >
           {/* Pinchos del Erizo de Acero (F5): 12 pre-creados, visibilidad por nivel. */}
           {SPIKE_DIRECTIONS.map((_, i) => (
             <mesh
@@ -1198,34 +753,7 @@ export function HeroView({ session }: { session: GameSession }) {
           ))}
           {/* Burbuja de Cuarzo (F5): visible mientras haya cargas de escudo. */}
           <mesh ref={shieldRef} geometry={unitSphere} material={heroShieldMaterial} scale={SHIELD_BUBBLE_SCALE} visible={false} />
-        </mesh>
-        <group ref={candleGroupRef}>
-          {/* Llama (MUTABLE, ver useFrame): billboard cilíndrico con textura
-              de fuego (heroFlameMaterial/flame.png), ya no un cono liso. */}
-          <mesh ref={flameRef} geometry={unitPlane} material={heroFlameMaterial} />
-          {/* Carita de vela: dos ojos negros ovalados simples (concept art),
-              juntos y a ~60% de la altura del cilindro (CANDLE_EYE_Y), justo
-              fuera de la superficie (CANDLE_EYE_Z, ver BUG en su comentario).
-              Cuelgan de un group que rota en Y (MUTABLE, ver useFrame /
-              candleFaceAngle) para mirar hacia el apuntado/movimiento, en
-              vez de quedar fijos mirando siempre a +Z. */}
-          <group ref={eyeGroupRef} position={[0, CANDLE_EYE_Y, 0]}>
-            <mesh
-              geometry={smallDotGeometry}
-              material={candleEyeMaterial}
-              position={[-CANDLE_EYE_X, 0, CANDLE_EYE_Z]}
-              scale={CANDLE_EYE_SCALE}
-              renderOrder={CANDLE_EYE_RENDER_ORDER}
-            />
-            <mesh
-              geometry={smallDotGeometry}
-              material={candleEyeMaterial}
-              position={[CANDLE_EYE_X, 0, CANDLE_EYE_Z]}
-              scale={CANDLE_EYE_SCALE}
-              renderOrder={CANDLE_EYE_RENDER_ORDER}
-            />
-          </group>
-        </group>
+        </CandleModel>
       </group>
       <mesh
         ref={shadowRef}
