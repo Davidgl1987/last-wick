@@ -17,10 +17,12 @@ import { chooseBossReward, ensureBossRewardChoices, type GameSession } from '@/g
 import { getUpgradeLevel, type UpgradeDef } from '@/game/session/upgrades';
 import { useUiStore } from '@/game/session/store';
 import { Modal } from '@/ui';
+import { useT } from '@/i18n';
 import { UpgradeIcon, UpgradeLevelPips } from './UpgradeIcon';
 import './modals.css';
 
 export function BossRewardModal({ session }: { session: GameSession }) {
+  const t = useT();
   const phase = useUiStore((s) => s.phase);
 
   const isOpen = phase === 'boss-reward';
@@ -44,8 +46,8 @@ export function BossRewardModal({ session }: { session: GameSession }) {
   };
 
   return (
-    <Modal open={isOpen} className="upgrade-modal" title="¡Jefe derrotado!">
-      <p className="modal-subtitle">Elige una mejora gratis</p>
+    <Modal open={isOpen} className="upgrade-modal" title={t('bossReward.title')}>
+      <p className="modal-subtitle">{t('bossReward.subtitle')}</p>
       <div className="upgrade-cards">
         {shownChoices.map((def) => {
           const level = getUpgradeLevel(hero, def.id);
@@ -53,9 +55,9 @@ export function BossRewardModal({ session }: { session: GameSession }) {
             <button key={def.id} type="button" className="upgrade-card" onClick={() => pick(def)}>
               <div className="upgrade-card-head">
                 <UpgradeIcon icon={def.icon} size={32} />
-                <span className="upgrade-card-name">{def.name}</span>
+                <span className="upgrade-card-name">{t(`upgrades.${def.id}.name`)}</span>
               </div>
-              <span className="upgrade-card-desc">{def.description}</span>
+              <span className="upgrade-card-desc">{t(`upgrades.${def.id}.desc`)}</span>
               <UpgradeLevelPips level={level} maxLevel={def.maxLevel} previewLevel={level + 1} />
             </button>
           );

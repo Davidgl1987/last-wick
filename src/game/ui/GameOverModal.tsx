@@ -8,6 +8,7 @@ import type { GameSession } from '@/game/session/session';
 import { getUpgradeLevel, UPGRADE_POOL } from '@/game/session/upgrades';
 import { useUiStore } from '@/game/session/store';
 import { Button, Modal } from '@/ui';
+import { useT } from '@/i18n';
 import { UpgradeIcon, UpgradeLevelPips } from './UpgradeIcon';
 import './modals.css';
 
@@ -20,6 +21,7 @@ export function GameOverModal({
   onRestart: () => void;
   onExitToTitle?: () => void;
 }) {
+  const t = useT();
   const phase = useUiStore((s) => s.phase);
   const roomsCleared = useUiStore((s) => s.roomsCleared);
   const coins = useUiStore((s) => s.coins);
@@ -34,15 +36,15 @@ export function GameOverModal({
     <Modal
       open={isOpen}
       className="game-over-modal"
-      title="Fin de la run"
+      title={t('gameOver.title')}
       actions={
         <>
           <Button variant="primary" onClick={onRestart}>
-            Reintentar
+            {t('gameOver.retry')}
           </Button>
           {onExitToTitle && (
             <Button variant="secondary" onClick={onExitToTitle}>
-              Menú principal
+              {t('gameOver.mainMenu')}
             </Button>
           )}
         </>
@@ -50,26 +52,26 @@ export function GameOverModal({
     >
       <dl className="game-over-stats">
         <div className="game-over-stat">
-          <dt>Salas limpiadas</dt>
+          <dt>{t('gameOver.roomsCleared')}</dt>
           <dd>{roomsCleared}</dd>
         </div>
         <div className="game-over-stat">
-          <dt>Monedas</dt>
+          <dt>{t('gameOver.coins')}</dt>
           <dd>{coins}</dd>
         </div>
         <div className="game-over-stat">
-          <dt>Puntuación</dt>
+          <dt>{t('gameOver.score')}</dt>
           <dd>{score}</dd>
         </div>
       </dl>
       {acquiredUpgrades.length > 0 && (
         <section className="final-upgrade-section">
-          <h3 className="pause-section-title">Mejoras conseguidas</h3>
+          <h3 className="pause-section-title">{t('gameOver.upgradesTitle')}</h3>
           <ul className="final-upgrade-list">
             {acquiredUpgrades.map((def) => (
               <li key={def.id} className="final-upgrade-item">
                 <UpgradeIcon icon={def.icon} size={20} />
-                <span className="final-upgrade-name">{def.name}</span>
+                <span className="final-upgrade-name">{t(`upgrades.${def.id}.name`)}</span>
                 <UpgradeLevelPips level={getUpgradeLevel(hero, def.id)} maxLevel={def.maxLevel} />
               </li>
             ))}

@@ -110,8 +110,13 @@ function stepDungeonRoomClear(world: World, events: EventQueue): void {
   runtime.cleared = true;
   world.stats.roomsCleared += 1;
   world.stats.score += ROOM_CLEAR_SCORE;
-  pushEvent(events, 'room-cleared', world.hero.position.x, world.hero.position.y, 1, runtime.name);
-  pushEvent(events, 'doors-open', world.hero.position.x, world.hero.position.y, 1, runtime.name);
+  // label = runtime.id (no runtime.name): la sim nunca lleva prosa (regla ★
+  // ARCHITECTURE.md) — useGameLoop.ts traduce vía `rooms.<id>`/tRoomName al
+  // consumir el evento. Verificado: eventSfx.ts no lee el label de estos dos
+  // tipos (solo compara door-locked/item-pickup/projectile-wall/
+  // boss-telegraph) y los tests existentes solo asertan el tipo de evento.
+  pushEvent(events, 'room-cleared', world.hero.position.x, world.hero.position.y, 1, runtime.id);
+  pushEvent(events, 'doors-open', world.hero.position.x, world.hero.position.y, 1, runtime.id);
 
   // Abre las conexiones de la sala (ambos lados), salvo las que requieren
   // llave (esas se abren al tocarlas con la llave, ver stepBossDoorKeyCheck).
@@ -230,7 +235,8 @@ function stepRoomTransition(world: World, events: EventQueue): void {
     if (runtime) {
       const firstVisit = !runtime.visited;
       runtime.visited = true;
-      pushEvent(events, 'room-entered', hero.position.x, hero.position.y, firstVisit ? 1 : 0, runtime.name);
+      // label = runtime.id, mismo motivo que 'room-cleared' arriba.
+      pushEvent(events, 'room-entered', hero.position.x, hero.position.y, firstVisit ? 1 : 0, runtime.id);
     }
     return;
   }

@@ -102,7 +102,7 @@ export function AimInput({ session, onLaunch }: { session: GameSession; onLaunch
       endDrag(e);
       if (aim.force < MIN_LAUNCH_FORCE) {
         // Rechazo de tiro accidental (GDD §3): aviso, sin coste.
-        useUiStore.getState().showNotice('Tiro demasiado flojo');
+        useUiStore.getState().showNotice('notice.weakShot');
         playSfx('ui-cancel');
         return;
       }

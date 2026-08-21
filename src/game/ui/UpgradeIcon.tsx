@@ -13,6 +13,7 @@
  */
 
 import type { UpgradeCategory } from '@/game/session/upgrades';
+import { useT } from '@/i18n';
 import './upgrade-icon.css';
 
 /** Acento de color por categoría — cuerpo/flecha/hechizo calcados de WEAPON_COLOR (render/assets.ts). */
@@ -237,6 +238,7 @@ export function UpgradeLevelPips({
   maxLevel: number;
   previewLevel?: number;
 }) {
+  const t = useT();
   if (!Number.isFinite(maxLevel)) {
     return (
       <span className="upgrade-pips upgrade-pips-stack">
@@ -247,7 +249,7 @@ export function UpgradeLevelPips({
   }
   const target = previewLevel ?? level;
   return (
-    <span className="upgrade-pips" aria-label={`nivel ${level} de ${maxLevel}`}>
+    <span className="upgrade-pips" aria-label={t('upgradeIcon.levelAria', { level, maxLevel })}>
       {Array.from({ length: maxLevel }, (_, i) => {
         const pipLevel = i + 1;
         let cls = 'upgrade-pip';

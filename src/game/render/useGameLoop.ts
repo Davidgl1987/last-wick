@@ -20,6 +20,7 @@ import { drainEvents, type GameEvent } from '@/engine/events';
 import { stepWorld } from '@/game/world/step';
 import type { GamePhase } from '@/game/world/types';
 import { useUiStore } from '@/game/session/store';
+import type { TranslationKey } from '@/i18n';
 import { WEAPON_COLOR } from '@/game/render/assets';
 import { stormFlash } from '@/game/render/storm';
 
@@ -50,13 +51,14 @@ const THUNDER_DELAY_S = 0.35;
  */
 const THUNDER_MIN_INTERVAL_MS = 3000;
 
-const NOTICE_BY_EVENT: Partial<Record<GameEvent['type'], string>> = {
-  'room-cleared': 'Sala limpiada',
-  'pit-fall': 'Has caído al foso',
-  'shield-block': 'El escudo bloquea el golpe',
-  'boss-door-sealed': 'La puerta se sella',
-  'boss-defeated': '¡Jefe derrotado!',
-  'shop-opened': 'Tienda',
+/** Evento de gameplay → clave de traducción del aviso del HUD (prosa fuera de la sim: HUD.tsx traduce al pintar, ver store.ts). */
+const NOTICE_BY_EVENT: Partial<Record<GameEvent['type'], TranslationKey>> = {
+  'room-cleared': 'notice.roomCleared',
+  'pit-fall': 'notice.pitFall',
+  'shield-block': 'notice.shieldBlock',
+  'boss-door-sealed': 'notice.bossDoorSealed',
+  'boss-defeated': 'notice.bossDefeated',
+  'shop-opened': 'notice.shopOpened',
 };
 
 /** Índice 1-based de la sala actual dentro del orden de la mazmorra (orden de generación/BFS desde el inicio). */
@@ -79,6 +81,7 @@ export function useGameLoop(session: GameSession): void {
     roomsCleared: number;
     score: number;
     roomIndex: number | null;
+    currentRoomId: string;
     currentRoomName: string;
   }>({
     hp: -1,
@@ -89,6 +92,7 @@ export function useGameLoop(session: GameSession): void {
     roomsCleared: -1,
     score: -1,
     roomIndex: -2,
+    currentRoomId: '',
     currentRoomName: '',
   });
   /** Último valor de `stormFlash(world.time)` leído, para detectar el flanco de subida del trueno (ver más abajo). */
@@ -169,16 +173,21 @@ export function useGameLoop(session: GameSession): void {
       playEventSfx(event, world.hero.position.x, world.hero.position.y, world.hero.weaponMode);
 
       if (event.type === 'room-entered') {
-        useUiStore.getState().showNotice(event.label);
+        // 'notice.roomEntered' no tiene plantilla propia: el HUD, al verla,
+        // pinta tRoomName(currentRoomId, currentRoomName) en vez de un texto
+        // fijo — el aviso de entrada SIEMPRE coincide con la sala que el
+        // store sincroniza este mismo frame más abajo (ver el mismo caso
+        // documentado en HUD.tsx).
+        useUiStore.getState().showNotice('notice.roomEntered');
         return;
       }
       if (event.type === 'door-locked') {
         if (event.label === 'unlocked') {
-          useUiStore.getState().showNotice('Puerta del jefe abierta');
+          useUiStore.getState().showNotice('notice.bossDoorOpened');
         } else if (event.label === 'locked') {
-          useUiStore.getState().showNotice('Necesitas la llave');
+          useUiStore.getState().showNotice('notice.needKey');
         }
-        // label === runtime.name (apertura por sala limpiada): sin aviso propio,
+        // label === runtime.id (apertura por sala limpiada): sin aviso propio,
         // 'room-cleared' ya lo cubre.
         return;
       }
@@ -191,6 +200,7 @@ export function useGameLoop(session: GameSession): void {
     const hero = world.hero;
     const snap = lastSynced.current;
     const { roomIndex, totalRooms } = computeRoomProgress(world);
+    const currentRoomId = world.currentRoomId;
     const currentRoomName = world.room.name;
     // GDD/combat.ts acumula `stats.score` con daños fraccionarios (factor de
     // jefes fuera de ventana, ver applyDamageToEnemy). Se redondea SOLO aquí,
@@ -207,6 +217,7 @@ export function useGameLoop(session: GameSession): void {
       world.stats.roomsCleared !== snap.roomsCleared ||
       score !== snap.score ||
       roomIndex !== snap.roomIndex ||
+      currentRoomId !== snap.currentRoomId ||
       currentRoomName !== snap.currentRoomName
     ) {
       snap.hp = hero.hp;
@@ -217,6 +228,7 @@ export function useGameLoop(session: GameSession): void {
       snap.roomsCleared = world.stats.roomsCleared;
       snap.score = score;
       snap.roomIndex = roomIndex;
+      snap.currentRoomId = currentRoomId;
       snap.currentRoomName = currentRoomName;
       useUiStore.getState().syncFromWorld({
         hp: hero.hp,
@@ -230,6 +242,7 @@ export function useGameLoop(session: GameSession): void {
         score,
         roomIndex,
         totalRooms,
+        currentRoomId,
         currentRoomName,
       });
     }

@@ -35,8 +35,9 @@ export type BossStateStep = (world: World, cooldowns: Map<string, number>, event
 
 export interface BossDef {
   id: BossId;
-  /** Nombre mostrado en la barra de vida (HUD). */
-  name: string;
+  // Sin `name`: prosa de i18n (regla ★ ARCHITECTURE.md, sim nunca importa
+  // React/@/i18n). BossHealthBar.tsx (render) resuelve
+  // `t(\`bosses.${id}.name\`)` al pintar — ver src/i18n/locales/es.json::bosses.
   /** Vida máxima (GDD §15.6). */
   maxHp: number;
   /**

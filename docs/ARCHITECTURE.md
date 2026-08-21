@@ -46,6 +46,10 @@ src/
     render/         # infraestructura de escena: GameRoot, CameraRig, RoomView, useGameLoop, assets, cameraSettings, debug-params
     ui/             # HUD, modales (React DOM encima del canvas, no drei/Html), cada uno con su .css
   editor/           # editor de salas (React DOM + canvas 2D) + components/ + editor.css
+                    #   (deliberadamente SIN traducir: herramienta interna)
+  i18n/             # traducción: t()/useT() + locales/<código>.json. Usa React,
+                    #   así que SOLO puede importarlo la capa de UI (nunca la sim)
+                    #   registro por glob: un idioma = un JSON, sin tocar código
 ```
 
 - La **sim** es un objeto mutable poseído por un hook raíz; se hace tick con **timestep fijo de 60 Hz** (acumulador + interpolación de render). Determinista con RNG con semilla.

@@ -10,9 +10,11 @@
 import { useUiStore } from '@/game/session/store';
 import type { GameSession } from '@/game/session/session';
 import { Button, Modal } from '@/ui';
+import { useT } from '@/i18n';
 import './modals.css';
 
 export function NextDungeonModal({ session, onAdvance }: { session: GameSession; onAdvance: () => void }) {
+  const t = useT();
   const phase = useUiStore((s) => s.phase);
 
   const isOpen = phase === 'dungeon-cleared';
@@ -28,16 +30,14 @@ export function NextDungeonModal({ session, onAdvance }: { session: GameSession;
       // Reutiliza el tono dorado de "victoria" (victory-modal): es, en
       // esencia, una victoria parcial.
       className="victory-modal"
-      title="¡Jefe derrotado!"
+      title={t('nextDungeon.title')}
       actions={
         <Button variant="primary" onClick={onAdvance}>
-          Siguiente mazmorra
+          {t('nextDungeon.advance')}
         </Button>
       }
     >
-      <p className="modal-subtitle">
-        Mazmorra {stageNumber} de {totalStages} superada
-      </p>
+      <p className="modal-subtitle">{t('nextDungeon.subtitle', { n: stageNumber, m: totalStages })}</p>
     </Modal>
   );
 }

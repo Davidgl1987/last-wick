@@ -8,14 +8,15 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { GameSession } from '@/game/session/session';
-import type { Enemy } from '@/game/world/types';
+import type { BossId, Enemy } from '@/game/world/types';
+import { useT } from '@/i18n';
 import { isBoss } from './lifecycle';
-import { getBossDef } from './registry';
 import './boss-health-bar.css';
 
 interface VisibleBoss {
   id: string;
-  name: string;
+  /** Id del jefe (no su nombre): la UI traduce al pintar vía `t(\`bosses.${bossId}.name\`)`, así cambiar de idioma re-traduce la barra sin reabrir la sala. */
+  bossId: BossId;
 }
 
 /**
@@ -34,6 +35,7 @@ function findCurrentBoss(session: GameSession): Enemy | null {
 }
 
 export function BossHealthBar({ session }: { session: GameSession }) {
+  const t = useT();
   const [visible, setVisible] = useState<VisibleBoss | null>(null);
   const fillRef = useRef<HTMLDivElement | null>(null);
   const phaseLabelRef = useRef<HTMLDivElement | null>(null);
@@ -46,7 +48,7 @@ export function BossHealthBar({ session }: { session: GameSession }) {
 
       if (boss?.id !== lastId) {
         lastId = boss?.id ?? null;
-        setVisible(boss && boss.bossId ? { id: boss.id, name: getBossDef(boss.bossId).name } : null);
+        setVisible(boss && boss.bossId ? { id: boss.id, bossId: boss.bossId } : null);
       }
 
       if (boss) {
@@ -56,21 +58,26 @@ export function BossHealthBar({ session }: { session: GameSession }) {
           fill.style.transform = `scaleX(${fraction})`;
         }
         const phaseLabel = phaseLabelRef.current;
-        if (phaseLabel) phaseLabel.textContent = boss.bossPhase > 1 ? `Fase ${boss.bossPhase}` : '';
+        // Texto imperativo (fuera de React, mismo motivo que WeaponBar): `t`
+        // lee el idioma activo en cada llamada, así que este rAF ya pinta la
+        // fase en el idioma correcto sin necesidad de re-suscribirse.
+        if (phaseLabel) phaseLabel.textContent = boss.bossPhase > 1 ? t('bossBar.phase', { n: boss.bossPhase }) : '';
       }
 
       raf = requestAnimationFrame(update);
     };
     raf = requestAnimationFrame(update);
     return () => cancelAnimationFrame(raf);
-  }, [session]);
+  }, [session, t]);
 
   if (!visible) return null;
 
+  const name = t(`bosses.${visible.bossId}.name`);
+
   return (
-    <div className="boss-health-bar" aria-label={`Vida de ${visible.name}`}>
+    <div className="boss-health-bar" aria-label={t('bossBar.aria', { name })}>
       <div className="boss-health-name">
-        {visible.name}
+        {name}
         <span ref={phaseLabelRef} className="boss-health-phase" />
       </div>
       <div className="boss-health-track">
