@@ -15,12 +15,14 @@ import { BossHealthBar } from '@/game/features/bosses/BossHealthBar';
 import { pauseGame, type GameSession } from '@/game/session/session';
 import { useUiStore } from '@/game/session/store';
 import { Button, frameClass, Icon } from '@/ui';
+import { tRoomName, useT } from '@/i18n';
 import './hud.css';
 import { WeaponBar } from './WeaponBar';
 
 const NOTICE_DURATION_MS = 1200;
 
 export function HUD({ session, showMicroTutorial }: { session: GameSession; showMicroTutorial: boolean }) {
+  const t = useT();
   const hp = useUiStore((s) => s.hp);
   const maxHp = useUiStore((s) => s.maxHp);
   const coins = useUiStore((s) => s.coins);
@@ -31,7 +33,12 @@ export function HUD({ session, showMicroTutorial }: { session: GameSession; show
   const clearNotice = useUiStore((s) => s.clearNotice);
   const roomIndex = useUiStore((s) => s.roomIndex);
   const totalRooms = useUiStore((s) => s.totalRooms);
+  const currentRoomId = useUiStore((s) => s.currentRoomId);
   const currentRoomName = useUiStore((s) => s.currentRoomName);
+  // Nombre de sala ya traducido (rooms.<id>, o el name propio si no hay
+  // clave — sala del editor): calculado una vez y compartido por el banner Y
+  // el aviso de 'room-entered' (ver más abajo), que siempre coinciden.
+  const roomDisplayName = tRoomName(currentRoomId, currentRoomName);
 
   // Dirección del último cambio de HP, para la animación de daño/curación.
   const prevHp = useRef(hp);
@@ -60,7 +67,7 @@ export function HUD({ session, showMicroTutorial }: { session: GameSession; show
           <div
             key={`hp-${hp}-${maxHp}`}
             className={`hud-flames${flamesFlashClass}`}
-            aria-label={`Vida: ${hp} de ${maxHp}`}
+            aria-label={t('hud.hp', { hp, maxHp })}
           >
             {Array.from({ length: maxHp }, (_, i) => (
               <span key={i} className={i < hp ? 'flame-full' : 'flame-empty'}>
@@ -71,29 +78,25 @@ export function HUD({ session, showMicroTutorial }: { session: GameSession; show
           {godMode && (
             // Hermano del div con key={hp-...}, no hijo: no debe remontarse
             // en cada cambio de HP, es un badge estático de toda la sesión.
-            <span
-              className="hud-godmode-badge"
-              aria-label="Modo dios de playtest activo"
-              title="Modo dios (?godmode): revive al máximo en vez de game-over"
-            >
-              GOD
+            <span className="hud-godmode-badge" aria-label={t('hud.godAria')} title={t('hud.godTitle')}>
+              {t('hud.godBadge')}
             </span>
           )}
         </div>
         <div className="hud-top-right">
           {hasKey && (
-            <span className="hud-key" aria-label="Llave" title="Llave">
+            <span className="hud-key" aria-label={t('hud.key')} title={t('hud.key')}>
               <Icon name="key" size={22} />
             </span>
           )}
-          <div className="hud-coins" aria-label={`Monedas: ${coins}`}>
+          <div className="hud-coins" aria-label={t('hud.coins', { coins })}>
             <span className="hud-coin-icon" />
             {coins}
           </div>
           <Button
             variant="secondary"
             className="hud-pause-btn"
-            aria-label="Pausa"
+            aria-label={t('hud.pause')}
             disabled={phase !== 'playing'}
             onPointerDown={(e) => {
               // Evita que el gesto de puntería del canvas capture este toque.
@@ -106,14 +109,20 @@ export function HUD({ session, showMicroTutorial }: { session: GameSession; show
         </div>
       </div>
       {roomIndex !== null && totalRooms !== null && (
-        <div className="hud-room-banner" aria-label={`Sala ${roomIndex} de ${totalRooms}: ${currentRoomName}`}>
-          <span className="hud-room-progress">
-            Sala {roomIndex}/{totalRooms}
-          </span>
-          <span className="hud-room-name">{currentRoomName}</span>
+        <div className="hud-room-banner" aria-label={t('hud.roomAria', { i: roomIndex, n: totalRooms, name: roomDisplayName })}>
+          <span className="hud-room-progress">{t('hud.roomProgress', { i: roomIndex, n: totalRooms })}</span>
+          <span className="hud-room-name">{roomDisplayName}</span>
         </div>
       )}
-      {notice !== null && <div className="hud-notice">{notice}</div>}
+      {notice !== null && (
+        <div className="hud-notice">
+          {/* 'notice.roomEntered' no tiene plantilla propia (ver el comentario
+              gemelo en useGameLoop.ts): el aviso de entrada siempre coincide
+              con la sala que el store acaba de sincronizar este mismo frame,
+              así que se pinta el nombre de sala ya traducido en vez de t(). */}
+          {notice.key === 'notice.roomEntered' ? roomDisplayName : t(notice.key, notice.params)}
+        </div>
+      )}
       {showMicroTutorial && phase === 'playing' && (
         <div className="hud-microtutorial" role="status">
           <div className="hud-microtutorial-gesture" aria-hidden="true">
@@ -152,9 +161,7 @@ export function HUD({ session, showMicroTutorial }: { session: GameSession; show
               />
             </svg>
           </div>
-          <span className={frameClass('plain', 'hud-microtutorial-text')}>
-            Arrastra y suelta para lanzarte
-          </span>
+          <span className={frameClass('plain', 'hud-microtutorial-text')}>{t('hud.microTutorial')}</span>
         </div>
       )}
       <BossHealthBar session={session} />

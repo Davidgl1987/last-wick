@@ -58,6 +58,20 @@ En **`#/editor`** (enlace "✎ Editor" dentro del juego) vive el editor visual d
 - **▶ Probar**: playtest inmediato de la sala y vuelta al editor.
 - **Exportar/Importar** la sala como JSON; las salas exportadas entran al pool del generador procedural. En dev, "Guardar en src/levels" escribe el fichero directamente en el repo.
 
+## Idiomas
+
+El juego está en **español e inglés**; se cambia con el desplegable de la esquina superior derecha de la pantalla de título, o desde el modal de pausa. La elección se guarda en `localStorage`; la primera vez se deduce del idioma del navegador (`es*` → español, resto → inglés).
+
+Todo el texto vive en `src/i18n/locales/<código>.json` — nombres de mejoras, jefes y salas incluidos. **Añadir un idioma es añadir un fichero**:
+
+1. Copia `src/i18n/locales/es.json` a `src/i18n/locales/<código>.json` (p. ej. `fr.json`; el nombre del fichero ES el código de idioma).
+2. Traduce los valores. Deja intactos los marcadores `{hp}`, `{coins}`, `{n}`… y pon en `$meta.name` el nombre del idioma *en ese idioma* ("Français"), que es lo que se lee en el desplegable.
+3. Ya está: el registro es automático por glob y la opción aparece sola en los dos selectores.
+
+`npm test` comprueba que todos los idiomas tienen exactamente las mismas claves y marcadores que `es.json` (el idioma base y el fallback cuando a una traducción le falta algo), que ninguna sala del pool se queda sin nombre, y que no se ha colado ningún literal suelto en la UI.
+
+El **editor de niveles está solo en español** a propósito: es herramienta interna. Las salas que crees ahí no tienen clave de traducción, así que en el juego se muestran con el `name` que les pongas.
+
 ## Depuración
 
 Parámetros de URL, combinables entre sí (herramientas de playtest):

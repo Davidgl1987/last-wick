@@ -27,6 +27,7 @@
 
 import { useState } from 'react';
 import { type AudioSettings, setAudioVolume, useAudioSettings } from '@/game/audio/audioSettings';
+import { playSfx } from '@/game/audio/sfxEngine';
 import {
   CAMERA_DISTANCE_SCALE_MAX,
   CAMERA_DISTANCE_SCALE_MIN,
@@ -37,30 +38,33 @@ import { setPostEffectEnabled, usePostSettings, type PostSettings } from '@/game
 import { resumeGame, type GameSession } from '@/game/session/session';
 import { getUpgradeLevel, UPGRADE_POOL } from '@/game/session/upgrades';
 import { useUiStore } from '@/game/session/store';
-import { Button, Checkbox, Divider, Modal, Slider } from '@/ui';
+import { Button, Checkbox, Divider, Modal, Select, Slider } from '@/ui';
+import { AVAILABLE_LOCALES, setLang, type TranslationKey, useLang, useT } from '@/i18n';
 import { UpgradeIcon, UpgradeLevelPips } from './UpgradeIcon';
 import './modals.css';
 
 /** Los 3 volúmenes de audioSettings.ts, en el orden que se muestran. */
-const AUDIO_SLIDERS: { key: keyof AudioSettings; label: string }[] = [
-  { key: 'master', label: 'General' },
-  { key: 'music', label: 'Música' },
-  { key: 'sfx', label: 'Efectos' },
+const AUDIO_SLIDERS: { key: keyof AudioSettings; labelKey: TranslationKey }[] = [
+  { key: 'master', labelKey: 'pause.volumeMaster' },
+  { key: 'music', labelKey: 'pause.volumeMusic' },
+  { key: 'sfx', labelKey: 'pause.volumeSfx' },
 ];
 
 /**
  * Ajustes visuales persistentes. Los cuatro primeros controlan el composer;
  * las motas ambientales controlan su vista ligera dentro de la escena.
  */
-const POST_EFFECT_TOGGLES: { key: keyof PostSettings; label: string }[] = [
-  { key: 'bloom', label: 'Bloom (brillos)' },
-  { key: 'vignette', label: 'Viñeta' },
-  { key: 'noise', label: 'Grano de imagen' },
-  { key: 'chromaticAberration', label: 'Aberración cromática (impactos)' },
-  { key: 'ambientDust', label: 'Motas de polvo' },
+const POST_EFFECT_TOGGLES: { key: keyof PostSettings; labelKey: TranslationKey }[] = [
+  { key: 'bloom', labelKey: 'pause.effectBloom' },
+  { key: 'vignette', labelKey: 'pause.effectVignette' },
+  { key: 'noise', labelKey: 'pause.effectNoise' },
+  { key: 'chromaticAberration', labelKey: 'pause.effectChromatic' },
+  { key: 'ambientDust', labelKey: 'pause.effectDust' },
 ];
 
 export function PauseModal({ session, onExitToTitle }: { session: GameSession; onExitToTitle?: () => void }) {
+  const t = useT();
+  const lang = useLang();
   const phase = useUiStore((s) => s.phase);
   // Leídas directamente de la sim (no del store zustand): las mejoras no
   // cambian cada frame, pero tampoco justifican duplicar estado — este modal
@@ -93,24 +97,24 @@ export function PauseModal({ session, onExitToTitle }: { session: GameSession; o
     <Modal
       open={isOpen}
       className="pause-modal"
-      title="Pausa"
+      title={t('pause.title')}
       actions={
         <>
           <Button variant="primary" onClick={handleResume}>
-            Continuar
+            {t('pause.resume')}
           </Button>
           {onExitToTitle && (
             <Button variant="secondary" onClick={onExitToTitle}>
-              Salir
+              {t('pause.exit')}
             </Button>
           )}
         </>
       }
     >
       <section className="pause-section">
-        <h3 className="pause-section-title">Mejoras acumuladas</h3>
+        <h3 className="pause-section-title">{t('pause.upgradesTitle')}</h3>
         {acquiredUpgrades.length === 0 ? (
-          <p className="pause-empty">Ninguna todavía.</p>
+          <p className="pause-empty">{t('pause.upgradesEmpty')}</p>
         ) : (
           <ul className="pause-upgrade-list">
             {acquiredUpgrades.map((def) => {
@@ -119,9 +123,9 @@ export function PauseModal({ session, onExitToTitle }: { session: GameSession; o
                 <li key={def.id} className="pause-upgrade-item">
                   <UpgradeIcon icon={def.icon} size={24} />
                   <div className="pause-upgrade-info">
-                    <strong>{def.name}</strong>
+                    <strong>{t(`upgrades.${def.id}.name`)}</strong>
                     <UpgradeLevelPips level={level} maxLevel={def.maxLevel} />
-                    <span className="pause-upgrade-desc">{def.description}</span>
+                    <span className="pause-upgrade-desc">{t(`upgrades.${def.id}.desc`)}</span>
                   </div>
                 </li>
               );
@@ -133,12 +137,12 @@ export function PauseModal({ session, onExitToTitle }: { session: GameSession; o
       <Divider />
 
       <section className="pause-section">
-        <h3 className="pause-section-title">Sonido</h3>
+        <h3 className="pause-section-title">{t('pause.soundTitle')}</h3>
         <ul className="pause-audio-list">
-          {AUDIO_SLIDERS.map(({ key, label }) => (
+          {AUDIO_SLIDERS.map(({ key, labelKey }) => (
             <li key={key}>
               <Slider
-                label={label}
+                label={t(labelKey)}
                 value={audioSettings[key]}
                 onChange={(value) => setAudioVolume(key, value)}
                 min={0}
@@ -152,9 +156,28 @@ export function PauseModal({ session, onExitToTitle }: { session: GameSession; o
       </section>
 
       <section className="pause-section">
-        <h3 className="pause-section-title">Cámara</h3>
+        <h3 className="pause-section-title">{t('pause.languageTitle')}</h3>
+        <Select
+          label={t('pause.languageTitle')}
+          labelClassName="sr-only"
+          value={lang}
+          onChange={(e) => {
+            setLang(e.target.value);
+            playSfx('ui-click');
+          }}
+        >
+          {AVAILABLE_LOCALES.map(({ code, name }) => (
+            <option key={code} value={code}>
+              {name}
+            </option>
+          ))}
+        </Select>
+      </section>
+
+      <section className="pause-section">
+        <h3 className="pause-section-title">{t('pause.cameraTitle')}</h3>
         <Slider
-          label="Distancia (alejar / acercar)"
+          label={t('pause.cameraDistance')}
           value={distanceScale}
           onChange={handleDistanceChange}
           min={CAMERA_DISTANCE_SCALE_MIN}
@@ -165,12 +188,12 @@ export function PauseModal({ session, onExitToTitle }: { session: GameSession; o
       </section>
 
       <section className="pause-section">
-        <h3 className="pause-section-title">Efectos visuales</h3>
+        <h3 className="pause-section-title">{t('pause.effectsTitle')}</h3>
         <ul className="pause-effects-list">
-          {POST_EFFECT_TOGGLES.map(({ key, label }) => (
+          {POST_EFFECT_TOGGLES.map(({ key, labelKey }) => (
             <li key={key}>
               <Checkbox
-                label={label}
+                label={t(labelKey)}
                 checked={postSettings[key]}
                 onChange={(checked: boolean) => setPostEffectEnabled(key, checked)}
               />

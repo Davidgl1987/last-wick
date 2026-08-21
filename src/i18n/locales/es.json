@@ -1,0 +1,163 @@
+{
+  "$meta": { "name": "Español" },
+  "meta": { "title": "La Última Mecha" },
+  "title": {
+    "heading": "La Última Mecha",
+    "subtitle": "Lumora en la Mansión Lumbra",
+    "play": "Jugar",
+    "preparing": "Preparando…",
+    "editor": "Editor",
+    "credits": "Créditos",
+    "loading": "Encendiendo la última mecha…",
+    "language": "Idioma"
+  },
+  "credits": {
+    "title": "Créditos",
+    "close": "Cerrar",
+    "design": "Diseño y programación",
+    "ui": "Interfaz",
+    "scenery": "Escenario y objetos",
+    "vfx": "Efectos visuales",
+    "fonts": "Tipografías",
+    "sound": "Sonido",
+    "engine": "Motor"
+  },
+  "app": {
+    "loading": "Cargando…"
+  },
+  "hud": {
+    "hp": "Vida: {hp} de {maxHp}",
+    "godBadge": "GOD",
+    "godAria": "Modo dios de playtest activo",
+    "godTitle": "Modo dios (?godmode): revive al máximo en vez de game-over",
+    "key": "Llave",
+    "coins": "Monedas: {coins}",
+    "pause": "Pausa",
+    "fps": "{n} FPS",
+    "roomProgress": "Sala {i}/{n}",
+    "roomAria": "Sala {i} de {n}: {name}",
+    "microTutorial": "Arrastra y suelta para lanzarte"
+  },
+  "weapons": {
+    "body": "Cera",
+    "arrow": "Hielo",
+    "spell": "Hechizo",
+    "aria": "Arma: {label}"
+  },
+  "pause": {
+    "title": "Pausa",
+    "resume": "Continuar",
+    "exit": "Salir",
+    "upgradesTitle": "Mejoras acumuladas",
+    "upgradesEmpty": "Ninguna todavía.",
+    "soundTitle": "Sonido",
+    "volumeMaster": "General",
+    "volumeMusic": "Música",
+    "volumeSfx": "Efectos",
+    "cameraTitle": "Cámara",
+    "cameraDistance": "Distancia (alejar / acercar)",
+    "effectsTitle": "Efectos visuales",
+    "effectBloom": "Bloom (brillos)",
+    "effectVignette": "Viñeta",
+    "effectNoise": "Grano de imagen",
+    "effectChromatic": "Aberración cromática (impactos)",
+    "effectDust": "Motas de polvo",
+    "languageTitle": "Idioma"
+  },
+  "shop": {
+    "title": "Tienda",
+    "exit": "Salir",
+    "balance": "Monedas: {coins}",
+    "capped": "Máx.",
+    "unavailable": "No disp."
+  },
+  "gameOver": {
+    "title": "Fin de la run",
+    "retry": "Reintentar",
+    "mainMenu": "Menú principal",
+    "roomsCleared": "Salas limpiadas",
+    "coins": "Monedas",
+    "score": "Puntuación",
+    "upgradesTitle": "Mejoras conseguidas"
+  },
+  "victory": {
+    "title": "¡Victoria!",
+    "playAgain": "Jugar otra run",
+    "subtitle": "Has derrotado a todos los jefes"
+  },
+  "nextDungeon": {
+    "title": "¡Jefe derrotado!",
+    "advance": "Siguiente mazmorra",
+    "subtitle": "Mazmorra {n} de {m} superada"
+  },
+  "bossReward": {
+    "title": "¡Jefe derrotado!",
+    "subtitle": "Elige una mejora gratis"
+  },
+  "upgradeIcon": {
+    "levelAria": "nivel {level} de {maxLevel}"
+  },
+  "bossBar": {
+    "aria": "Vida de {name}",
+    "phase": "Fase {n}"
+  },
+  "notice": {
+    "roomCleared": "Sala limpiada",
+    "pitFall": "Has caído al foso",
+    "shieldBlock": "El escudo bloquea el golpe",
+    "bossDoorSealed": "La puerta se sella",
+    "bossDefeated": "¡Jefe derrotado!",
+    "shopOpened": "Tienda",
+    "bossDoorOpened": "Puerta del jefe abierta",
+    "needKey": "Necesitas la llave",
+    "weakShot": "Tiro demasiado flojo",
+    "roomEntered": ""
+  },
+  "upgrades": {
+    "cuerpo-dano": { "name": "Erizo de Acero", "desc": "+1 daño de embestida." },
+    "cuerpo-velocidad": { "name": "Estela de Cometa", "desc": "+1 u/s de velocidad de lanzamiento corporal." },
+    "cuerpo-firmeza": { "name": "Canto Rodado", "desc": "Menos retroceso al recibir daño." },
+    "flecha-dano": { "name": "Colmillo de Hierro", "desc": "+1 daño de flecha." },
+    "flecha-multi": { "name": "Bandada", "desc": "+1 flecha en ángulo." },
+    "flecha-perfora": { "name": "Aguja Fantasma", "desc": "+1 enemigo atravesado por la flecha." },
+    "hechizo-dano": { "name": "Orbe Voraz", "desc": "+1 daño de hechizo y proyectil más ancho." },
+    "hechizo-multi": { "name": "Coro Arcano", "desc": "+1 hechizo en ángulo." },
+    "hechizo-rebote": { "name": "Eco Errante", "desc": "+1 rebote del hechizo." },
+    "escudo": { "name": "Burbuja de Cuarzo", "desc": "+1 carga de escudo: bloquea el próximo golpe." },
+    "corazon": { "name": "Ascua Vital", "desc": "Cura 1 corazón; con la vida llena, +1 vida máxima (tope 9)." },
+    "iman": { "name": "Canto de Urraca", "desc": "Atrae monedas desde más lejos." }
+  },
+  "bosses": {
+    "test-boss": { "name": "Jefe de Pruebas" },
+    "guardian": { "name": "Guardián de Canto" },
+    "queen": { "name": "Reina del Enjambre" },
+    "prisma": { "name": "El Prisma" },
+    "storm": { "name": "La Tormenta" }
+  },
+  "rooms": {
+    "boss-den": "Guarida del Jefe",
+    "boss-guardian": "Sala del Guardián de Canto",
+    "boss-prisma": "Sala del Prisma",
+    "boss-queen": "Sala de la Reina del Enjambre",
+    "boss-storm": "Sala de la Tormenta",
+    "boss-test": "Sala del Jefe de Pruebas",
+    "combat-arena": "Arena de Barriles",
+    "combat-barrels": "Reacción en Cadena",
+    "combat-bounce": "Sala de Billar",
+    "combat-crossroads": "Encrucijada",
+    "combat-gauntlet": "Desfiladero de Espinas",
+    "combat-pits": "Borde del Abismo",
+    "combat-spikefield": "Campo de Púas",
+    "key-cage": "Jaula del Vacío",
+    "key-gallery": "Galería de Guardianes",
+    "key-vault": "Cámara de la Llave",
+    "shop-alcove": "Rincón del Tendero",
+    "shop-crossing": "Cruce del Mercader",
+    "shop-refuge": "Refugio del Tendero",
+    "start-cistern": "Aljibe Roto",
+    "start-crypt": "Cripta Angosta",
+    "start-hall": "Vestíbulo",
+    "test-fase-2": "Sala de Pruebas",
+    "fallback": "Sala {n}"
+  }
+}

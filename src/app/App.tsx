@@ -23,6 +23,7 @@ import { preloadKit, useKitReady } from '@/game/render/kit';
 import { initAudio } from '@/game/audio/sfxEngine';
 import { useUiStore } from '@/game/session/store';
 import { TitleScreen } from '@/game/ui/TitleScreen';
+import { useT } from '@/i18n';
 
 type Route = 'game' | 'editor' | 'playtest';
 
@@ -55,6 +56,7 @@ function hasDirectPlaytestParam(): boolean {
  * que en fases futuras pedirán geometría del kit) antes de que esté listo.
  */
 function KitLoadingScreen() {
+  const t = useT();
   return (
     <div
       style={{
@@ -70,7 +72,7 @@ function KitLoadingScreen() {
         letterSpacing: '0.02em',
       }}
     >
-      Cargando…
+      {t('app.loading')}
     </div>
   );
 }

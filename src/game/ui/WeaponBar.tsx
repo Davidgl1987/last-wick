@@ -13,6 +13,7 @@ import { BODY_LAUNCH_COOLDOWN } from '@/game/features/hero/constants';
 import type { GameSession } from '@/game/session/session';
 import type { WeaponMode } from '@/game/world/types';
 import { frameClass, Icon, type IconName } from '@/ui';
+import { type TranslationKey, useT } from '@/i18n';
 import './weapon-bar.css';
 
 /**
@@ -28,11 +29,16 @@ import './weapon-bar.css';
  * — así que el concepto pasa a ser hielo en vez de recolorear a naranja).
  * Icono propio `'shard'` (Icon.tsx) en vez de `'flame'`: ese icono dibuja
  * las unidades de vida del HUD, no debe tocarse.
+ *
+ * `labelKey` guarda la CLAVE de traducción, no la prosa: la tabla es un
+ * módulo-constante (fuera del componente), así que traducir aquí mismo la
+ * congelaría en el idioma activo al cargar el módulo. El componente traduce
+ * al pintar (`useT()`), para que cambiar de idioma re-traduzca los botones.
  */
-const MODES: { mode: WeaponMode; label: string; icon: IconName }[] = [
-  { mode: 'body', label: 'Cera', icon: 'dot' },
-  { mode: 'arrow', label: 'Hielo', icon: 'shard' },
-  { mode: 'spell', label: 'Hechizo', icon: 'spark' },
+const MODES: { mode: WeaponMode; labelKey: TranslationKey; icon: IconName }[] = [
+  { mode: 'body', labelKey: 'weapons.body', icon: 'dot' },
+  { mode: 'arrow', labelKey: 'weapons.arrow', icon: 'shard' },
+  { mode: 'spell', labelKey: 'weapons.spell', icon: 'spark' },
 ];
 
 /** Fracción [0,1] de recarga completada para un modo (1 = listo). */
@@ -65,6 +71,7 @@ function isTypingInTextField(): boolean {
 }
 
 export function WeaponBar({ session }: { session: GameSession }) {
+  const t = useT();
   const [active, setActive] = useState<WeaponMode>(session.world.hero.weaponMode);
   const overlayRefs = useRef<(HTMLDivElement | null)[]>([null, null, null]);
 
@@ -125,33 +132,39 @@ export function WeaponBar({ session }: { session: GameSession }) {
 
   return (
     <div className="weapon-bar">
-      {MODES.map(({ mode, label, icon }, i) => (
-        <button
-          key={mode}
-          type="button"
-          className={frameClass('plain', `weapon-btn weapon-btn-${mode}${active === mode ? ' weapon-btn-active' : ''}`)}
-          onPointerDown={(e) => {
-            // Evita que el gesto de puntería del canvas capture este toque.
-            e.stopPropagation();
-            select(mode);
-          }}
-          aria-label={`Arma: ${label}`}
-          aria-pressed={active === mode}
-        >
-          <span className="weapon-btn-icon">
-            <Icon name={icon} size={20} />
-          </span>
-          <span className="weapon-btn-label">{label}</span>
-          <div className="weapon-btn-cooldown-clip">
-            <div
-              className="weapon-btn-cooldown"
-              ref={(el) => {
-                overlayRefs.current[i] = el;
-              }}
-            />
-          </div>
-        </button>
-      ))}
+      {MODES.map(({ mode, labelKey, icon }, i) => {
+        const label = t(labelKey);
+        return (
+          <button
+            key={mode}
+            type="button"
+            className={frameClass(
+              'plain',
+              `weapon-btn weapon-btn-${mode}${active === mode ? ' weapon-btn-active' : ''}`,
+            )}
+            onPointerDown={(e) => {
+              // Evita que el gesto de puntería del canvas capture este toque.
+              e.stopPropagation();
+              select(mode);
+            }}
+            aria-label={t('weapons.aria', { label })}
+            aria-pressed={active === mode}
+          >
+            <span className="weapon-btn-icon">
+              <Icon name={icon} size={20} />
+            </span>
+            <span className="weapon-btn-label">{label}</span>
+            <div className="weapon-btn-cooldown-clip">
+              <div
+                className="weapon-btn-cooldown"
+                ref={(el) => {
+                  overlayRefs.current[i] = el;
+                }}
+              />
+            </div>
+          </button>
+        );
+      })}
     </div>
   );
 }

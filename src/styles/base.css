@@ -78,6 +78,22 @@
   box-sizing: border-box;
 }
 
+/* Oculta visualmente un elemento manteniéndolo disponible para lectores de
+   pantalla (patrón clásico "sr-only"): usado por el selector de idioma de la
+   pantalla de título, cuya etiqueta visible competiría con el resto del
+   chrome — ver TitleScreen.tsx / title-screen.css. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  clip-path: inset(50%);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
 html,
 body,
 #root {

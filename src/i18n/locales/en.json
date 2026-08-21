@@ -1,0 +1,163 @@
+{
+  "$meta": { "name": "English" },
+  "meta": { "title": "Last Wick" },
+  "title": {
+    "heading": "Last Wick",
+    "subtitle": "Lumora in Lumbra Manor",
+    "play": "Play",
+    "preparing": "Preparing…",
+    "editor": "Editor",
+    "credits": "Credits",
+    "loading": "Lighting the last wick…",
+    "language": "Language"
+  },
+  "credits": {
+    "title": "Credits",
+    "close": "Close",
+    "design": "Design and programming",
+    "ui": "UI",
+    "scenery": "Scenery and props",
+    "vfx": "Visual effects",
+    "fonts": "Fonts",
+    "sound": "Sound",
+    "engine": "Engine"
+  },
+  "app": {
+    "loading": "Loading…"
+  },
+  "hud": {
+    "hp": "Health: {hp} of {maxHp}",
+    "godBadge": "GOD",
+    "godAria": "Playtest god mode active",
+    "godTitle": "God mode (?godmode): revives at full health instead of game over",
+    "key": "Key",
+    "coins": "Coins: {coins}",
+    "pause": "Pause",
+    "fps": "{n} FPS",
+    "roomProgress": "Room {i}/{n}",
+    "roomAria": "Room {i} of {n}: {name}",
+    "microTutorial": "Drag and release to launch"
+  },
+  "weapons": {
+    "body": "Wax",
+    "arrow": "Ice",
+    "spell": "Spell",
+    "aria": "Weapon: {label}"
+  },
+  "pause": {
+    "title": "Pause",
+    "resume": "Continue",
+    "exit": "Exit",
+    "upgradesTitle": "Upgrades so far",
+    "upgradesEmpty": "None yet.",
+    "soundTitle": "Sound",
+    "volumeMaster": "Master",
+    "volumeMusic": "Music",
+    "volumeSfx": "SFX",
+    "cameraTitle": "Camera",
+    "cameraDistance": "Distance (zoom out / in)",
+    "effectsTitle": "Visual effects",
+    "effectBloom": "Bloom (glow)",
+    "effectVignette": "Vignette",
+    "effectNoise": "Film grain",
+    "effectChromatic": "Chromatic aberration (hits)",
+    "effectDust": "Dust motes",
+    "languageTitle": "Language"
+  },
+  "shop": {
+    "title": "Shop",
+    "exit": "Exit",
+    "balance": "Coins: {coins}",
+    "capped": "Max",
+    "unavailable": "N/A"
+  },
+  "gameOver": {
+    "title": "Run ended",
+    "retry": "Retry",
+    "mainMenu": "Main menu",
+    "roomsCleared": "Rooms cleared",
+    "coins": "Coins",
+    "score": "Score",
+    "upgradesTitle": "Upgrades earned"
+  },
+  "victory": {
+    "title": "Victory!",
+    "playAgain": "Play another run",
+    "subtitle": "You have defeated every boss"
+  },
+  "nextDungeon": {
+    "title": "Boss defeated!",
+    "advance": "Next dungeon",
+    "subtitle": "Dungeon {n} of {m} cleared"
+  },
+  "bossReward": {
+    "title": "Boss defeated!",
+    "subtitle": "Choose a free upgrade"
+  },
+  "upgradeIcon": {
+    "levelAria": "level {level} of {maxLevel}"
+  },
+  "bossBar": {
+    "aria": "{name}'s health",
+    "phase": "Phase {n}"
+  },
+  "notice": {
+    "roomCleared": "Room cleared",
+    "pitFall": "You fell into the pit",
+    "shieldBlock": "The shield blocks the hit",
+    "bossDoorSealed": "The door seals shut",
+    "bossDefeated": "Boss defeated!",
+    "shopOpened": "Shop",
+    "bossDoorOpened": "Boss door open",
+    "needKey": "You need the key",
+    "weakShot": "Shot too weak",
+    "roomEntered": ""
+  },
+  "upgrades": {
+    "cuerpo-dano": { "name": "Steel Urchin", "desc": "+1 ram damage." },
+    "cuerpo-velocidad": { "name": "Comet Trail", "desc": "+1 u/s body launch speed." },
+    "cuerpo-firmeza": { "name": "Riverstone", "desc": "Less knockback when hit." },
+    "flecha-dano": { "name": "Iron Fang", "desc": "+1 arrow damage." },
+    "flecha-multi": { "name": "Flock", "desc": "+1 angled arrow." },
+    "flecha-perfora": { "name": "Ghost Needle", "desc": "+1 enemy pierced per arrow." },
+    "hechizo-dano": { "name": "Ravenous Orb", "desc": "+1 spell damage, wider shot." },
+    "hechizo-multi": { "name": "Arcane Choir", "desc": "+1 angled spell." },
+    "hechizo-rebote": { "name": "Wandering Echo", "desc": "+1 spell bounce." },
+    "escudo": { "name": "Quartz Bubble", "desc": "+1 shield charge: blocks the next hit." },
+    "corazon": { "name": "Living Ember", "desc": "Heals 1 heart; at full health, +1 max health (cap 9)." },
+    "iman": { "name": "Magpie's Song", "desc": "Pulls coins from farther away." }
+  },
+  "bosses": {
+    "test-boss": { "name": "Test Boss" },
+    "guardian": { "name": "Warden of Stone" },
+    "queen": { "name": "Swarm Queen" },
+    "prisma": { "name": "The Prism" },
+    "storm": { "name": "The Tempest" }
+  },
+  "rooms": {
+    "boss-den": "The Boss Den",
+    "boss-guardian": "Hall of the Warden",
+    "boss-prisma": "Hall of the Prism",
+    "boss-queen": "Hall of the Swarm Queen",
+    "boss-storm": "Hall of the Tempest",
+    "boss-test": "Test Boss Hall",
+    "combat-arena": "Barrel Arena",
+    "combat-barrels": "Chain Reaction",
+    "combat-bounce": "The Billiard Room",
+    "combat-crossroads": "Crossroads",
+    "combat-gauntlet": "Thorn Gorge",
+    "combat-pits": "Edge of the Abyss",
+    "combat-spikefield": "Field of Spikes",
+    "key-cage": "Cage of the Void",
+    "key-gallery": "Gallery of Wardens",
+    "key-vault": "The Key Vault",
+    "shop-alcove": "Shopkeeper's Nook",
+    "shop-crossing": "Merchant's Crossing",
+    "shop-refuge": "Shopkeeper's Refuge",
+    "start-cistern": "The Broken Cistern",
+    "start-crypt": "The Narrow Crypt",
+    "start-hall": "The Entrance Hall",
+    "test-fase-2": "Test Room",
+    "fallback": "Room {n}"
+  }
+}

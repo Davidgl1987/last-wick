@@ -30,8 +30,10 @@ export type UpgradeId =
 
 export interface UpgradeDef {
   id: UpgradeId;
-  name: string;
-  description: string;
+  // Sin `name`/`description`: prosa de i18n (regla ★ ARCHITECTURE.md, sim
+  // nunca importa React/@/i18n). La UI resuelve `t(\`upgrades.${id}.name\`)`/
+  // `.desc` al pintar (PauseModal/ShopModal/BossRewardModal/GameOverModal/
+  // VictoryModal) — ver src/i18n/locales/es.json::upgrades.
   category: UpgradeCategory;
   /** Nivel máximo comprable/ofrecible; Infinity para stacks sin tope (escudo). */
   maxLevel: number;
@@ -58,8 +60,6 @@ export const UPGRADE_POOL: UpgradeDef[] = [
   // ── Cuerpo ────────────────────────────────────────────────────────────
   {
     id: 'cuerpo-dano',
-    name: 'Erizo de Acero',
-    description: '+1 daño de embestida.',
     category: 'cuerpo',
     maxLevel: 3,
     icon: 'spikes',
@@ -70,8 +70,6 @@ export const UPGRADE_POOL: UpgradeDef[] = [
   },
   {
     id: 'cuerpo-velocidad',
-    name: 'Estela de Cometa',
-    description: '+1 u/s de velocidad de lanzamiento corporal.',
     category: 'cuerpo',
     maxLevel: 3,
     icon: 'comet',
@@ -82,8 +80,6 @@ export const UPGRADE_POOL: UpgradeDef[] = [
   },
   {
     id: 'cuerpo-firmeza',
-    name: 'Canto Rodado',
-    description: 'Menos retroceso al recibir daño.',
     category: 'cuerpo',
     maxLevel: 3,
     icon: 'boulder',
@@ -95,8 +91,6 @@ export const UPGRADE_POOL: UpgradeDef[] = [
   // ── Flecha ────────────────────────────────────────────────────────────
   {
     id: 'flecha-dano',
-    name: 'Colmillo de Hierro',
-    description: '+1 daño de flecha.',
     category: 'flecha',
     maxLevel: 3,
     icon: 'fang',
@@ -107,8 +101,6 @@ export const UPGRADE_POOL: UpgradeDef[] = [
   },
   {
     id: 'flecha-multi',
-    name: 'Bandada',
-    description: '+1 flecha en ángulo.',
     category: 'flecha',
     maxLevel: 3,
     icon: 'flock',
@@ -119,8 +111,6 @@ export const UPGRADE_POOL: UpgradeDef[] = [
   },
   {
     id: 'flecha-perfora',
-    name: 'Aguja Fantasma',
-    description: '+1 enemigo atravesado por la flecha.',
     category: 'flecha',
     maxLevel: 3,
     icon: 'needle',
@@ -132,8 +122,6 @@ export const UPGRADE_POOL: UpgradeDef[] = [
   // ── Hechizo ───────────────────────────────────────────────────────────
   {
     id: 'hechizo-dano',
-    name: 'Orbe Voraz',
-    description: '+1 daño de hechizo y proyectil más ancho.',
     category: 'hechizo',
     maxLevel: 3,
     icon: 'orb',
@@ -145,8 +133,6 @@ export const UPGRADE_POOL: UpgradeDef[] = [
   },
   {
     id: 'hechizo-multi',
-    name: 'Coro Arcano',
-    description: '+1 hechizo en ángulo.',
     category: 'hechizo',
     maxLevel: 3,
     icon: 'choir',
@@ -157,8 +143,6 @@ export const UPGRADE_POOL: UpgradeDef[] = [
   },
   {
     id: 'hechizo-rebote',
-    name: 'Eco Errante',
-    description: '+1 rebote del hechizo.',
     category: 'hechizo',
     maxLevel: 3,
     icon: 'echo',
@@ -170,8 +154,6 @@ export const UPGRADE_POOL: UpgradeDef[] = [
   // ── Consumibles (solo tienda, GDD/plan decisión 2) ───────────────────
   {
     id: 'escudo',
-    name: 'Burbuja de Cuarzo',
-    description: '+1 carga de escudo: bloquea el próximo golpe.',
     category: 'consumible',
     maxLevel: Infinity,
     icon: 'bubble',
@@ -182,8 +164,6 @@ export const UPGRADE_POOL: UpgradeDef[] = [
   },
   {
     id: 'corazon',
-    name: 'Ascua Vital',
-    description: 'Cura 1 corazón; con la vida llena, +1 vida máxima (tope 9).',
     category: 'consumible',
     maxLevel: HERO_MAX_HP,
     icon: 'ember',
@@ -200,8 +180,6 @@ export const UPGRADE_POOL: UpgradeDef[] = [
   },
   {
     id: 'iman',
-    name: 'Canto de Urraca',
-    description: 'Atrae monedas desde más lejos.',
     category: 'consumible',
     maxLevel: 3,
     icon: 'magpie',

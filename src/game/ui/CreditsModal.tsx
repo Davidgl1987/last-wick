@@ -10,37 +10,41 @@
  */
 
 import { Button, Modal } from '@/ui';
+import { type TranslationKey, useT } from '@/i18n';
 import './modals.css';
 
-const CREDIT_SECTIONS: { label: string; value: string }[] = [
-  { label: 'Diseño y programación', value: 'David García López' },
-  { label: 'Interfaz', value: 'Kenney · Fantasy UI Borders (CC0)' },
+// Los VALORES son nombres propios/atribuciones — no se traducen, se quedan
+// aquí tal cual (solo las ETIQUETAS de sección salen de i18n).
+const CREDIT_SECTIONS: { labelKey: TranslationKey; value: string }[] = [
+  { labelKey: 'credits.design', value: 'David García López' },
+  { labelKey: 'credits.ui', value: 'Kenney · Fantasy UI Borders (CC0)' },
   // CC0: la atribución no es obligatoria, se pone igual (mismo criterio que
   // con Kenney). Licencia completa en public/models/kaykit/LICENSE-kaykit.txt.
-  { label: 'Escenario y objetos', value: 'KayKit · Dungeon Pack, de Kay Lousberg (CC0)' },
+  { labelKey: 'credits.scenery', value: 'KayKit · Dungeon Pack, de Kay Lousberg (CC0)' },
   // CC0, misma nota que arriba. Licencia completa en
   // public/textures/vfx/LICENSE-kenney.txt (docs/plans/VFX_PLAN.md).
-  { label: 'Efectos visuales', value: 'Kenney · Light Masks + Splat Pack (CC0)' },
-  { label: 'Tipografías', value: 'Cinzel Decorative · Cormorant Garamond' },
-  { label: 'Sonido', value: '400 Sounds Pack' },
-  { label: 'Motor', value: 'three.js · React Three Fiber' },
+  { labelKey: 'credits.vfx', value: 'Kenney · Light Masks + Splat Pack (CC0)' },
+  { labelKey: 'credits.fonts', value: 'Cinzel Decorative · Cormorant Garamond' },
+  { labelKey: 'credits.sound', value: '400 Sounds Pack' },
+  { labelKey: 'credits.engine', value: 'three.js · React Three Fiber' },
 ];
 
 export function CreditsModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const t = useT();
   return (
     <Modal
       open={open}
-      title="Créditos"
+      title={t('credits.title')}
       onClose={onClose}
       actions={
         <Button variant="secondary" onClick={onClose}>
-          Cerrar
+          {t('credits.close')}
         </Button>
       }
     >
       {CREDIT_SECTIONS.map((section) => (
-        <div key={section.label} className="credits-section">
-          <span className="credits-label">{section.label}</span>
+        <div key={section.labelKey} className="credits-section">
+          <span className="credits-label">{t(section.labelKey)}</span>
           <span className="credits-value">{section.value}</span>
         </div>
       ))}

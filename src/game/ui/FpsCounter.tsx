@@ -10,6 +10,7 @@
  */
 
 import { useEffect, useRef } from 'react';
+import { useT } from '@/i18n';
 import './fps-counter.css';
 
 /** Cada cuántos ms se refresca el texto mostrado (2 veces/s ≈ 500 ms). */
@@ -22,6 +23,7 @@ function shouldShowInProd(): boolean {
 }
 
 export function FpsCounter() {
+  const t = useT();
   const elRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -42,20 +44,22 @@ export function FpsCounter() {
       if (now - lastUpdateTime >= UPDATE_INTERVAL_MS) {
         lastUpdateTime = now;
         const el = elRef.current;
-        if (el) el.textContent = `${Math.round(smoothedFps)} FPS`;
+        if (el) el.textContent = t('hud.fps', { n: Math.round(smoothedFps) });
       }
       rafId = requestAnimationFrame(loop);
     };
     rafId = requestAnimationFrame(loop);
 
     return () => cancelAnimationFrame(rafId);
-  }, []);
+  }, [t]);
 
   if (!import.meta.env.DEV && !shouldShowInProd()) return null;
 
   return (
     <div ref={elRef} className="fps-counter" aria-hidden="true">
-      -- FPS
+      {/* Placeholder hasta el primer refresco del rAF (<500 ms): misma clave,
+          con '--' en lugar de la cifra. */}
+      {t('hud.fps', { n: '--' })}
     </div>
   );
 }

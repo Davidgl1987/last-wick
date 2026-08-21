@@ -12,14 +12,47 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Button, Frame } from '@/ui';
+import { Button, Frame, Select } from '@/ui';
 import { playSfx } from '@/game/audio/sfxEngine';
 import { useKitReady } from '@/game/render/kit';
+import { AVAILABLE_LOCALES, setLang, useLang, useT } from '@/i18n';
 import { CreditsModal } from './CreditsModal';
 import { TitleScreenScene } from './TitleScreenScene';
 import './title-screen.css';
 
+/**
+ * Selector de idioma de la pantalla de título: esquina superior derecha, sin
+ * marco ni fondo — solo la palabra y su flecha, en la tipografía y el ámbar
+ * de los botones del menú (David comparó esta versión contra una centrada
+ * bajo el menú y se quedó con la esquina, 2026-08-20). Componente aparte solo
+ * por legibilidad de `TitleScreen`, que ya es largo.
+ */
+function LanguageSelect({ busy }: { busy: boolean }) {
+  const t = useT();
+  const lang = useLang();
+  return (
+    <Select
+      label={t('title.language')}
+      labelClassName="sr-only"
+      className="title-screen-lang"
+      value={lang}
+      disabled={busy}
+      onChange={(e) => {
+        setLang(e.target.value);
+        playSfx('ui-click');
+      }}
+    >
+      {AVAILABLE_LOCALES.map(({ code, name }) => (
+        <option key={code} value={code}>
+          {name}
+        </option>
+      ))}
+    </Select>
+  );
+}
+
 export function TitleScreen({ onPlay }: { onPlay: () => void }) {
+  const t = useT();
   const [showCredits, setShowCredits] = useState(false);
   const [phase, setPhase] = useState<'idle' | 'entering' | 'loading'>('idle');
   const startedRef = useRef(false);
@@ -60,24 +93,25 @@ export function TitleScreen({ onPlay }: { onPlay: () => void }) {
       {kitReady ? <TitleScreenScene entering={phase === 'entering'} onComplete={handleEntryComplete} /> : null}
       <div className="title-screen-fallback" aria-hidden="true" />
       <Frame variant="inset" className="title-screen-frame" aria-hidden="true" />
+      <LanguageSelect busy={busy} />
       <header className="title-screen-heading">
-        <h1 className="title-screen-title">La Última Mecha</h1>
-        <p className="title-screen-subtitle">Lumora en la Mansión Lumbra</p>
+        <h1 className="title-screen-title">{t('title.heading')}</h1>
+        <p className="title-screen-subtitle">{t('title.subtitle')}</p>
       </header>
 
       <nav className="title-screen-menu" aria-hidden={busy}>
         <Button variant="primary" size="lg" onClick={handlePlay} disabled={busy || !kitReady}>
-          {kitReady ? 'Jugar' : 'Preparando…'}
+          {kitReady ? t('title.play') : t('title.preparing')}
         </Button>
         <Button variant="secondary" href="#/editor" tabIndex={busy ? -1 : 0} aria-disabled={busy}>
-          Editor
+          {t('title.editor')}
         </Button>
         <Button variant="secondary" onClick={() => setShowCredits(true)} disabled={busy}>
-          Créditos
+          {t('title.credits')}
         </Button>
       </nav>
 
-      {phase === 'loading' ? <p className="title-screen-loading-label">Encendiendo la última mecha…</p> : null}
+      {phase === 'loading' ? <p className="title-screen-loading-label">{t('title.loading')}</p> : null}
 
       <CreditsModal open={showCredits && !busy} onClose={() => setShowCredits(false)} />
     </div>

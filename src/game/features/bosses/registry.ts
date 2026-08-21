@@ -35,7 +35,6 @@ export const BOSS_DIFFICULTY_ORDER: readonly BossId[] = ['guardian', 'queen', 'p
 export const BOSS_DEFS: Record<BossId, BossDef> = {
   'test-boss': {
     id: 'test-boss',
-    name: 'Jefe de Pruebas',
     maxHp: 12,
     hitDamageCapFraction: [0.6, 0.65, 0.7],
     damageOutsideWindow: 0,
@@ -43,7 +42,6 @@ export const BOSS_DEFS: Record<BossId, BossDef> = {
   },
   guardian: {
     id: 'guardian',
-    name: 'Guardián de Canto',
     maxHp: GUARDIAN_MAX_HP,
     radius: GUARDIAN_RADIUS,
     hitDamageCapFraction: GUARDIAN_HIT_DAMAGE_CAP_FRACTION,
@@ -54,7 +52,6 @@ export const BOSS_DEFS: Record<BossId, BossDef> = {
   },
   queen: {
     id: 'queen',
-    name: 'Reina del Enjambre',
     maxHp: QUEEN_MAX_HP,
     radius: QUEEN_RADIUS,
     hitDamageCapFraction: QUEEN_HIT_DAMAGE_CAP_FRACTION,
@@ -73,7 +70,6 @@ export const BOSS_DEFS: Record<BossId, BossDef> = {
   },
   prisma: {
     id: 'prisma',
-    name: 'El Prisma',
     maxHp: PRISMA_MAX_HP,
     radius: PRISMA_RADIUS,
     hitDamageCapFraction: PRISMA_HIT_DAMAGE_CAP_FRACTION,
@@ -91,7 +87,6 @@ export const BOSS_DEFS: Record<BossId, BossDef> = {
   },
   storm: {
     id: 'storm',
-    name: 'La Tormenta',
     maxHp: STORM_MAX_HP,
     radius: STORM_RADIUS,
     hitDamageCapFraction: STORM_HIT_DAMAGE_CAP_FRACTION,
