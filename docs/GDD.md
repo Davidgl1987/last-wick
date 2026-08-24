@@ -42,8 +42,9 @@ No hay turnos: el mundo es en tiempo real. Los enemigos se mueven siempre, tambi
 - **Soltar fuera / gesto de cancelar:** anula el tiro sin coste.
 - **Se puede apuntar y disparar en movimiento** (los modos de disparo con proyectil no requieren estar parado; el lanzamiento corporal tampoco, aunque en la práctica encadena la nueva velocidad).
 - **Selector de modo de arma:** 3 botones grandes en la parte inferior (cuerpo / flecha / hechizo), cada uno con su barra de recarga visible. En escritorio, además: teclas **1/2/3** y **rueda del ratón** (cicla entre armas) — el teclado sigue sin ser necesario para jugar, es comodidad de PC/playtest.
+- **Paseo WASD/flechas (solo escritorio):** ayuda de recolocación, nunca un sustituto del tirachinas ni una forma de combatir — velocidad deliberadamente baja (2.0 u/s: por debajo de cualquier enemigo que persiga y por debajo del umbral de embestida; la garantía real de que nunca hace daño de contacto es que caminar es cinemático y jamás toca la velocidad física del héroe). Lumora mira hacia la dirección en la que camina mientras lo hace. Bloqueado mientras se apunta y fuera de la fase de juego (pausa/modales). Al terminar un lanzamiento el paseo no retoma el control de golpe: se desvanece hacia dentro de forma continua, mezclándose solo en cuanto el deslizamiento ya va más lento que el propio paso, así que no queda costura perceptible entre "frenar" y "seguir caminando". Detectado por CAPACIDADES del dispositivo (`(hover: hover) and (pointer: fine)`), nunca por `userAgent`: en táctil no se registra ni un solo listener.
 - **Pausa:** botón en esquina superior. La pausa muestra las mejoras acumuladas y una leyenda del juego.
-- Sin teclado: el juego debe ser 100% jugable táctil. Ratón funciona igual que el dedo.
+- El juego debe ser 100% jugable táctil, sin teclado. Ratón funciona igual que el dedo; el WASD de arriba es una comodidad de escritorio añadida, nunca un requisito.
 
 ---
 

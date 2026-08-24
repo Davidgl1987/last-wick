@@ -14,6 +14,7 @@ import type { GameSession } from '@/game/session/session';
 import type { WeaponMode } from '@/game/world/types';
 import { frameClass, Icon, type IconName } from '@/ui';
 import { type TranslationKey, useT } from '@/i18n';
+import { isTypingInTextField } from './dom-focus';
 import './weapon-bar.css';
 
 /**
@@ -60,14 +61,6 @@ function cooldownProgress(session: GameSession, mode: WeaponMode): number {
   if (total <= 0) return 1;
   const t = elapsed / total;
   return t < 0 ? 0 : t > 1 ? 1 : t;
-}
-
-/** true si el foco actual está en un campo de texto editable (inputs del editor): el atajo de teclado no debe robarle las teclas 1/2/3. */
-function isTypingInTextField(): boolean {
-  const el = document.activeElement;
-  if (!(el instanceof HTMLElement)) return false;
-  const tag = el.tagName;
-  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable;
 }
 
 export function WeaponBar({ session }: { session: GameSession }) {

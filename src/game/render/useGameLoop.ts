@@ -102,6 +102,11 @@ export function useGameLoop(session: GameSession): void {
     const world = session.world;
     const effects = session.effects.state;
     world.heroAiming = session.aim.active;
+    // Paseo WASD (GDD §3): mismo patrón que heroAiming justo arriba — dos
+    // escalares, nunca una asignación de objeto, para que el snapshot de
+    // input quede estable durante los N ticks de timestep fijo de este frame.
+    world.heroMove.x = session.move.x;
+    world.heroMove.y = session.move.y;
     const cappedDelta = delta > MAX_FRAME_TIME ? MAX_FRAME_TIME : delta;
 
     // Hit-stop (ARCHITECTURE.md "Effects (implementación)"): escala el dt que

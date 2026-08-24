@@ -482,6 +482,16 @@ export interface World {
    */
   heroAiming: boolean;
   /**
+   * Movimiento WASD/flechas, solo escritorio (GDD §3, ayuda de recolocación):
+   * vector de input CRUDO, sin normalizar ({0,0} = sin tecla pulsada; p.ej.
+   * {1,1} en diagonal). Lo escribe `KeyboardMoveInput.tsx` (vía `session.move`)
+   * antes de cada tick, igual que `heroAiming` — no es estado de física, es una
+   * señal externa que la sim solo lee (`stepHeroWalk`, features/hero/walk.ts,
+   * normaliza y aplica la velocidad fija de paseo). En táctil vale siempre
+   * {0,0}: ahí no se registra ni un solo listener de teclado.
+   */
+  heroMove: Vec2;
+  /**
    * Cooldowns por-enemigo reutilizados entre ticks (evita asignar un Map por
    * tick): último world.time en que ese enemigo hizo tick de daño de
    * contacto al héroe / recibió tick de daño de pinchos.
