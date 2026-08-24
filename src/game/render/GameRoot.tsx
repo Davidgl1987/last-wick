@@ -23,6 +23,7 @@ import type { Material, Object3D } from 'three';
 import { getRoomPool } from '@/game/features/dungeon/rooms';
 import { readForcedBossPhase, readForcedBossRoom, readForcedTestRoom, readGodMode } from './debug-params';
 import { AimInput } from '@/game/features/hero/AimInput';
+import { KeyboardMoveInput } from '@/game/features/hero/KeyboardMoveInput';
 import { CandleLightView } from '@/game/features/hero/CandleLightView';
 import { FlashView } from '@/game/features/effects/FlashView';
 import { AmbientDustView } from '@/game/features/effects/AmbientDustView';
@@ -248,6 +249,8 @@ export function GameRoot({
         <AimIndicatorView session={session} />
         <CameraRig session={session} />
         <AimInput session={session} onLaunch={handleFirstLaunch} />
+        {/* Paseo WASD/flechas (GDD §3): ayuda de recolocación solo-escritorio, no-op en táctil (ver KeyboardMoveInput.tsx). */}
+        <KeyboardMoveInput session={session} />
         {/* Post-procesado (Vignette/Noise/Bloom/ChromaticAberration, ver
             PostEffects.tsx): va DESPUÉS de todas las vistas (necesita que la
             escena ya exista para componer sobre ella) y ANTES de Preload,

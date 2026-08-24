@@ -33,6 +33,7 @@ import { dampAngleTowards } from '@/engine/geometry';
 import { CANDLE_HALF_HEIGHT } from '@/game/render/hero-candle';
 import { HERO_RADIUS } from './constants';
 import { CandleModel, CANDLE_FLAME_ANCHOR_Y, heroSilhouetteMaterial } from './CandleModel';
+import { heroWalkFactor } from './walk';
 import { PIT_FALL_DURATION } from '@/game/features/hazards/constants';
 import { HERO_WAX_EMIT_DISTANCE, WAX_TYPE_ARCANE, WAX_TYPE_FROST, WAX_TYPE_WAX } from '@/game/features/effects/wax';
 import { getUpgradeLevel } from '@/game/session/upgrades';
@@ -186,10 +187,19 @@ const CANDLE_PIVOT_HEIGHT_FRACTION = 0;
  * cilindro sin recalcular su posición cada frame (mismo resultado que la
  * proyección seno/coseno del Chaser, más simple porque aquí basta un solo
  * eje). Prioridad de objetivo: apuntando > bloqueo de disparo de proyectil
- * (ver `PROJECTILE_FACE_LOCK_DURATION`) > moviéndose > último ángulo válido
- * (parado, se conserva sin más). Suavizado con `dampAngleTowards`
+ * (ver `PROJECTILE_FACE_LOCK_DURATION`) > deslizamiento físico (velocidad
+ * por encima de `EYE_FACE_SPEED_THRESHOLD`) > paseo WASD (playtest, David:
+ * "cuando pulses wasd Lumora debería mirar hacia donde va" — activo cuando
+ * `heroWalkFactor(world) > 0`, features/hero/walk.ts) > último ángulo válido
+ * (parado, se conserva sin más). El paseo va DESPUÉS del deslizamiento a
+ * propósito: mientras un lanzamiento va más rápido que HERO_WALK_SPEED,
+ * `heroWalkFactor` es 0 y no compite por la mirada, así que un deslizamiento
+ * de verdad sigue mandando sobre hacia dónde mira Lumora exactamente igual
+ * que antes de que existiera el paseo; solo en la cola final de un tiro (o
+ * caminando sin haber lanzado) manda WASD. Suavizado con `dampAngleTowards`
  * (`src/engine/geometry.ts`) por el arco más corto, mismo criterio que ya usa
- * `chaserFaceAngle` en `chaser/Mesh.tsx`.
+ * `chaserFaceAngle` en `chaser/Mesh.tsx` — un único suavizado compartido por
+ * las cuatro ramas, ninguna añade el suyo propio.
  */
 const EYE_FACE_LERP_STIFFNESS = 10;
 /** Por debajo de esta velocidad (u/s) no se considera "moviéndose" a efectos de la mirada (evita que un jitter mínimo reoriente la cara). */
@@ -699,6 +709,15 @@ export function HeroView({ session }: { session: GameSession }) {
       targetFaceAngle = projectileFaceLockAngle.current;
     } else if (speed > EYE_FACE_SPEED_THRESHOLD) {
       targetFaceAngle = Math.atan2(hero.velocity.x, hero.velocity.y);
+    } else if (heroWalkFactor(world) > 0) {
+      // Paseo WASD (playtest, David: "cuando pulses wasd Lumora debería
+      // mirar hacia donde va"): `heroWalkFactor` es la ÚNICA fuente de
+      // verdad de "el paseo manda ahora mismo" (walk.ts) — no se
+      // reimplementan aquí sus puertas. Va DESPUÉS de la rama de velocidad
+      // a propósito (ver comentario grande de arriba): mientras haya un
+      // deslizamiento real en curso (velocidad ≥ HERO_WALK_SPEED) esta rama
+      // ni se evalúa, porque `heroWalkFactor` ya vale 0 en ese caso.
+      targetFaceAngle = Math.atan2(world.heroMove.x, world.heroMove.y);
     }
     if (targetFaceAngle !== null) {
       candleFaceAngle.current = dampAngleTowards(

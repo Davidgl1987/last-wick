@@ -92,10 +92,25 @@ export interface AimState {
   force: number;
 }
 
+/**
+ * Vector de movimiento por teclado (GDD §3, paseo WASD/flechas, solo
+ * escritorio) escrito por `features/hero/KeyboardMoveInput.tsx` y leído por
+ * el driver de render (`useGameLoop.ts`, que lo copia a `world.heroMove` cada
+ * frame). CRUDO, sin normalizar — mismo criterio que `AimState`: cero
+ * re-renders, cero asignaciones de objeto en el hot path, solo mutación de
+ * estos dos escalares. Vale siempre {0,0} en táctil, donde
+ * `KeyboardMoveInput` ni siquiera registra un listener.
+ */
+export interface MoveState {
+  x: number;
+  y: number;
+}
+
 export interface GameSession {
   world: World;
   events: EventQueue;
   aim: AimState;
+  move: MoveState;
   /** Acumulador de timestep fijo (s pendientes de simular). */
   accumulator: number;
   /** Fracción [0,1) del tick actual, para interpolar el render. */
@@ -160,6 +175,7 @@ export function createGameSession(room: RoomData, godMode = false): GameSession 
     world,
     events: createEventQueue(64),
     aim: { active: false, dirX: 0, dirY: 0, force: 0 },
+    move: { x: 0, y: 0 },
     accumulator: 0,
     renderAlpha: 1,
     heroPrevX: world.hero.position.x,
@@ -245,6 +261,7 @@ export function createDungeonGameSession(
     world,
     events: createEventQueue(64),
     aim: { active: false, dirX: 0, dirY: 0, force: 0 },
+    move: { x: 0, y: 0 },
     accumulator: 0,
     renderAlpha: 1,
     heroPrevX: world.hero.position.x,
@@ -312,6 +329,12 @@ export function restartSession(session: GameSession): void {
   session.heroPrevY = world.hero.position.y;
   session.aim.active = false;
   session.aim.force = 0;
+  // Paseo WASD (GDD §3): un reinicio no debe arrastrar el vector de la run
+  // anterior (el remontaje del Canvas con `key={runSeq}` ya desmonta/remonta
+  // KeyboardMoveInput, que lo deja en {0,0} al desmontar — esto es solo el
+  // mismo cinturón-y-tirantes que `session.aim` de arriba, no imprescindible).
+  session.move.x = 0;
+  session.move.y = 0;
   // Recompensa de jefe (docs/plans/ECONOMY_PLAN.md F3): un reinicio no debe
   // arrastrar opciones calculadas para la mazmorra anterior.
   session.bossRewardChoices = [];

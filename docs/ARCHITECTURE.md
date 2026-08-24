@@ -35,7 +35,7 @@ src/
       constants.ts  #   tuning de mundo/run (salas, muros, puertas)
     session/        # sesión de juego (session.ts), zustand UI (store.ts), upgrades.ts
     features/       # una carpeta por feature: sim (★) + render (.tsx) + constants + tests
-      hero/         #   AimInput, launch, HeroView, AimIndicatorView, constantes de héroe/input
+      hero/         #   AimInput, KeyboardMoveInput (paseo WASD/flechas, solo escritorio) + keyboard-move, launch, walk, HeroView, AimIndicatorView, constantes de héroe/input
       enemies/      #   steering + dummy/ chaser/ spike/ trail/ shooter/ (ai + constants + Mesh) + EnemyViews
       bosses/       #   types, lifecycle, movement, registry + test-boss/ guardian/ queen/ + BossHealthBar
       combat/       #   combat.ts (daño, knockback, i-frames, proyectiles) + ProjectileView + constantes de armas

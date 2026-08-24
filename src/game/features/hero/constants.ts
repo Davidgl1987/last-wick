@@ -24,6 +24,27 @@ export const LAUNCH_SPEED_MAX = 7.5;
 
 export const BODY_LAUNCH_COOLDOWN = 0.2;
 
+/**
+ * Velocidad del paseo WASD/flechas (GDD §3, solo escritorio): ayuda de
+ * recolocación, nunca una alternativa al tirachinas. Subida de 1.4 a 2.0
+ * (playtest, David: "¿podrías darle más velocidad a wasd sin que mate a
+ * enemigos?"), y sigue acotada por tres cifras reales del repo:
+ * - Por debajo de `CHASER_SPEED` (2.35 u/s, `features/enemies/chaser/constants.ts`):
+ *   no permite alejarse cómodamente de un perseguidor.
+ * - Por debajo de `RAM_SPEED_THRESHOLD` (2.5 u/s, `features/combat/constants.ts`).
+ * - 56% de `LAUNCH_SPEED_MIN` (3.6 u/s, arriba): por debajo incluso del
+ *   lanzamiento corporal más flojo, para que no sustituya al tiro.
+ *
+ * Lo que de verdad GARANTIZA que WASD no mate enemigos no es esta cifra: es
+ * que caminar es cinemático y nunca escribe en `hero.velocity` (ver
+ * `stepHeroWalk`, walk.ts), así que `ramDamage` (combat.ts), que solo mira
+ * `hero.velocity`, ve siempre velocidad 0 al caminar y devuelve 0 sin
+ * excepción. Estar por debajo de `RAM_SPEED_THRESHOLD` es un cinturón de
+ * seguridad adicional (relevante si algún día `heroWalkFactor`, walk.ts,
+ * cambiara de mezclar posición a mezclar velocidad), no la razón real.
+ */
+export const HERO_WALK_SPEED = 2.0;
+
 // ── Input / puntería ──────────────────────────────────────────────────────
 
 /** Longitud de arrastre que equivale a fuerza 100% (u de mundo). */

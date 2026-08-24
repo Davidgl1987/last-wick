@@ -26,6 +26,7 @@ import { stepEnemyAi } from '@/game/features/enemies/ai';
 import { stepHeroEnemyContacts, stepProjectiles } from '@/game/features/combat/combat';
 import { openConnection } from '@/game/features/dungeon/dungeon-world';
 import { pushEvent, type EventQueue } from '@/engine/events';
+import { stepHeroWalk } from '@/game/features/hero/walk';
 import { stepBarrels, stepEnemyHazards, stepHeroHazards, stepPuddles } from '@/game/features/hazards/hazards';
 import { COIN_DROPS_BY_KIND, COIN_DROP_MAX_RADIUS, COIN_DROP_MIN_RADIUS } from '@/game/features/items/constants';
 import { dropCoinAt, stepItems } from '@/game/features/items/items';
@@ -273,6 +274,19 @@ export function stepWorld(world: World, events: EventQueue): void {
     return;
   }
 
+  // Paseo WASD ANTES de la física del héroe (GDD §3, features/hero/walk.ts):
+  // mueve `hero.position` directamente y nunca toca `hero.velocity`, así que
+  // `stepHeroPhysics` justo después (que integra velocidad, y con 0 exacto no
+  // mueve nada) es quien resuelve gratis la colisión de ese desplazamiento
+  // contra `collideInnerBounds`/`collideCircleAabb` — con velocidad 0 el
+  // push-out nunca emite 'wall-bounce' (solo lo hace si `velAlongNormal < 0`).
+  // Caminar hereda así la colisión con muros/rocas sin duplicar una sola línea
+  // de código de colisión, y sin generar eventos/sonidos espurios. El
+  // desplazamiento por tick es minúsculo (como mucho HERO_WALK_SPEED·FIXED_DT
+  // ≈ 0.033 u, con `heroWalkFactor` en 1; ver walk.ts — el factor solo puede
+  // achicarlo más), muy por debajo del grosor de cualquier muro: cero riesgo
+  // de tunneling.
+  stepHeroWalk(world);
   stepHeroPhysics(world, events);
   stepRoomTransition(world, events);
   if (world.dungeon) stepBossDoorKeyCheck(world, events);

@@ -246,6 +246,7 @@ export function createDungeonWorld(dungeon: DungeonMap, seed: number = dungeon.s
     stats: { roomsCleared: 0, coinsCollected: 0, damageDealt: 0, score: 0 },
     rng,
     heroAiming: false,
+    heroMove: { x: 0, y: 0 },
     contactDamageCooldowns: new Map(),
     spikeDamageCooldowns: new Map(),
     deadEnemiesDropped: new Set(),
