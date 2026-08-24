@@ -477,7 +477,7 @@ export interface World {
   /**
    * true mientras el jugador tiene el gesto de puntería activo (drag en
    * curso). Lo escribe el driver de render/input antes de cada tick; el
-   * Chaser lo usa para acelerar (GDD §7.2). No es estado de física: es una
+   * Chaser lo usa para frenar (GDD §7.2). No es estado de física: es una
    * señal externa que la sim solo lee.
    */
   heroAiming: boolean;

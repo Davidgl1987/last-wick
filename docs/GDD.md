@@ -119,7 +119,7 @@ Cinco arquetipos, cada uno con silueta y color propios e inconfundibles. Todos r
 ### 7.2 Chaser (naranja) — el perseguidor
 - 3 HP.
 - **Te persigue siempre**, desde cualquier distancia, rodeando obstáculos.
-- Velocidad 2.35 u/s… y **se acelera a 3.0 u/s cuando detecta que estás apuntando**. Castiga apuntar demasiado tiempo.
+- Velocidad 2.35 u/s… y **baja a ~1.35 u/s (≈57,5 %) mientras detecta que estás apuntando**: no se para, sigue acercándose, pero te deja cargar el tiro. Al soltar recupera su velocidad normal de inmediato.
 - Rol: presión de tiempo; convierte el apuntado en una decisión con coste.
 
 ### 7.3 Spike (gris, con púa direccional) — el erizo

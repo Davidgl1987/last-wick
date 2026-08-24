@@ -14,6 +14,8 @@ export function stepChaser(world: World, enemy: Enemy, dt: number): void {
     stepPatrol(world, enemy, CHASER_SPEED, dt);
     return;
   }
+  // Apuntar lo FRENA (~57,5 %), no lo acelera: sigue viniendo, pero deja hueco
+  // para cargar el tiro. Sin rampa ni timer — al soltar, CHASER_SPEED ya en este tick.
   const speed = world.heroAiming ? CHASER_SPEED_WHILE_AIMING : CHASER_SPEED;
   moveToward(world, enemy, world.hero.position.x, world.hero.position.y, speed, dt);
 }
