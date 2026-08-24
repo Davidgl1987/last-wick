@@ -1,6 +1,7 @@
 /**
- * Chaser: ojos rasgados emisivos orientados al héroe + pulso de escala al
- * acelerar (heroAiming, misma señal que ya usa su IA para correr más).
+ * Chaser: ojos rasgados emisivos orientados al héroe + tell de acecho
+ * mientras el héroe apunta (heroAiming, misma señal que ya usa su IA):
+ * la cara encoge y late despacio, a juego con su frenada.
  */
 
 import { useFrame } from '@react-three/fiber';
@@ -47,6 +48,18 @@ const CHASER_EYE_SCALE: readonly [number, number, number] = [0.09, 0.24, 0.06];
  * efectivo (~0.14) que había antes de agrandar los ojos.
  */
 const CHASER_EYE_X = 0.19;
+/**
+ * Tell de puntería (2026-08-24, invertido junto con la IA): mientras apuntas
+ * la cara ENCOGE y late DESPACIO. Antes crecía a 1.12 latiendo a 16 rad/s
+ * (~2.5 Hz), que leía "se revoluciona" — cierto cuando apuntar lo aceleraba,
+ * contradictorio ahora que apuntar lo FRENA (CHASER_SPEED_WHILE_AIMING).
+ * 6 rad/s ≈ 1 latido por segundo: respiración de bicho al acecho, no de bicho
+ * lanzado. La escala oscila en [0.86, 0.94], siempre por debajo del 1 en
+ * reposo para que el encogimiento se lea en todo momento del ciclo.
+ */
+const CHASER_AIM_FACE_SCALE = 0.9;
+const CHASER_AIM_FACE_WOBBLE = 0.04;
+const CHASER_AIM_FACE_PULSE_SPEED = 6;
 
 export function ChaserMesh({
   session,
@@ -96,9 +109,12 @@ export function ChaserMesh({
         Math.cos(localAngle) * CHASER_FACE_RADIUS,
       );
       face.rotation.y = localAngle;
-      // Pulso de velocidad: se agranda ligeramente mientras corre acelerado
-      // (heroAiming es la misma señal que su IA usa para CHASER_SPEED_WHILE_AIMING).
-      const pulse = world.heroAiming ? 1.12 + 0.05 * Math.sin(world.time * 16) : 1;
+      // Tell de puntería: la cara encoge y late lento mientras apuntas (heroAiming
+      // es la misma señal que su IA usa para CHASER_SPEED_WHILE_AIMING, su frenada).
+      const pulse = world.heroAiming
+        ? CHASER_AIM_FACE_SCALE +
+          CHASER_AIM_FACE_WOBBLE * Math.sin(world.time * CHASER_AIM_FACE_PULSE_SPEED)
+        : 1;
       face.scale.setScalar(pulse);
     }
   });
