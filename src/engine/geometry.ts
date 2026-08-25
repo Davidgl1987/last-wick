@@ -37,3 +37,29 @@ export function dampAngleTowards(current: number, target: number, lambda: number
   const factor = Math.min(1, Math.max(0, 1 - Math.exp(-lambda * dt)));
   return current + delta * factor;
 }
+
+/**
+ * Rota un ángulo `current` hacia `target` por el ARCO MÁS CORTO, a velocidad
+ * angular CONSTANTE: avanza como mucho `maxStep` radianes (típicamente
+ * `angularSpeed * dt`) y, si lo que queda por girar cabe en ese paso,
+ * aterriza EXACTO en `target` sin overshoot — nunca da un paso más allá.
+ *
+ * Diferencia con `dampAngleTowards` (arriba): aquella es suavizado
+ * exponencial que se acerca asintóticamente al objetivo y, por diseño,
+ * nunca "termina" del todo (siempre queda un resto, por pequeño que sea).
+ * Esta función SÍ termina, en un instante conocido de antemano (el que
+ * tarda en cubrir el arco a `maxStep` por llamada) — es lo que hace falta
+ * cuando la SIM necesita saber con certeza si un giro ya ha concluido (p.ej.
+ * `stepPatrol`: el enemigo no reanuda la marcha hasta que el giro termina).
+ *
+ * `delta` se normaliza a (-π, π] igual que en `dampAngleTowards`, así que
+ * siempre gira por el lado más corto, nunca dando la vuelta larga.
+ */
+export function rotateAngleTowards(current: number, target: number, maxStep: number): number {
+  const TAU = Math.PI * 2;
+  let delta = (target - current + Math.PI) % TAU;
+  if (delta < 0) delta += TAU;
+  delta -= Math.PI;
+  if (Math.abs(delta) <= maxStep) return target;
+  return current + Math.sign(delta) * maxStep;
+}

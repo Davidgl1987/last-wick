@@ -255,9 +255,11 @@ export interface Enemy {
   patrolTo: Vec2;
   /** true = moviéndose hacia patrolTo; false = volviendo a patrolFrom. */
   patrolForward: boolean;
+  /** world.time hasta el que dura el giro en un extremo de la ruta (0 = no está girando). Se arma al llegar a un waypoint (duración proporcional al ángulo a girar, a velocidad angular constante PATROL_TURN_RATE — ver stepPatrol, steering.ts) para que el enemigo se pare del todo y encare el nuevo rumbo antes de reanudar la marcha. */
+  patrolTurnUntil: number;
   /** Dummy: si está en modo persecución (para aplicar la correa). */
   chasing: boolean;
-  /** Spike: dirección de la púa (unitaria), fija. */
+  /** Spike: dirección de la púa/ojo (unitaria). En marcha sigue a la velocidad con giro amortiguado (ver `stepSpike`); durante la ventana de giro en un extremo de ruta (`patrolTurnUntil`) es `stepPatrol` quien la rota, a velocidad angular constante, hasta encarar el nuevo waypoint. */
   facing: Vec2;
   /** Trail: tiempo restante hasta soltar el próximo charco. */
   trailDropTimer: number;

@@ -124,6 +124,7 @@ function createEnemy(spawn: EnemySpawn, bounds: AABB, rng: Rng, origin: Vec2, ro
     patrolFrom,
     patrolTo,
     patrolForward: true,
+    patrolTurnUntil: 0,
     chasing: false,
     facing: spawn.facing ? { x: spawn.facing.x, y: spawn.facing.y } : { x: 0, y: 1 },
     trailDropTimer: 0,

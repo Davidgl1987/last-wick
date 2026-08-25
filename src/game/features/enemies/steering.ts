@@ -11,8 +11,8 @@
  * escalares; los AABBs recorridos son los arrays ya existentes del mundo.
  */
 
-import { AI_AVOID_LOOKAHEAD, AI_AVOID_SKIN, AI_AVOID_STEER_ANGLE } from './constants';
-import type { AABB } from '@/engine/geometry';
+import { AI_AVOID_LOOKAHEAD, AI_AVOID_SKIN, AI_AVOID_STEER_ANGLE, PATROL_TURN_RATE } from './constants';
+import { rotateAngleTowards, type AABB } from '@/engine/geometry';
 import type { Enemy, World } from '@/game/world/types';
 
 const PATROL_ARRIVE_EPS = 0.12;
@@ -230,14 +230,121 @@ export function canAggro(world: World, enemy: Enemy): boolean {
   return world.currentRoomId === enemy.roomId;
 }
 
-/** Patrulla ida/vuelta entre patrolFrom y patrolTo, compartida por Dummy/Spike/Trail. */
+/**
+ * Un paso del giro sobre sí mismo: rota `facing` hacia el waypoint objetivo
+ * por el arco más corto, a velocidad angular constante (PATROL_TURN_RATE).
+ * Lo comparten los dos sitios que giran: el tick de LLEGADA (que gira ya en
+ * el mismo tick en que se para) y los ticks posteriores de la ventana.
+ *
+ * Que el tick de llegada gire también importa, y no es cosmético: hace que
+ * `facing` alcance el rumbo nuevo un tick ANTES de que venza la ventana. Sin
+ * eso, el último paso caería justo en el tick que la cierra, y el frame de
+ * render de ese instante ya evalúa `world.time < patrolTurnUntil` como falso
+ * — saldría del modo "sigue a la sim" con un paso (~10° en un giro de 180°)
+ * todavía sin aplicar, y ese resto se acabaría amortiguando con el enemigo ya
+ * en marcha. Girar desde el primer tick deja un tick de colchón en el que el
+ * render, aún en modo giro, ve el `facing` FINAL y lo muestra exacto.
+ */
+function stepTurnTowardWaypoint(enemy: Enemy, targetX: number, targetY: number, dt: number): void {
+  const desired = Math.atan2(targetX - enemy.position.x, targetY - enemy.position.y);
+  const current = Math.atan2(enemy.facing.x, enemy.facing.y);
+  const next = rotateAngleTowards(current, desired, PATROL_TURN_RATE * dt);
+  enemy.facing.x = Math.sin(next);
+  enemy.facing.y = Math.cos(next);
+}
+
+/**
+ * Patrulla ida/vuelta entre patrolFrom y patrolTo, compartida por
+ * Dummy/Spike/Trail (y, en modo sin aggro, por Chaser/Shooter). Ciclo real:
+ * **llega → para en seco → gira sobre sí mismo encarando el nuevo waypoint →
+ * arranca**, sin pausa extra ni antes ni después del giro.
+ *
+ * Al llegar a un extremo NO invierte el rumbo de golpe ni deriva hacia él:
+ * se detiene por completo (velocity {0,0}, la misma x,y en todos los ticks
+ * de la ventana) y arma una ventana de giro (`patrolTurnUntil`) cuya
+ * duración es proporcional al ángulo real que hay que girar, a velocidad
+ * angular constante `PATROL_TURN_RATE` (constants.ts) — 180° tarda
+ * PATROL_HALF_TURN_DURATION, 90° la mitad. Mientras dura la ventana,
+ * `enemy.facing` (no `velocity`) rota hacia el nuevo waypoint por el arco
+ * más corto (`rotateAngleTowards`, `src/engine/geometry.ts`, velocidad
+ * angular constante que SÍ sabe cuándo termina — a diferencia de
+ * `dampAngleTowards`, que solo se acerca asintóticamente). Al vencer la
+ * ventana el enemigo ya está encarado del todo y reanuda `speed` completa en
+ * el MISMO tick: no espera un tick extra ni arranca con el giro a medias.
+ */
 export function stepPatrol(world: World, enemy: Enemy, speed: number, dt: number): void {
+  // ── Girando: parado en seco (misma x,y exacta), rotando `facing` a
+  // velocidad angular constante hasta encarar el nuevo waypoint. No llama a
+  // moveToward: la posición no se toca ni un float mientras dura.
+  if (world.time < enemy.patrolTurnUntil) {
+    enemy.velocity.x = 0;
+    enemy.velocity.y = 0;
+    const target = enemy.patrolForward ? enemy.patrolTo : enemy.patrolFrom;
+    stepTurnTowardWaypoint(enemy, target.x, target.y, dt);
+    return;
+  }
+
+  // Fuera de la ventana: ¿ha llegado al extremo al que iba?
   const target = enemy.patrolForward ? enemy.patrolTo : enemy.patrolFrom;
   const dist = Math.hypot(target.x - enemy.position.x, target.y - enemy.position.y);
   if (dist < PATROL_ARRIVE_EPS) {
     enemy.patrolForward = !enemy.patrolForward;
+    const back = enemy.patrolForward ? enemy.patrolTo : enemy.patrolFrom;
+    const backDist = Math.hypot(back.x - enemy.position.x, back.y - enemy.position.y);
+    // Captura el rumbo de llegada ANTES de poner velocity a 0: en este mismo
+    // tick `enemy.velocity` es todavía la del tick anterior (esta rama corta
+    // el flujo antes de volver a llamar a moveToward), así que es la
+    // dirección REAL con la que el enemigo ha llegado.
+    const inVx = enemy.velocity.x;
+    const inVy = enemy.velocity.y;
     enemy.velocity.x = 0;
     enemy.velocity.y = 0;
+    // Tramo degenerado (patrolFrom ≈ patrolTo, p. ej. patrolTarget ===
+    // position): no hay rumbo nuevo al que girar, así que se conserva el
+    // comportamiento de siempre (enemigo perfectamente estático) en vez de
+    // armar una ventana de giro que nunca avanzaría a ningún sitio —
+    // hero/walk.test.ts depende literalmente de esta quietud exacta para
+    // aislar otra aserción.
+    if (backDist < PATROL_ARRIVE_EPS) return;
+    // Punto de partida del giro = el rumbo de marcha REAL con el que ha
+    // llegado, no el `facing` que ya tuviera: Dummy/Trail/Chaser/Shooter no
+    // mantienen `facing` en marcha (solo lo hace stepSpike, ver spike/ai.ts)
+    // y se quedaría en el valor de spawn — partir de ahí daría un salto
+    // visible al primer tick del giro. Si por lo que sea llega con velocidad
+    // ~0 (no debería pasar en marcha normal), conserva el facing que ya
+    // tuviera: no hay rumbo de entrada del que partir.
+    const inSpeed = Math.hypot(inVx, inVy);
+    if (inSpeed > 1e-6) {
+      enemy.facing.x = inVx / inSpeed;
+      enemy.facing.y = inVy / inSpeed;
+    }
+    // Ángulo real a girar: diferencia normalizada a (-π, π] entre el rumbo
+    // hacia `back` y el `facing` de arranque recién fijado (mismo cálculo de
+    // normalización que dampAngleTowards/rotateAngleTowards, geometry.ts;
+    // aquí hace falta el VALOR del delta, no solo el resultado de un paso,
+    // para fijar la duración de la ventana).
+    const desired = Math.atan2(back.x - enemy.position.x, back.y - enemy.position.y);
+    const current = Math.atan2(enemy.facing.x, enemy.facing.y);
+    const TAU = Math.PI * 2;
+    let deltaAngle = (desired - current + Math.PI) % TAU;
+    if (deltaAngle < 0) deltaAngle += TAU;
+    deltaAngle -= Math.PI;
+    if (Math.abs(deltaAngle) < 1e-4) {
+      // Nada que girar (el rumbo de llegada ya encara el nuevo waypoint):
+      // armar una ventana de duración ~0 no aportaría nada — sigue
+      // directamente hacia el nuevo extremo en este mismo tick.
+      moveToward(world, enemy, back.x, back.y, speed, dt);
+      return;
+    }
+    // Duración proporcional al ángulo real a girar, a velocidad angular
+    // constante: el enemigo NO arranca hasta haber encarado del todo, la
+    // ventana acaba exactamente cuando el giro concluye.
+    enemy.patrolTurnUntil = world.time + Math.abs(deltaAngle) / PATROL_TURN_RATE;
+    // Primer paso del giro en este mismo tick: la parada y el giro empiezan a
+    // la vez (sin un tick muerto en medio) y el giro termina un tick antes de
+    // que la ventana venza — ver la cabecera de `stepTurnTowardWaypoint` para
+    // por qué ese colchón es lo que evita que el cuerpo llegue tarde.
+    stepTurnTowardWaypoint(enemy, back.x, back.y, dt);
     return;
   }
   moveToward(world, enemy, target.x, target.y, speed, dt);

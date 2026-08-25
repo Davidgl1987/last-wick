@@ -64,6 +64,9 @@ export function queenOnInit(world: World, boss: Enemy): void {
       patrolFrom: { x: boss.position.x, y: boss.position.y },
       patrolTo: { x: boss.position.x, y: boss.position.y },
       patrolForward: true,
+      // Las larvas nunca pasan por stepPatrol (movimiento propio en
+      // larvae.ts) — es solo relleno del tipo, sin efecto en su comportamiento.
+      patrolTurnUntil: 0,
       chasing: false,
       facing: { x: 0, y: 1 },
       trailDropTimer: 0,

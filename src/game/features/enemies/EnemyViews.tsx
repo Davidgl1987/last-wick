@@ -83,6 +83,7 @@ import { useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import type { Group, InstancedMesh, Material, Mesh } from 'three';
 import { QUEEN_LARVA_ID_PREFIX } from '@/game/features/bosses/queen/constants';
+import { ENEMY_ORIENTATION_DAMP_LAMBDA, ENEMY_ORIENTATION_SPEED_THRESHOLD } from '@/game/features/enemies/constants';
 import { dampAngleTowards } from '@/engine/geometry';
 import type { GameSession } from '@/game/session/session';
 import type { BossId, Enemy, EnemyKind } from '@/game/world/types';
@@ -236,19 +237,14 @@ function bodyScaleForKind(kind: EnemyKind): number | [number, number, number] {
 }
 /** Duración del flash de cuerpo entero al cambiar de fase (GDD §15.1 punto 3). Puramente cosmético. */
 const BOSS_PHASE_FLASH_DURATION = 0.3;
-/**
- * Umbral de velocidad por debajo del cual NO se actualiza el objetivo de
- * orientación (bug playtest 2026-07-14: "los ojos bailan cada frame", sobre
- * todo en las larvas de la Reina, ver comentario en el useFrame más abajo).
- */
-const ORIENTATION_SPEED_THRESHOLD = 0.2;
-/**
- * Constante de amortiguación del giro hacia la orientación objetivo (mismo
- * patrón `1 - exp(-lambda*dt)` que CameraRig/particles/effectsState, ver
- * `dampAngleTowards` en `src/engine/geometry.ts`). Suficientemente rápida
- * para no sentirse "flotante" pero sin snap instantáneo.
- */
-const ORIENTATION_DAMP_LAMBDA = 12;
+// Umbral de velocidad y λ de amortiguación de la orientación: movidos a
+// `features/enemies/constants.ts` (ENEMY_ORIENTATION_SPEED_THRESHOLD /
+// ENEMY_ORIENTATION_DAMP_LAMBDA) porque dejaron de ser un detalle privado del
+// render — el Spike (spike/ai.ts) gira su `facing` en marcha con el mismo λ
+// que el cuerpo gira aquí, y la ventana de giro de patrulla
+// (steering.ts::stepPatrol) se define por contraste con ambos: ahí no se usa
+// ninguna de las dos, porque la sim gobierna el giro y el render solo la
+// sigue. Ver el comentario de cabecera de esas constantes.
 
 // El Prisma (GDD §15.4) y La Tormenta (GDD §15.5): constantes/helpers puros
 // de su render específico extraídos junto a `applyPrismaBossFrame`/
@@ -419,35 +415,56 @@ function EnemyMesh({
       }
     }
 
-    // Umbral + giro amortiguado de orientación (bug playtest 2026-07-14: "los
-    // ojos bailan cada frame", sobre todo en las larvas de la Reina): la cara
-    // de cada enemigo se orienta según su velocidad instantánea, pero incluso
-    // por ENCIMA del umbral de velocidad las larvas orbitando a la Reina
-    // (steering de órbita + separación entre larvas) zigzaguean de dirección
-    // cada tick sin desplazarse realmente distinto — el umbral solo no basta.
-    // Fix real: el umbral decide solo si se actualiza el OBJETIVO de yaw (un
-    // enemigo quieto no gira), y el yaw ACTUAL siempre avanza hacia ese
-    // objetivo por el arco más corto con suavizado exponencial
-    // (`dampAngleTowards`, mismo patrón que CameraRig/particles), así que un
-    // objetivo que zigzaguea produce como mucho un temblor pequeño y
-    // amortiguado, nunca un salto de cara instantáneo.
-    const speed = Math.hypot(enemy.velocity.x, enemy.velocity.y);
-    if (speed > ORIENTATION_SPEED_THRESHOLD) {
-      orientationTarget.current = Math.atan2(enemy.velocity.x, enemy.velocity.y);
-    }
-    if (orientationYaw.current === null) {
-      // Primer frame con este enemigo: snap directo al objetivo inicial (o a
-      // 0 si aún no se movió) para no girar visiblemente desde 0.
-      orientationYaw.current = speed > ORIENTATION_SPEED_THRESHOLD ? orientationTarget.current : 0;
+    // Ventana de giro de patrulla (stepPatrol, steering.ts): el CUERPO sigue
+    // a la SIM, no al revés. Mientras dura, `enemy.velocity` es {0,0} (parado
+    // en seco) y quien gobierna la orientación es `enemy.facing`, que la sim
+    // rota a velocidad angular CONSTANTE (PATROL_TURN_RATE) — ya sabe
+    // exactamente qué yaw mostrar en cada instante, así que aquí solo hay que
+    // SEGUIRLA en snap, sin amortiguar encima: amortiguar aquí llegaría
+    // TARDE (el cuerpo seguiría girando después de que la sim ya arrancó a
+    // moverse), que es justo el bug que motivó este cambio — con el enfoque
+    // viejo (deriva + damping del render por velocidad) el giro solo llegaba
+    // al ~95% del arco cuando la ventana vencía y el enemigo arrancaba
+    // todavía girando. `orientationYaw`/`orientationTarget` se fijan también
+    // al mismo valor para que, al salir del giro y volver al modo por
+    // velocidad (rama de abajo), no haya salto: el damping arranca ya desde
+    // el yaw en el que terminó el giro.
+    if (world.time < enemy.patrolTurnUntil) {
+      const turnYaw = Math.atan2(enemy.facing.x, enemy.facing.y);
+      orientationYaw.current = turnYaw;
+      orientationTarget.current = turnYaw;
+      group.rotation.y = turnYaw;
     } else {
-      orientationYaw.current = dampAngleTowards(
-        orientationYaw.current,
-        orientationTarget.current,
-        ORIENTATION_DAMP_LAMBDA,
-        delta,
-      );
+      // Umbral + giro amortiguado de orientación (bug playtest 2026-07-14: "los
+      // ojos bailan cada frame", sobre todo en las larvas de la Reina): la cara
+      // de cada enemigo se orienta según su velocidad instantánea, pero incluso
+      // por ENCIMA del umbral de velocidad las larvas orbitando a la Reina
+      // (steering de órbita + separación entre larvas) zigzaguean de dirección
+      // cada tick sin desplazarse realmente distinto — el umbral solo no basta.
+      // Fix real: el umbral decide solo si se actualiza el OBJETIVO de yaw (un
+      // enemigo quieto no gira), y el yaw ACTUAL siempre avanza hacia ese
+      // objetivo por el arco más corto con suavizado exponencial
+      // (`dampAngleTowards`, mismo patrón que CameraRig/particles), así que un
+      // objetivo que zigzaguea produce como mucho un temblor pequeño y
+      // amortiguado, nunca un salto de cara instantáneo.
+      const speed = Math.hypot(enemy.velocity.x, enemy.velocity.y);
+      if (speed > ENEMY_ORIENTATION_SPEED_THRESHOLD) {
+        orientationTarget.current = Math.atan2(enemy.velocity.x, enemy.velocity.y);
+      }
+      if (orientationYaw.current === null) {
+        // Primer frame con este enemigo: snap directo al objetivo inicial (o a
+        // 0 si aún no se movió) para no girar visiblemente desde 0.
+        orientationYaw.current = speed > ENEMY_ORIENTATION_SPEED_THRESHOLD ? orientationTarget.current : 0;
+      } else {
+        orientationYaw.current = dampAngleTowards(
+          orientationYaw.current,
+          orientationTarget.current,
+          ENEMY_ORIENTATION_DAMP_LAMBDA,
+          delta,
+        );
+      }
+      group.rotation.y = orientationYaw.current;
     }
-    group.rotation.y = orientationYaw.current;
 
     if (kind === 'boss') {
       // Telegraph genérico (GDD §15.1 punto 2): anillo ámbar visible mientras
