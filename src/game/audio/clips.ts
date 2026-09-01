@@ -1,6 +1,6 @@
 /**
  * Manifiesto de clips de audio (David trajo el pack de sonidos ya
- * convertido, ver `public/audio/*.mp3`: 53 ficheros, mono 44.1 kHz, MP3
+ * convertido, ver `public/audio/*.mp3`: 51 ficheros, mono 44.1 kHz, MP3
  * 96 kbps, silencios de los extremos recortados y pico normalizado. Esos
  * ficheros NO se tocan desde el código: este módulo solo los cataloga).
  *
@@ -29,7 +29,6 @@ export const SFX_CLIP_NAMES = [
   'boss-columns-cleared',
   'boss-defeated',
   'boss-door-sealed',
-  'boss-guardian-charge',
   'boss-hit',
   'boss-immune-hit',
   'boss-phase-changed',
