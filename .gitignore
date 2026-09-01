@@ -6,3 +6,6 @@ node_modules
 *.tsbuildinfo
 .DS_Store
 backup/
+
+# Paquetes de release generados por scripts/ (last-wick-v0.0.3.zip y sucesivos)
+last-wick*.zip
