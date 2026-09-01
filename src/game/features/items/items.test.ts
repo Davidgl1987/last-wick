@@ -9,9 +9,12 @@ import { describe, expect, it } from 'vitest';
 import { applyDamageToEnemy } from '@/game/features/combat/combat';
 import { createEventQueue, drainEvents, type GameEvent } from '@/engine/events';
 import { COIN_DROP_MIN_SEPARATION, COIN_MAGNET_RADIUS_BY_LEVEL } from './constants';
-import { dropCoinAt, stepItems } from './items';
+import { dropCoinAt, dropPotionAt, stepItems } from './items';
 import { stepWorld } from '@/game/world/step';
 import { createWorld } from '@/game/world/create';
+import { generateDungeon } from '@/game/features/dungeon/dungeon';
+import { createDungeonWorld } from '@/game/features/dungeon/dungeon-world';
+import { seriesRooms } from '@/game/features/dungeon/rooms';
 import type { EnemySpawn, ItemSpawn, RoomData, World } from '@/game/world/types';
 
 const FIXED_DT = 1 / 60;
@@ -253,5 +256,85 @@ describe('imán de monedas (Canto de Urraca, docs/plans/ECONOMY_PLAN.md F2)', ()
     expect(COIN_MAGNET_RADIUS_BY_LEVEL[2]).toBe(4);
     stepItems(world, FIXED_DT, events);
     expect(world.items[0].position.x).toBeLessThan(4); // dentro del radio de nivel 2, ya se acerca
+  });
+});
+
+describe('roomId de un drop reciclado/nuevo (coherencia sala-item: una moneda soltada en la sala B no debe heredar el roomId de la sala A del slot reciclado)', () => {
+  it('mazmorra: dropCoinAt en la sala actual, reciclando el slot inactivo de OTRA sala, etiqueta el item con la sala actual (no la heredada)', () => {
+    const dungeon = generateDungeon(1, seriesRooms);
+    const world = createDungeonWorld(dungeon, 1);
+    const roomIds = [...world.roomRuntimes.keys()];
+    expect(roomIds.length).toBeGreaterThan(1);
+    const currentRoomId = roomIds[0];
+    const otherRoomId = roomIds[1];
+    world.currentRoomId = currentRoomId;
+
+    // Slot reciclable: una moneda inactiva (ya recogida) que pertenecía a OTRA sala.
+    world.items.push({
+      id: 'stale-coin',
+      kind: 'coin',
+      position: { x: 0, y: 0 },
+      active: false,
+      roomId: otherRoomId,
+    });
+
+    dropCoinAt(world, 1, 1);
+
+    const recycled = world.items.find((i) => i.id === 'stale-coin')!;
+    expect(recycled.active).toBe(true);
+    expect(recycled.roomId).toBe(currentRoomId);
+    expect(recycled.roomId).not.toBe(otherRoomId);
+  });
+
+  it('mazmorra: dropPotionAt en la sala actual, reciclando el slot inactivo de OTRA sala, etiqueta el item con la sala actual (no la heredada)', () => {
+    const dungeon = generateDungeon(2, seriesRooms);
+    const world = createDungeonWorld(dungeon, 2);
+    const roomIds = [...world.roomRuntimes.keys()];
+    expect(roomIds.length).toBeGreaterThan(1);
+    const currentRoomId = roomIds[0];
+    const otherRoomId = roomIds[1];
+    world.currentRoomId = currentRoomId;
+
+    // Slot reciclable: una poción inactiva (ya recogida) que pertenecía a OTRA sala.
+    world.items.push({
+      id: 'stale-potion',
+      kind: 'potion',
+      position: { x: 0, y: 0 },
+      active: false,
+      roomId: otherRoomId,
+    });
+
+    dropPotionAt(world, 1, 1);
+
+    const recycled = world.items.find((i) => i.id === 'stale-potion')!;
+    expect(recycled.active).toBe(true);
+    expect(recycled.roomId).toBe(currentRoomId);
+    expect(recycled.roomId).not.toBe(otherRoomId);
+  });
+
+  describe('modo sala única (sin mazmorra): roomId se mantiene undefined para que ItemView lo siga pintando (known-rooms.ts, Set vacío sin mazmorra)', () => {
+    it('dropCoinAt: la rama de item nuevo (push) y la de slot reciclado dejan roomId undefined', () => {
+      const world = makeWorld();
+      dropCoinAt(world, 0, 0);
+      expect(world.items).toHaveLength(1); // rama push
+      expect(world.items[0].roomId).toBeUndefined();
+
+      world.items[0].active = false;
+      dropCoinAt(world, 1, 1);
+      expect(world.items).toHaveLength(1); // rama reciclado: mismo slot, no crece el pool
+      expect(world.items[0].roomId).toBeUndefined();
+    });
+
+    it('dropPotionAt: la rama de item nuevo (push) y la de slot reciclado dejan roomId undefined', () => {
+      const world = makeWorld();
+      dropPotionAt(world, 0, 0);
+      expect(world.items).toHaveLength(1); // rama push
+      expect(world.items[0].roomId).toBeUndefined();
+
+      world.items[0].active = false;
+      dropPotionAt(world, 1, 1);
+      expect(world.items).toHaveLength(1); // rama reciclado: mismo slot, no crece el pool
+      expect(world.items[0].roomId).toBeUndefined();
+    });
   });
 });

@@ -63,15 +63,39 @@ function separateCoinDrop(world: World, x: number, y: number): { x: number; y: n
   return { x: bestX, y: bestY };
 }
 
-/** Activa una moneda suelta en la posición dada (drop de enemigo). Reutiliza el pool de items si hay slots inactivos, si no, añade uno nuevo (los drops son eventos raros, no hot path de 60Hz). */
+/**
+ * Sala a la que queda adscrito un item recién soltado: la del héroe AHORA
+ * mismo (`world.currentRoomId`), o `undefined` en modo sala única. No basta
+ * con devolver siempre `world.currentRoomId`: `createWorld` lo deja poblado
+ * (`room.id`) incluso SIN mazmorra, pero `buildRoomEntities` se invoca ahí sin
+ * `roomId`, así que por convención los items de sala única llevan
+ * `roomId: undefined`. Y `computeKnownRoomIds` (render/known-rooms.ts)
+ * devuelve un Set VACÍO cuando `world.dungeon` es `null` — si aquí se pusiera
+ * `world.currentRoomId` igualmente, `ItemView` (que solo pinta un item cuando
+ * `item.roomId === undefined || knownRoomIds.has(item.roomId)`) dejaría el
+ * drop sin pintar en modo sala única.
+ */
+function dropRoomId(world: World): string | undefined {
+  return world.dungeon ? world.currentRoomId : undefined;
+}
+
+/**
+ * Activa una moneda suelta en la posición dada (drop de enemigo). Reutiliza el
+ * pool de items si hay slots inactivos, si no, añade uno nuevo (los drops son
+ * eventos raros, no hot path de 60Hz). Un slot reciclado se re-etiqueta con la
+ * sala ACTUAL (`dropRoomId`): si no, conservaría el `roomId` de la sala a la
+ * que perteneció su ocupante anterior.
+ */
 export function dropCoinAt(world: World, x: number, y: number): void {
   const pos = separateCoinDrop(world, x, y);
+  const roomId = dropRoomId(world);
   for (let i = 0; i < world.items.length; i++) {
     const item = world.items[i];
     if (!item.active && item.kind === 'coin') {
       item.active = true;
       item.position.x = pos.x;
       item.position.y = pos.y;
+      item.roomId = roomId;
       return;
     }
   }
@@ -80,22 +104,25 @@ export function dropCoinAt(world: World, x: number, y: number): void {
     kind: 'coin',
     position: { x: pos.x, y: pos.y },
     active: true,
+    roomId,
   });
 }
 
 /**
  * Activa una poción suelta en la posición dada (GDD §15.2: el Guardián suelta
  * una al cruzar a fase 2 y a fase 3). Mismo patrón que `dropCoinAt`: reutiliza
- * un slot inactivo del pool de items si lo hay, si no añade uno nuevo (evento
- * raro, no hot path).
+ * un slot inactivo del pool de items si lo hay (re-etiquetado con la sala
+ * ACTUAL vía `dropRoomId`), si no añade uno nuevo (evento raro, no hot path).
  */
 export function dropPotionAt(world: World, x: number, y: number): void {
+  const roomId = dropRoomId(world);
   for (let i = 0; i < world.items.length; i++) {
     const item = world.items[i];
     if (!item.active && item.kind === 'potion') {
       item.active = true;
       item.position.x = x;
       item.position.y = y;
+      item.roomId = roomId;
       return;
     }
   }
@@ -104,6 +131,7 @@ export function dropPotionAt(world: World, x: number, y: number): void {
     kind: 'potion',
     position: { x, y },
     active: true,
+    roomId,
   });
 }
 
