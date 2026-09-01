@@ -1,6 +1,6 @@
 /**
  * Tests del Guardián de Canto (GDD §15.2, Fase B1 de docs/plans/BOSSES_PLAN.md):
- * ciclo completo patrulla→telegraph→carga→choque→aturdimiento→recuperación,
+ * ciclo completo persecución→telegraph→carga→choque→aturdimiento→recuperación,
  * daño+empujón al golpear al héroe, doble carga encadenada solo en fase 2/3,
  * campo de esquirlas solo en fase 3, y la regla de daño por ventana de
  * vulnerabilidad heredada del framework (bosses/lifecycle.ts). También valida
@@ -9,7 +9,7 @@
 
 import { describe, expect, it } from 'vitest';
 import bossGuardianJson from '@/game/features/dungeon/levels/boss-guardian.json';
-import { HERO_RADIUS } from '@/game/features/hero/constants';
+import { HERO_RADIUS, HERO_WALK_SPEED } from '@/game/features/hero/constants';
 import { applyDamageToEnemy } from '@/game/features/combat/combat';
 import { createEventQueue } from '@/engine/events';
 import { explodeBarrel, stepBarrels } from '@/game/features/hazards/hazards';
@@ -21,7 +21,7 @@ import { initBossEnemies, stepBosses } from '@/game/features/bosses/lifecycle';
 import { getBossDef } from '@/game/features/bosses/registry';
 import { collectTypes } from '@/game/features/bosses/test-helpers';
 import { guardianBarrelSpawnPoints } from './barrels';
-import { GUARDIAN_BARREL_DAMAGE_FRACTION, GUARDIAN_BARREL_FALL_DURATION, GUARDIAN_BARREL_MAX_ACTIVE, GUARDIAN_BARREL_RADIUS, GUARDIAN_BARREL_SPAWN_INTERVAL, GUARDIAN_BARREL_STUN_DURATION, GUARDIAN_CHARGE_DAMAGE_PHASE1, GUARDIAN_CHARGE_DAMAGE_PHASE3, GUARDIAN_DAMAGE_OUTSIDE_WINDOW, GUARDIAN_MAX_HP, GUARDIAN_MIN_CHARGE_CLEARANCE, GUARDIAN_RADIUS, GUARDIAN_STUN_DURATION } from './constants';
+import { GUARDIAN_BARREL_DAMAGE_FRACTION, GUARDIAN_BARREL_FALL_DURATION, GUARDIAN_BARREL_MAX_ACTIVE, GUARDIAN_BARREL_RADIUS, GUARDIAN_BARREL_SPAWN_INTERVAL, GUARDIAN_BARREL_STUN_DURATION, GUARDIAN_CHARGE_DAMAGE_PHASE1, GUARDIAN_CHARGE_DAMAGE_PHASE3, GUARDIAN_CHASE_SPEED, GUARDIAN_DAMAGE_OUTSIDE_WINDOW, GUARDIAN_DETECT_RANGE, GUARDIAN_FAR_CHARGE_RANGE, GUARDIAN_MAX_HP, GUARDIAN_MIN_CHARGE_CLEARANCE, GUARDIAN_RADIUS, GUARDIAN_STUN_DURATION } from './constants';
 
 const FIXED_DT = 1 / 60;
 
@@ -45,11 +45,6 @@ function makeRoom(partial: Partial<RoomData> = {}): RoomData {
 /** Roca 2x2 pegada al borde este de una sala 15x15 (halfW=7.5): centrada en x=6.5, así que su cara oeste está en x=5.5. */
 function eastRock(): HazardSpawn {
   return { id: 'rock-east', kind: 'rock', position: { x: 6.5, y: 0 }, width: 2, height: 2 };
-}
-
-/** Roca interior 1.8x1.8 al suroeste, igual que `rock-sw` de boss-guardian.json (B1.6). */
-function swRock(): HazardSpawn {
-  return { id: 'rock-sw', kind: 'rock', position: { x: -3.2, y: -3.2 }, width: 1.8, height: 1.8 };
 }
 
 function makeGuardianWorld(opts: { bossSpawn?: Partial<EnemySpawn>; hazards?: HazardSpawn[] } = {}) {
@@ -106,18 +101,7 @@ describe('Guardián de Canto: definición', () => {
   });
 });
 
-describe('Guardián: ciclo patrulla → telegraph → carga → choque → aturdimiento → recuperación', () => {
-  it('patrulla (sin telegrafiar) mientras el héroe está lejos, y patrulla es sin daño acumulado', () => {
-    const world = makeGuardianWorld();
-    const events = createEventQueue(64);
-    world.hero.position.x = 100;
-    world.hero.position.y = 100;
-    advance(world, events, 30);
-    const boss = world.enemies[0];
-    expect(boss.bossTelegraphUntil).toBe(0);
-    expect(boss.bossVulnerable).toBe(false);
-  });
-
+describe('Guardián: ciclo persecución → telegraph → carga → choque → aturdimiento → recuperación', () => {
   it('telegrafía al detectar al héroe a rango medio, con ≥0.6s de aviso (GDD §15.1 punto 2)', () => {
     const world = makeGuardianWorld();
     const events = createEventQueue(64);
@@ -175,7 +159,7 @@ describe('Guardián: ciclo patrulla → telegraph → carga → choque → aturd
     expect(boss.bossVulnerable).toBe(false);
   });
 
-  it('tras recuperarse del aturdimiento (fase 1) vuelve a patrullar, sin encadenar otra carga', () => {
+  it('tras recuperarse del aturdimiento (fase 1) vuelve a perseguir, sin encadenar otra carga', () => {
     const world = makeGuardianWorld({ hazards: [eastRock()] });
     const events = createEventQueue(64);
     const boss = world.enemies[0];
@@ -189,7 +173,243 @@ describe('Guardián: ciclo patrulla → telegraph → carga → choque → aturd
     expect(boss.bossVulnerable).toBe(true);
 
     advance(world, events, 120); // agota la ventana de aturdimiento + pausa de recuperación
-    expect(boss.bossStage).toBe(0); // GUARDIAN_STAGE_PATROL, no CHAIN_PAUSE
+    expect(boss.bossStage).toBe(0); // GUARDIAN_STAGE_CHASE, no CHAIN_PAUSE
+  });
+});
+
+describe('Guardián: persecución lenta constante y doble umbral de carga (rediseño 2026-08-31, GDD §15.2)', () => {
+  it('a distancia media (banda GUARDIAN_DETECT_RANGE–GUARDIAN_FAR_CHARGE_RANGE) NO telegrafía y reduce la distancia al héroe (persecución lenta)', () => {
+    const world = makeGuardianWorld();
+    const events = createEventQueue(64);
+    const boss = world.enemies[0];
+    world.hero.position.x = 0;
+    world.hero.position.y = 6; // banda media: > GUARDIAN_DETECT_RANGE (4.5), < GUARDIAN_FAR_CHARGE_RANGE (7)
+    expect(world.hero.position.y).toBeGreaterThan(GUARDIAN_DETECT_RANGE);
+    expect(world.hero.position.y).toBeLessThan(GUARDIAN_FAR_CHARGE_RANGE);
+    const distStart = Math.hypot(world.hero.position.x - boss.position.x, world.hero.position.y - boss.position.y);
+
+    // Horizonte corto a propósito (0.5s a GUARDIAN_CHASE_SPEED=1.6u/s ≈ 0.8u):
+    // reduce la distancia de sobra sin llegar a cruzar el umbral cercano
+    // (dejaría de ser persecución pura y pasaría a telegrafiar).
+    advance(world, events, 30);
+
+    expect(boss.bossTelegraphUntil).toBe(0);
+    expect(boss.bossStage).toBe(0); // GUARDIAN_STAGE_CHASE: sigue persiguiendo, no telegrafía
+    expect(collectTypes(events)).not.toContain('boss-telegraph');
+    const distEnd = Math.hypot(world.hero.position.x - boss.position.x, world.hero.position.y - boss.position.y);
+    expect(distEnd).toBeLessThan(distStart);
+    expect(distEnd).toBeGreaterThan(GUARDIAN_DETECT_RANGE); // sigue en banda media, no ha cruzado el umbral cercano
+  });
+
+  it('a distancia larga (≥ GUARDIAN_FAR_CHARGE_RANGE) SÍ telegrafía y acaba cargando (cierra el hueco de quien se mantiene lejos a proyectiles)', () => {
+    const world = makeGuardianWorld();
+    const events = createEventQueue(64);
+    const boss = world.enemies[0];
+    world.hero.position.x = 0;
+    world.hero.position.y = GUARDIAN_FAR_CHARGE_RANGE + 1; // claramente por encima del umbral lejano
+
+    advance(world, events, 1);
+    expect(boss.bossStage).toBe(1); // GUARDIAN_STAGE_TELEGRAPH
+    expect(boss.bossTelegraphUntil).toBeGreaterThan(world.time);
+    expect(collectTypes(events)).toContain('boss-telegraph');
+
+    advance(world, events, 60); // ~1s: agota el telegraph (0.8s) y entra en carga
+    expect(boss.bossStage).toBe(2); // GUARDIAN_STAGE_CHARGING
+    expect(boss.facing.y).toBeGreaterThan(0.9); // carga hacia el héroe (norte)
+  });
+
+  it('a distancia corta (≤ GUARDIAN_DETECT_RANGE) sigue telegrafiando de inmediato (regresión: comportamiento cercano intacto)', () => {
+    const world = makeGuardianWorld();
+    const events = createEventQueue(64);
+    const boss = world.enemies[0];
+    world.hero.position.x = 0;
+    world.hero.position.y = 2; // dentro de GUARDIAN_DETECT_RANGE (4.5)
+
+    advance(world, events, 1);
+    expect(boss.bossStage).toBe(1); // GUARDIAN_STAGE_TELEGRAPH
+    expect(boss.bossTelegraphUntil).toBeGreaterThan(world.time);
+    expect(collectTypes(events)).toContain('boss-telegraph');
+  });
+
+  it('tras el ciclo carga → choque → stun → recuperación, vuelve a perseguir y reduce la distancia al héroe sin intervención', () => {
+    const world = makeGuardianWorld();
+    const events = createEventQueue(64);
+    const boss = world.enemies[0];
+    world.hero.position.x = 0;
+    world.hero.position.y = 3;
+    // Fuerza el telegraph directamente (mismo patrón que el resto de tests de
+    // choque): no depende del tiempo de persecución previo, solo del ciclo
+    // posterior (choque contra la pared norte → stun → recuperación).
+    boss.bossStage = 1; // GUARDIAN_STAGE_TELEGRAPH
+    boss.bossTelegraphUntil = world.time + 0.8;
+    boss.bossTimer = 0.8;
+
+    advanceUntil(world, events, () => boss.bossVulnerable); // choca contra la pared norte, se aturde
+    advanceUntil(world, events, () => !boss.bossVulnerable, 200); // agota aturdimiento + pausa de recuperación
+    expect(boss.bossStage).toBe(0); // GUARDIAN_STAGE_CHASE: vuelve a perseguir solo, sin intervención externa
+
+    // Reubica al héroe a banda media (persecución pura, sin recargar) desde
+    // la posición REAL donde quedó el Guardián tras el choque, y confirma que
+    // se acerca solo con el tiempo, sin que el test toque bossStage/bossTimer.
+    world.hero.position.x = boss.position.x;
+    world.hero.position.y = boss.position.y + 6;
+    const distStart = Math.hypot(world.hero.position.x - boss.position.x, world.hero.position.y - boss.position.y);
+    advance(world, events, 30);
+    const distEnd = Math.hypot(world.hero.position.x - boss.position.x, world.hero.position.y - boss.position.y);
+    expect(distEnd).toBeLessThan(distStart);
+    expect(boss.bossStage).toBe(0); // sigue persiguiendo, no ha vuelto a telegrafiar (banda media)
+  });
+
+  it('GUARDIAN_CHASE_SPEED es menor que HERO_WALK_SPEED: el paseo WASD siempre puede abrir hueco hasta el umbral lejano', () => {
+    // Contrato del rediseño (constants.ts, comentario de GUARDIAN_CHASE_SPEED):
+    // si esto dejara de cumplirse, el Guardián alcanzaría a un héroe que se
+    // aleja en línea recta y kitear a proyectiles sería imposible incluso
+    // antes de cruzar GUARDIAN_FAR_CHARGE_RANGE.
+    expect(GUARDIAN_CHASE_SPEED).toBeLessThan(HERO_WALK_SPEED);
+    expect(GUARDIAN_CHASE_SPEED).toBe(1.6);
+    expect(HERO_WALK_SPEED).toBe(2.0);
+  });
+
+  it('con la sala real y el héroe al otro lado de una roca interior (línea boss→héroe la atraviesa), en banda media el Guardián la rodea sin quedarse clavado (regresión B1.6.1, ahora persiguiendo al héroe en vez de una esquina fija)', () => {
+    // El objetivo de la persecución dejó de ser un punto fijo (esquina de
+    // patrulla) y pasó a ser el héroe (rediseño 2026-08-31): el riesgo del bug
+    // histórico B1.6.1 ("el boss quedaba clavado tocando la roca para
+    // siempre") es ahora MAYOR, porque el héroe puede plantarse justo detrás
+    // de una roca interior. `movement.test.ts` ya prueba la garantía genérica
+    // de `moveBossTowardWithAvoidance` (nunca atraviesa un obstáculo y sigue
+    // progresando) con un enemigo/roca sintéticos; este test la reproduce
+    // INTEGRADA, con el Guardián real en la sala real (`boss-guardian.json`).
+    const room = parseRoomData(bossGuardianJson).room!;
+    const world = createWorld(room);
+    initBossEnemies(world);
+    const events = createEventQueue(64);
+    const boss = world.enemies[0];
+    // Spawn real de boss-guardian.json (sin sobrescribir: solo se coloca al héroe).
+    expect(boss.position.x).toBe(0);
+    expect(boss.position.y).toBe(0);
+
+    // Héroe al suroeste, al otro lado de `rock-sw` (-3.2,-3.2, 1.8x1.8): NO en
+    // la diagonal exacta boss→centro-de-roca (eso alinea también con el punto
+    // de reposicionamiento, el centro exacto de la sala (0,0), que por la
+    // simetría de las 4 rocas de esta arena queda a <GUARDIAN_MIN_CHARGE_CLEARANCE
+    // de las 4 en diagonal — un caso límite AJENO al rediseño, de
+    // GUARDIAN_STAGE_REPOSITION, que no toca este test). Con un ángulo
+    // desplazado la línea recta boss→héroe sigue atravesando la roca de
+    // lleno (comprobado más abajo) pero deja de coincidir con ese eje
+    // degenerado. Distancia en banda media (entre GUARDIAN_DETECT_RANGE y
+    // GUARDIAN_FAR_CHARGE_RANGE): arranca persiguiendo sin telegrafiar.
+    world.hero.position.x = -5.325;
+    world.hero.position.y = -3.728;
+    const distStart = Math.hypot(world.hero.position.x - boss.position.x, world.hero.position.y - boss.position.y);
+    expect(distStart).toBeGreaterThan(GUARDIAN_DETECT_RANGE);
+    expect(distStart).toBeLessThan(GUARDIAN_FAR_CHARGE_RANGE);
+
+    // Confirma la premisa (no solo por construcción geométrica a mano): el
+    // segmento recto boss→héroe SÍ atraviesa el AABB de `rock-sw`, no es un
+    // rodeo que la esquiva por fuera.
+    const rockSw = room.hazards.find((h) => h.id === 'rock-sw')!;
+    const halfW = rockSw.width / 2;
+    const halfH = rockSw.height / 2;
+    let lineCrossesRock = false;
+    for (let t = 0; t <= 1; t += 0.01) {
+      const x = boss.position.x + t * (world.hero.position.x - boss.position.x);
+      const y = boss.position.y + t * (world.hero.position.y - boss.position.y);
+      if (Math.abs(x - rockSw.position.x) < halfW && Math.abs(y - rockSw.position.y) < halfH) {
+        lineCrossesRock = true;
+        break;
+      }
+    }
+    expect(lineCrossesRock).toBe(true);
+
+    let everOverlapping = false;
+    let lastCheckDist = Infinity;
+    let ticksSinceProgress = 0;
+    let maxTicksSinceProgress = 0;
+    // 10s con el héroe QUIETO: de sobra para exponer un atasco real. El
+    // Guardián cruza pronto a rango cercano (la banda media es estrecha
+    // frente a GUARDIAN_CHASE_SPEED) y de ahí encadena reposicionamiento →
+    // telegraph → carga → stun → vuelta a perseguir — ciclo sano, no un
+    // atasco; lo que NO puede pasar en ningún punto de ese ciclo es solapar
+    // la roca o congelarse sin avanzar mientras esté en persecución pura.
+    for (let i = 0; i < 600; i++) {
+      stepBosses(world, FIXED_DT, events);
+      world.time += FIXED_DT;
+
+      // (1) El círculo del Guardián nunca solapa el AABB de ninguna roca de
+      // la sala real, en NINGÚN tick intermedio (la circunnavegación debe
+      // rodearla por la tangente, nunca atravesarla) — vale para las 4, no
+      // solo `rock-sw`, y en cualquier stage (persiguiendo, reposicionando o
+      // cargando: `bossHitsSolid` gatea el movimiento en todos ellos).
+      for (const obstacle of world.obstacles) {
+        const aabb = obstacle.aabb;
+        const nearestX = Math.max(aabb.minX, Math.min(boss.position.x, aabb.maxX));
+        const nearestY = Math.max(aabb.minY, Math.min(boss.position.y, aabb.maxY));
+        const dx = boss.position.x - nearestX;
+        const dy = boss.position.y - nearestY;
+        if (dx * dx + dy * dy < GUARDIAN_RADIUS * GUARDIAN_RADIUS - 1e-6) everOverlapping = true;
+      }
+
+      // (2) Progreso neto hacia el héroe, muestreado cada ~1s (mismo patrón
+      // que la regresión histórica de patrulla, B1.6.1): solo mientras siga
+      // en el stage de persecución (GUARDIAN_STAGE_CHASE=0) — las pausas de
+      // telegraph/stun son legítimas (tienen su propia duración probada en
+      // otros tests) y no cuentan como atasco.
+      if (i % 60 === 0 && boss.bossStage === 0 /* GUARDIAN_STAGE_CHASE */) {
+        const dist = Math.hypot(world.hero.position.x - boss.position.x, world.hero.position.y - boss.position.y);
+        if (dist < lastCheckDist - 0.01) {
+          ticksSinceProgress = 0;
+        } else {
+          ticksSinceProgress += 60;
+        }
+        lastCheckDist = dist;
+        maxTicksSinceProgress = Math.max(maxTicksSinceProgress, ticksSinceProgress);
+      }
+    }
+
+    expect(everOverlapping).toBe(false);
+    expect(maxTicksSinceProgress).toBeLessThanOrEqual(60);
+
+    // Y el desplazamiento neto es real, no un roce: se acerca de verdad
+    // (traza real: ~6.5u → ~3.65u en 10s, cruzando un ciclo completo).
+    const distEnd = Math.hypot(world.hero.position.x - boss.position.x, world.hero.position.y - boss.position.y);
+    expect(distEnd).toBeLessThan(distStart - 1);
+  });
+
+  it('con el héroe en la DIAGONAL EXACTA (eje degenerado de las 4 rocas), el Guardián NO se queda congelado reposicionando (fix 2026-08-31)', () => {
+    // Regresión del punto muerto encontrado al revisar el rediseño: cuando
+    // GUARDIAN_STAGE_REPOSITION apuntaba al CENTRO de la sala, bastaba con
+    // que el jugador se pusiera en diagonal para dejar al Guardián clavado
+    // para siempre. Traza real de entonces: 13 s parado en (-0.094,-0.094),
+    // desplazamiento 0.0000 u. El motivo: al llegar al centro,
+    // `moveBossTowardWithAvoidance` lo detiene (corte de `dist < 0.15`), y
+    // desde el centro las 4 rocas del anillo de `boss-guardian.json` quedan,
+    // por simetría, a menos de GUARDIAN_MIN_CHARGE_CLEARANCE en las cuatro
+    // diagonales — nunca hay línea despejada, así que nunca salía del stage
+    // ni volvía a moverse. Es EXACTAMENTE el exploit que este rediseño venía
+    // a cerrar (mantener la distancia y dispararle gratis), reaparecido por
+    // otra vía. Hoy el reposicionamiento persigue al héroe, así que siempre
+    // hay avance.
+    const room = parseRoomData(bossGuardianJson).room!;
+    const world = createWorld(room);
+    initBossEnemies(world);
+    const events = createEventQueue(64);
+    const boss = world.enemies[0];
+
+    // Diagonal exacta suroeste (el eje degenerado), a distancia media.
+    const dist0 = 6;
+    world.hero.position.x = -dist0 / Math.SQRT2;
+    world.hero.position.y = -dist0 / Math.SQRT2;
+
+    const startX = boss.position.x;
+    const startY = boss.position.y;
+    advance(world, events, 600); // 10 s con el héroe QUIETO
+
+    // Se ha movido de verdad (con el bug: 0.0000 u), y además ha recortado
+    // distancia hacia el héroe en vez de vagar sin rumbo.
+    const travelled = Math.hypot(boss.position.x - startX, boss.position.y - startY);
+    expect(travelled).toBeGreaterThan(1);
+    const distEnd = Math.hypot(world.hero.position.x - boss.position.x, world.hero.position.y - boss.position.y);
+    expect(distEnd).toBeLessThan(dist0 - 1);
   });
 });
 
@@ -334,7 +554,7 @@ describe('Guardián: carga contra el héroe', () => {
 });
 
 describe('Guardián: doble carga encadenada (fase 2/3, GDD §15.2)', () => {
-  it('en fase 1, tras aturdirse vuelve a patrullar (no telegrafía una segunda carga inmediata)', () => {
+  it('en fase 1, tras aturdirse vuelve a perseguir (no telegrafía una segunda carga inmediata)', () => {
     const world = makeGuardianWorld({ hazards: [eastRock()] });
     const events = createEventQueue(64);
     const boss = world.enemies[0];
@@ -347,10 +567,10 @@ describe('Guardián: doble carga encadenada (fase 2/3, GDD §15.2)', () => {
 
     advance(world, events, 300); // choca, se aturde
     advance(world, events, 120); // recupera
-    expect(boss.bossStage).toBe(0); // PATROL directo, sin CHAIN_PAUSE (4) de por medio
+    expect(boss.bossStage).toBe(0); // CHASE directo, sin CHAIN_PAUSE (4) de por medio
   });
 
-  it('en fase 2 (66%), tras la primera carga encadena una segunda con pausa corta antes de volver a patrullar', () => {
+  it('en fase 2 (66%), tras la primera carga encadena una segunda con pausa corta antes de volver a perseguir', () => {
     const world = makeGuardianWorld({ hazards: [eastRock()] });
     const events = createEventQueue(64);
     const boss = world.enemies[0];
@@ -394,7 +614,7 @@ describe('Guardián: doble carga encadenada (fase 2/3, GDD §15.2)', () => {
 
     advanceUntil(world, events, () => boss.bossVulnerable, 400); // segunda carga: choca de nuevo
     advanceUntil(world, events, () => !boss.bossVulnerable, 200); // segundo aturdimiento agotado
-    expect(boss.bossStage).toBe(0); // ya no encadena una tercera: vuelve a patrullar
+    expect(boss.bossStage).toBe(0); // ya no encadena una tercera: vuelve a perseguir
   });
 });
 
@@ -565,7 +785,7 @@ describe('Guardián: aparición periódica de barriles rodantes (GDD §15.2)', (
   it('aparece un barril por slot de GUARDIAN_BARREL_SPAWN_INTERVAL, con evento boss-barrel-spawn y en la región central (playtest 2026-07-10)', () => {
     const world = makeGuardianWorld();
     const events = createEventQueue(64);
-    world.hero.position.x = 100; // lejos: solo patrulla, sin cargas que detonen barriles
+    world.hero.position.x = 100; // lejos: da igual que dispare persecución/carga — la cadencia de barriles es independiente del stage (guardianStepBarrelSpawn corre siempre, ver guardianStepPattern)
     world.hero.position.y = 100;
 
     advance(world, events, 1); // primer tick: cruza el slot 0 → primer barril
@@ -744,7 +964,7 @@ describe('Guardián: poción de recompensa al cambiar de fase (GDD §15.2)', () 
     const world = makeGuardianWorld();
     const events = createEventQueue(64);
     const boss = world.enemies[0];
-    world.hero.position.x = 100; // lejos: no recoge nada ni provoca cargas
+    world.hero.position.x = 100; // lejos: no recoge nada; el drop de poción solo depende del cruce de umbral de vida, no del stage del jefe
     world.hero.position.y = 100;
 
     const activePotions = () => world.items.filter((i) => i.active && i.kind === 'potion');
@@ -851,41 +1071,6 @@ describe('boss-guardian.json: regla anti-trampa de arena (GDD §15.2)', () => {
     }
   });
 
-  it('el Guardián patrulla el perímetro sin atascarse contra las rocas nuevas (esquinas de patrulla lejos de ±3.2)', () => {
-    // guardianPatrolCorners (guardian/pattern.ts) usa margen GUARDIAN_RADIUS+0.5
-    // respecto al bounds de la sala: con halfW=halfH=7.5 las esquinas de
-    // patrulla caen en ±(7.5 − (0.62+0.5)) = ±6.38, muy lejos de las rocas
-    // (que ahora ocupan hasta ±(3.2+0.9)=±4.1) — no debería haber solape.
-    const world = makeGuardianWorld({
-      bossSpawn: { position: { x: 6.38, y: 6.38 }, patrolTarget: { x: 6.38, y: 6.38 } },
-      hazards: (parseRoomData(bossGuardianJson).room!.hazards as HazardSpawn[]),
-    });
-    const events = createEventQueue(64);
-    world.hero.position.x = 100; // lejos: solo patrulla, sin detección/carga
-    world.hero.position.y = 100;
-
-    const boss = world.enemies[0];
-    // 20s de patrulla pura: si quedara atascado contra una roca, su posición
-    // se congelaría (guardianHitsSolid no se comprueba en patrulla, pero un
-    // atasco real se vería como oscilación nula o posición fija imposible).
-    let minDistToAnyRockCenter = Infinity;
-    for (let i = 0; i < 1200; i++) {
-      stepBosses(world, FIXED_DT, events);
-      world.time += FIXED_DT;
-      for (const rock of world.obstacles) {
-        const dx = boss.position.x - (rock.aabb.minX + rock.aabb.maxX) / 2;
-        const dy = boss.position.y - (rock.aabb.minY + rock.aabb.maxY) / 2;
-        minDistToAnyRockCenter = Math.min(minDistToAnyRockCenter, Math.hypot(dx, dy));
-      }
-    }
-    // Nunca vulnerable (nunca choca: patrulla en un rectángulo que no
-    // solapa ninguna roca) y siempre dentro de bounds.
-    expect(boss.bossVulnerable).toBe(false);
-    expect(Math.abs(boss.position.x)).toBeLessThanOrEqual(world.bounds.maxX);
-    expect(Math.abs(boss.position.y)).toBeLessThanOrEqual(world.bounds.maxY);
-    expect(minDistToAnyRockCenter).toBeGreaterThan(0);
-  });
-
   it('el Guardián puede completar una carga contra el héroe sin travarse en las rocas nuevas (bossStage cicla con normalidad)', () => {
     const room = parseRoomData(bossGuardianJson).room!;
     const world = createWorld(room);
@@ -894,21 +1079,19 @@ describe('boss-guardian.json: regla anti-trampa de arena (GDD §15.2)', () => {
     const boss = world.enemies[0];
 
     // Coloca al héroe a rango de detección, lejos de cualquier roca (centro
-    // de un lado libre), para forzar una carga limpia patrulla→telegraph→
+    // de un lado libre), para forzar una carga limpia persecución→telegraph→
     // carga→(choque con pared, ninguna roca en la trayectoria)→aturdido→
     // recuperación, confirmando que el ciclo no se cuelga con la arena nueva.
     world.hero.position.x = 0;
     world.hero.position.y = 0;
     boss.position.x = 0;
     boss.position.y = 3;
-    boss.patrolTo.x = 0;
-    boss.patrolTo.y = 3;
 
     advanceUntil(world, events, () => boss.bossStage === 1 /* GUARDIAN_STAGE_TELEGRAPH */, 400);
     expect(boss.bossStage).toBe(1);
     advanceUntil(world, events, () => boss.bossStage === 3 /* GUARDIAN_STAGE_STUNNED */, 400);
     expect(boss.bossStage).toBe(3);
-    advanceUntil(world, events, () => boss.bossStage === 0 /* de vuelta a PATROL */, 400);
+    advanceUntil(world, events, () => boss.bossStage === 0 /* de vuelta a CHASE */, 400);
     expect(boss.bossStage).toBe(0);
   });
 
@@ -943,86 +1126,18 @@ describe('boss-guardian.json: regla anti-trampa de arena (GDD §15.2)', () => {
   });
 });
 
-// ── B1.6.1: fixes tras playtest 2026-07-06 (patrulla atascada + barriles superpuestos) ──
-
-describe('Guardián: la patrulla esquiva rocas interiores en su camino (fix B1.6.1, bug crítico de playtest)', () => {
-  it('no queda atascado contra una roca interior en la diagonal hacia su esquina de patrulla', () => {
-    // Reproducción exacta del bug: boss en (0,0), patrolTo en la esquina
-    // diagonal opuesta (-6,-6), con una roca interior tipo B1.6 (SW,
-    // (-3.2,-3.2) tamaño 1.8) justo en esa trayectoria recta. Antes del fix,
-    // guardianStepPatrolMove movía en línea recta sin comprobar colisión: la
-    // resolución de colisión general (physics.ts) lo empujaba fuera del
-    // sólido cada frame, cancelando el avance neto — el boss quedaba clavado
-    // tocando la roca para siempre, sin progresar ni detectar al héroe.
-    const world = makeGuardianWorld({
-      bossSpawn: { position: { x: 0, y: 0 }, patrolTarget: { x: -6, y: -6 } },
-      hazards: [swRock()],
-    });
-    const events = createEventQueue(64);
-    world.hero.position.x = 100; // fuera de GUARDIAN_DETECT_RANGE: solo patrulla
-    world.hero.position.y = 100;
-
-    const boss = world.enemies[0];
-    const startDist = Math.hypot(boss.position.x - 0, boss.position.y - 0);
-    expect(startDist).toBe(0);
-
-    let everOverlapping = false;
-    for (let i = 0; i < 540; i++) {
-      // ~9s: rodear una roca a velocidad de patrulla (1.1 u/s) es un rodeo
-      // legítimo; el desplazamiento NETO crece despacio, así que se mide en un
-      // horizonte amplio y por la propiedad real (no solapa + llega al objetivo)
-      stepBosses(world, FIXED_DT, events);
-      world.time += FIXED_DT;
-      // El círculo del boss nunca debe solapar la roca en ningún tick
-      // intermedio (axis-slide debe rodearla, no atravesarla).
-      const rock = swRock();
-      const halfW = rock.width! / 2;
-      const halfH = rock.height! / 2;
-      const nearestX = Math.max(rock.position.x - halfW, Math.min(boss.position.x, rock.position.x + halfW));
-      const nearestY = Math.max(rock.position.y - halfH, Math.min(boss.position.y, rock.position.y + halfH));
-      const dx = boss.position.x - nearestX;
-      const dy = boss.position.y - nearestY;
-      if (dx * dx + dy * dy < GUARDIAN_RADIUS * GUARDIAN_RADIUS - 1e-6) everOverlapping = true;
-    }
-
-    // Nunca atraviesa la roca (la circunnavegación la BORDEA, no la penetra).
-    expect(everOverlapping).toBe(false);
-    // Rodeó la roca y se acerca de verdad a su objetivo (-6,-6): antes del fix
-    // se quedaba CLAVADO en ~(-3.11,-3.11), a ~6.2u del objetivo, sin progresar
-    // jamás. Tras el fix llega a <3.5u del objetivo (traza medida: ~1.7u a 9s).
-    const distToTarget = Math.hypot(boss.position.x - (-6), boss.position.y - (-6));
-    expect(distToTarget).toBeLessThan(3.5);
-  });
-
-  it('nunca pasa >1s (60 ticks) sin progresar hacia patrolTo mientras patrulla libremente (salvo telegraph/aturdimiento legítimos)', () => {
-    const world = makeGuardianWorld({
-      bossSpawn: { position: { x: 0, y: 0 }, patrolTarget: { x: -6, y: -6 } },
-      hazards: [swRock()],
-    });
-    const events = createEventQueue(64);
-    world.hero.position.x = 100;
-    world.hero.position.y = 100;
-
-    const boss = world.enemies[0];
-    let lastCheckDist = Infinity;
-    let ticksSinceProgress = 0;
-    for (let i = 0; i < 600; i++) {
-      // 10s
-      stepBosses(world, FIXED_DT, events);
-      world.time += FIXED_DT;
-      if (i % 60 === 0) {
-        const dist = Math.hypot(boss.position.x - boss.patrolTo.x, boss.position.y - boss.patrolTo.y);
-        if (dist < lastCheckDist - 0.01) {
-          ticksSinceProgress = 0;
-        } else {
-          ticksSinceProgress += 60;
-        }
-        lastCheckDist = dist;
-      }
-    }
-    expect(ticksSinceProgress).toBeLessThanOrEqual(60);
-  });
-});
+// ── B1.6.1: fix tras playtest 2026-07-06 (barriles rodantes superpuestos) ──
+//
+// La otra mitad histórica de B1.6.1 (la patrulla perimetral atascándose
+// contra una roca interior, "no queda atascado... esquina de patrulla") vivía
+// aquí como dos tests dedicados a `guardianStepPatrolMove`/`boss.patrolTo`.
+// Ambos —y el mecanismo que ejercitaban— desaparecieron en el rediseño
+// 2026-08-31 (patrulla → persecución constante, GUARDIAN_STAGE_CHASE). La
+// garantía real que probaban (`moveBossTowardWithAvoidance` nunca atraviesa
+// un obstáculo y sigue progresando hacia el objetivo) sigue cubierta,
+// genérica y directamente, en `bosses/movement.test.ts`; y el ciclo completo
+// carga→choque→stun→recuperación en la arena real ya lo cubre el test de
+// arriba ("puede completar una carga... sin travarse en las rocas nuevas").
 
 describe('Guardián: puntos fijos de aparición de barriles, sin solapes (fix B1.6.1, GDD §15.2; reubicados al centro tras playtest 2026-07-10)', () => {
   /** Media diagonal de una roca 1.8x1.8 (boss-guardian.json): medio lado 0.9. */
@@ -1045,7 +1160,7 @@ describe('Guardián: puntos fijos de aparición de barriles, sin solapes (fix B1
     for (const p of points) {
       // Región central: mucho más cerca del centro que de las paredes (sala 15x15, halfW=7.5).
       expect(Math.hypot(p.x, p.y)).toBeLessThan(4);
-      // Nunca el centro exacto (ahí patrulla/aparece el propio Guardián).
+      // Nunca el centro exacto (ahí aparece el propio Guardián).
       expect(Math.hypot(p.x, p.y)).toBeGreaterThan(0);
       // Ninguno solapa el AABB de una roca del anillo.
       for (const rock of ROCK_CENTERS) {
@@ -1062,7 +1177,7 @@ describe('Guardián: puntos fijos de aparición de barriles, sin solapes (fix B1
   it('3 apariciones consecutivas caen en 3 de los 8 puntos fijos, sin solaparse (distancia mínima ≥ 2×radio)', () => {
     const world = makeGuardianWorld();
     const events = createEventQueue(64);
-    world.hero.position.x = 100; // lejos: solo patrulla, sin cargas que detonen barriles
+    world.hero.position.x = 100; // lejos: da igual que dispare persecución/carga — la cadencia de barriles es independiente del stage (guardianStepBarrelSpawn corre siempre, ver guardianStepPattern)
     world.hero.position.y = 100;
 
     const fixedPoints = guardianBarrelSpawnPoints(world.bounds);

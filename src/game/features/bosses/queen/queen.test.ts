@@ -1,20 +1,24 @@
 /**
- * Tests de la Reina del Enjambre (GDD §15.3, Fase B2 de docs/plans/BOSSES_PLAN.md):
- * cadencia de oleadas de larvas + cap de vivas, rastro que crece con la fase,
- * vulnerabilidad permanente (sin ventana), larvas de 1 HP con comportamiento
- * por fase (recta en fase 1, persecución en 2/3), `boss-queen.json` válido
- * contra room-format.ts, y que el generador procedural puede producir tanto
- * la sala de la Reina como la del Guardián (sorteo entre salas 'jefe').
+ * Tests de la Reina del Enjambre (GDD §15.3, Fase B2 de docs/plans/BOSSES_PLAN.md,
+ * simplificación 2026-08-31: columnas + minions + persecución, se elimina el
+ * rol guardiana): cadencia de parto de minions POR COLUMNA + cap de vivas,
+ * rastro que crece con la fase, vulnerabilidad permanente (sin ventana),
+ * larvas de 1 HP con comportamiento por fase (recta en fase 1, persecución en
+ * 2/3), columnas a 2 golpes (agrieta→rompe) con grito del jefe al romperse,
+ * persecución del jefe con incrementos moderados por columna rota,
+ * `boss-queen.json` válido contra room-format.ts, y que el generador
+ * procedural puede producir tanto la sala de la Reina como la del Guardián
+ * (sorteo entre salas 'jefe').
  */
 
 import { describe, expect, it } from 'vitest';
 import bossQueenJson from '@/game/features/dungeon/levels/boss-queen.json';
-import { HERO_RADIUS } from '@/game/features/hero/constants';
+import { HERO_RADIUS, HERO_WALK_SPEED } from '@/game/features/hero/constants';
 import { RAM_SPEED_THRESHOLD } from '@/game/features/combat/constants';
 import { getRoomPool } from '@/game/features/dungeon/rooms';
 import { applyDamageToEnemy, stepHeroEnemyContacts } from '@/game/features/combat/combat';
 import { generateDungeon } from '@/game/features/dungeon/dungeon';
-import { createEventQueue, drainEvents } from '@/engine/events';
+import { createEventQueue } from '@/engine/events';
 import { parseRoomData } from '@/game/features/dungeon/room-format';
 import type { EnemySpawn, RoomData, RoomTag } from '@/game/world/types';
 import { createWorld } from '@/game/world/create';
@@ -22,7 +26,7 @@ import { initBossEnemies, stepBosses } from '@/game/features/bosses/lifecycle';
 import { getBossDef } from '@/game/features/bosses/registry';
 import { collectTypes } from '@/game/features/bosses/test-helpers';
 import { queenState, stepQueenColumns } from './columns';
-import { QUEEN_CHASER_PER_WAVE_BY_PHASE, QUEEN_COLUMN_DAMAGE_FRACTION, QUEEN_COLUMN_HIT_COOLDOWN, QUEEN_COLUMN_HP, QUEEN_COLUMN_STUN_DURATION, QUEEN_DAMAGE_OUTSIDE_WINDOW, QUEEN_GUARDIAN_MAX, QUEEN_GUARDIAN_ORBIT_RADIUS, QUEEN_GUARDIAN_SPAWN_INTERVAL, QUEEN_HIT_DAMAGE_CAP_FRACTION, QUEEN_LARVA_HP, QUEEN_LARVA_MAX, QUEEN_GUARDIAN_CHARGE_COOLDOWN, QUEEN_GUARDIAN_SPEED, QUEEN_MAX_HP, QUEEN_RADIUS, QUEEN_STALK_SPEED_BASE, QUEEN_STALK_SPEED_PER_COLUMN, QUEEN_TRAIL_DROP_INTERVAL, QUEEN_TRAIL_DROP_INTERVAL_PHASE2, QUEEN_TRAIL_PUDDLE_LIFETIME, QUEEN_TRAIL_PUDDLE_RADIUS, QUEEN_WAVE_INTERVAL } from './constants';
+import { QUEEN_COLUMN_DAMAGE_FRACTION, QUEEN_COLUMN_HIT_COOLDOWN, QUEEN_COLUMN_HP, QUEEN_COLUMN_SPAWN_INTERVAL_BY_PHASE, QUEEN_COLUMN_STUN_DURATION, QUEEN_DAMAGE_OUTSIDE_WINDOW, QUEEN_HIT_DAMAGE_CAP_FRACTION, QUEEN_LARVA_HP, QUEEN_LARVA_MAX, QUEEN_MAX_HP, QUEEN_RADIUS, QUEEN_STALK_SPEED_BASE, QUEEN_STALK_SPEED_PER_COLUMN, QUEEN_TRAIL_DROP_INTERVAL, QUEEN_TRAIL_DROP_INTERVAL_PHASE2, QUEEN_TRAIL_PUDDLE_LIFETIME, QUEEN_TRAIL_PUDDLE_RADIUS } from './constants';
 
 const FIXED_DT = 1 / 60;
 
@@ -144,45 +148,43 @@ describe('Reina: al cuerpo le entra daño REDUCIDO salvo aturdida (rediseño 202
   });
 });
 
-describe('Reina: cadencia de oleadas de larvas (GDD §15.6: "oleada cada ~3s")', () => {
-  it('invoca una oleada al cruzar QUEEN_WAVE_INTERVAL, con evento boss-wave-spawn', () => {
-    const world = makeQueenWorld();
+// ── Simplificación 2026-08-31 (GDD §15.3, playtest: "eliminar el rol
+// guardiana"): los minions nacen de las COLUMNAS, no del cuerpo del jefe.
+// Sustituye la antigua oleada única sincronizada (`queenStepWaves`,
+// `QUEEN_WAVE_INTERVAL`, `QUEEN_CHASER_PER_WAVE_BY_PHASE`) por un reloj POR
+// COLUMNA (`QueenColumn.spawnTimer`, `QUEEN_COLUMN_SPAWN_INTERVAL_BY_PHASE`).
+
+describe('Reina: cadencia de parto de minions desde las columnas (simplificación 2026-08-31)', () => {
+  it('una columna viva pare un minion al vencer su spawnTimer, fuera de su propio cuerpo (distancia ≥ halfW) y con chasing=true', () => {
+    const world = makeQueenWorldWithColumns(); // 2 columnas en (±3,0), offsets 0 y mitad del intervalo
     const events = createEventQueue(64);
     world.hero.position.x = 100;
     world.hero.position.y = 100;
 
     expect(liveLarvae(world).length).toBe(0);
 
-    const ticksPerWave = Math.round(QUEEN_WAVE_INTERVAL / FIXED_DT);
-    advance(world, events, ticksPerWave + 1);
+    // column-a (índice 0, offset=0 por ser la 1.ª) pare en el primer tick.
+    advance(world, events, 1);
     const larvae = liveLarvae(world);
     expect(larvae.length).toBeGreaterThanOrEqual(1);
-    expect(larvae.every((l) => l.chasing)).toBe(true); // perseguidoras (nacen del boss)
-    expect(collectTypes(events)).toContain('boss-wave-spawn');
-  });
 
-  it('boss-wave-spawn lleva como intensity el nº de larvas REALMENTE invocadas (events.ts: "puede ser menor... si el cap ya estaba casi lleno")', () => {
-    const world = makeQueenWorld();
-    const events = createEventQueue(64);
-    world.hero.position.x = 100;
-    world.hero.position.y = 100;
+    const col = queenState(world).columns[0];
+    const larva = larvae[0];
+    expect(larva.chasing).toBe(true); // único rol: perseguidora
+    const dist = Math.hypot(larva.position.x - col.position.x, larva.position.y - col.position.y);
+    expect(dist).toBeGreaterThanOrEqual(col.halfW); // nace FUERA del cuerpo de la columna, no en su centro
 
-    const ticksPerWave = Math.round(QUEEN_WAVE_INTERVAL / FIXED_DT);
-    advance(world, events, ticksPerWave + 1);
-
-    let waveIntensity = -1;
-    drainEvents(events, (e) => {
-      if (e.type === 'boss-wave-spawn') waveIntensity = e.intensity;
-    });
-    expect(waveIntensity).toBe(QUEEN_CHASER_PER_WAVE_BY_PHASE[0]);
+    const types = collectTypes(events);
+    expect(types).toContain('boss-wave-spawn'); // evento genérico, sin cambios de contrato
+    expect(types).toContain('boss-column-spawn'); // evento nuevo: ceniza/polvo + temblor de la columna
   });
 
   it('cada larva nace con QUEEN_LARVA_HP (1 hp, GDD §15.6 "1 daño de contacto" implica 1 golpe basta)', () => {
-    const world = makeQueenWorld();
+    const world = makeQueenWorldWithColumns();
     const events = createEventQueue(64);
     world.hero.position.x = 100;
     world.hero.position.y = 100;
-    advance(world, events, Math.round(QUEEN_WAVE_INTERVAL / FIXED_DT) + 1);
+    advance(world, events, 1);
 
     const larvae = liveLarvae(world);
     expect(larvae.length).toBeGreaterThan(0);
@@ -193,51 +195,60 @@ describe('Reina: cadencia de oleadas de larvas (GDD §15.6: "oleada cada ~3s")',
     }
   });
 
-  it('las perseguidoras se acumulan hasta el cap TOTAL (QUEEN_LARVA_MAX) y no lo superan (rediseño 2026-07-10)', () => {
-    const world = makeQueenWorld(); // sin columnas → solo perseguidoras
+  it('una columna ROTA deja de generar (se filtra por !broken)', () => {
+    const world = makeQueenWorldWithColumns();
     const events = createEventQueue(64);
     world.hero.position.x = 100;
     world.hero.position.y = 100;
-    const ticksPerWave = Math.round(QUEEN_WAVE_INTERVAL / FIXED_DT);
+    queenState(world).columns[0].broken = true; // rompe la columna con offset=0 (parturienta del tick 1)
 
-    // Muchas oleadas de sobra para saturar el cap total.
-    advance(world, events, ticksPerWave * (QUEEN_LARVA_MAX + 4));
-    expect(liveLarvae(world).length).toBe(QUEEN_LARVA_MAX);
-    // El pool preasignado es del tamaño del cap total.
-    const larvaSlotCount = world.enemies.filter((e) => e.id.startsWith('queen-larva-')).length;
-    expect(larvaSlotCount).toBe(QUEEN_LARVA_MAX);
-
-    // Una oleada más: sigue en el cap (no lo sobrepasa).
-    advance(world, events, ticksPerWave);
-    expect(liveLarvae(world).length).toBe(QUEEN_LARVA_MAX);
+    advance(world, events, 1);
+    expect(liveLarvae(world).length).toBe(0); // la columna rota no pare nada
   });
 
-  it('el nº de perseguidoras por oleada escala con la fase (1/2/3, rediseño 2026-07-10)', () => {
-    expect(QUEEN_CHASER_PER_WAVE_BY_PHASE).toEqual([1, 2, 3]);
+  it('con la mitad de las columnas rotas nacen aproximadamente la mitad de minions en la misma ventana de tiempo (menos fuentes → menos minions)', () => {
+    // 2 columnas: offsets 0 e intervalo/2 (fase 1). Checkpoint pasado el 1.er
+    // ciclo de AMBAS (la 2.ª pare a mitad de intervalo) pero antes de que
+    // cualquiera pare por 2.ª vez (a partir de +intervalo desde su offset).
+    const interval = QUEEN_COLUMN_SPAWN_INTERVAL_BY_PHASE[0]; // fase 1
+    const checkpointSeconds = interval / 2 + 1;
+    const larvaeAfterCheckpoint = (breakSecondColumn: boolean) => {
+      const world = makeQueenWorldWithColumns();
+      const events = createEventQueue(64);
+      world.hero.position.x = 100;
+      world.hero.position.y = 100;
+      if (breakSecondColumn) queenState(world).columns[1].broken = true;
+      advance(world, events, Math.round(checkpointSeconds / FIXED_DT));
+      return liveLarvae(world).length;
+    };
 
-    // Fase 3 con vida baja (para que checkPhaseAndDefeat la mantenga): una
-    // oleada suelta 3 perseguidoras de golpe (cupo total de sobra).
-    const world = makeQueenWorld();
+    const full = larvaeAfterCheckpoint(false);
+    const half = larvaeAfterCheckpoint(true);
+    expect(full).toBe(2); // las 2 columnas ya parieron su 1.ª larva
+    expect(half).toBe(1); // solo la columna viva
+    expect(half / full).toBeCloseTo(0.5, 5);
+  });
+
+  it('con TODAS las columnas rotas no nace ningún minion nuevo', () => {
+    const world = makeQueenWorldWithColumns();
     const events = createEventQueue(64);
     world.hero.position.x = 100;
     world.hero.position.y = 100;
-    const q = boss(world);
-    q.hp = Math.floor(q.maxHp * 0.2);
-    q.bossPhase = 3;
-    advance(world, events, 2); // el reloj arranca en 0: la 1.ª oleada cae en el tick 1
-    const larvae = liveLarvae(world);
-    expect(larvae.length).toBe(QUEEN_CHASER_PER_WAVE_BY_PHASE[2]); // 3
-    expect(larvae.every((l) => l.chasing)).toBe(true);
+    for (const col of queenState(world).columns) col.broken = true;
+
+    advance(world, events, Math.round(20 / FIXED_DT)); // tiempo de sobra para varios ciclos
+    expect(liveLarvae(world).length).toBe(0);
+    expect(collectTypes(events)).not.toContain('boss-column-spawn');
   });
 });
 
 describe('Reina: comportamiento de larvas por fase (GDD §15.3, playtest 2026-07-06: persiguen desde fase 1)', () => {
   it('fase 1: la larva YA persigue de verdad (recalcula dirección hacia la posición actual del héroe, no línea recta fija)', () => {
-    const world = makeQueenWorld();
+    const world = makeQueenWorldWithColumns();
     const events = createEventQueue(64);
     world.hero.position.x = 20;
     world.hero.position.y = 0;
-    advance(world, events, Math.round(QUEEN_WAVE_INTERVAL / FIXED_DT) + 1);
+    advance(world, events, 1); // column-a (offset=0) pare su 1.ª larva en el primer tick
     expect(boss(world).bossPhase).toBe(1);
 
     const larva = liveLarvae(world)[0];
@@ -260,16 +271,15 @@ describe('Reina: comportamiento de larvas por fase (GDD §15.3, playtest 2026-07
   });
 
   it('fase 2/3: la larva persigue igual (recalcula dirección hacia la posición actual del héroe), más rápido', () => {
-    const world = makeQueenWorld();
+    const world = makeQueenWorldWithColumns();
     const events = createEventQueue(64);
     const q = boss(world);
     q.hp = Math.floor(q.maxHp * 0.6); // fuerza fase 2 en el próximo stepBosses
     world.hero.position.x = 20;
     world.hero.position.y = 0;
-    advance(world, events, 1); // aplica el cambio de fase (checkPhaseAndDefeat corre en stepBosses)
+    advance(world, events, 1); // aplica el cambio de fase Y column-a pare su 1.ª larva (mismo tick)
     expect(q.bossPhase).toBe(2);
 
-    advance(world, events, Math.round(QUEEN_WAVE_INTERVAL / FIXED_DT) + 1);
     const larva = liveLarvae(world)[0];
     expect(larva).toBeDefined();
 
@@ -285,10 +295,12 @@ describe('Reina: comportamiento de larvas por fase (GDD §15.3, playtest 2026-07
   });
 });
 
-describe('Reina: el cap TOTAL de larvas vivas nunca se supera (rediseño 2026-07-10)', () => {
-  it('en cualquier fase, forzando muchas oleadas, nunca hay más de QUEEN_LARVA_MAX larvas vivas', () => {
+describe('Reina: el cap TOTAL de larvas vivas nunca se supera (simplificación 2026-08-31)', () => {
+  it('en cualquier fase, con las 8 columnas activas (sala real), nunca hay más de QUEEN_LARVA_MAX larvas vivas', () => {
     for (const frac of [1.0, 0.6, 0.2]) {
-      const world = makeQueenWorld();
+      const room = parseRoomData(bossQueenJson).room!;
+      const world = createWorld(room);
+      initBossEnemies(world);
       const events = createEventQueue(64);
       world.hero.position.x = 100;
       world.hero.position.y = 100;
@@ -296,10 +308,11 @@ describe('Reina: el cap TOTAL de larvas vivas nunca se supera (rediseño 2026-07
       q.hp = Math.floor(q.maxHp * frac);
       advance(world, events, 1);
 
-      const ticksPerWave = Math.round(QUEEN_WAVE_INTERVAL / FIXED_DT);
       let maxLive = 0;
-      for (let wave = 0; wave < 20; wave++) {
-        advance(world, events, ticksPerWave);
+      const windowTicks = Math.round(30 / FIXED_DT); // 30s: de sobra para varios ciclos de las 8 columnas
+      for (let i = 0; i < windowTicks; i++) {
+        stepBosses(world, FIXED_DT, events);
+        world.time += FIXED_DT;
         maxLive = Math.max(maxLive, liveLarvae(world).length);
       }
       expect(maxLive).toBeLessThanOrEqual(QUEEN_LARVA_MAX);
@@ -440,6 +453,40 @@ describe('Reina: acecho hacia el héroe (GDD §15.3, playtest 2026-07-06 "la Rei
     expect(maxSpeedWith(2)).toBeGreaterThan(maxSpeedWith(0));
   });
 
+  it('la velocidad de persecución crece MONÓTONAMENTE con cada columna rota y, con las 8 rotas (sala real), vale QUEEN_STALK_SPEED_BASE + 8×QUEEN_STALK_SPEED_PER_COLUMN = 2.4 u/s (playtest 2026-08-31: "incrementos moderados, no extremos")', () => {
+    const maxSpeedWithBroken = (broken: number) => {
+      const room = parseRoomData(bossQueenJson).room!;
+      const world = createWorld(room);
+      initBossEnemies(world);
+      const events = createEventQueue(64);
+      world.hero.position.x = 100; // lejos: persigue a tope
+      world.hero.position.y = 100;
+      const columns = queenState(world).columns;
+      for (let i = 0; i < broken; i++) columns[i].broken = true;
+      let m = 0;
+      for (let i = 0; i < 120; i++) {
+        stepBosses(world, FIXED_DT, events);
+        world.time += FIXED_DT;
+        m = Math.max(m, Math.hypot(boss(world).velocity.x, boss(world).velocity.y));
+      }
+      return m;
+    };
+
+    let prev = maxSpeedWithBroken(0);
+    expect(prev).toBeCloseTo(QUEEN_STALK_SPEED_BASE, 1);
+    for (let broken = 1; broken <= 8; broken++) {
+      const current = maxSpeedWithBroken(broken);
+      expect(current).toBeGreaterThan(prev);
+      prev = current;
+    }
+    // Con las 8 rotas: 1.2 + 8×0.15 = 2.4 u/s — apenas por encima del paseo
+    // WASD del héroe (HERO_WALK_SPEED = 2.0) en vez de los ~4.24 anteriores
+    // (0.38/columna), que dejaban al héroe sin margen de huida.
+    expect(prev).toBeCloseTo(QUEEN_STALK_SPEED_BASE + 8 * QUEEN_STALK_SPEED_PER_COLUMN, 5);
+    expect(prev).toBeCloseTo(2.4, 1);
+    expect(prev).toBeGreaterThan(HERO_WALK_SPEED);
+  });
+
   it('en la sala real (boss-queen.json), con el héroe en su playerStart, la Reina llega a TOCARLO (fix playtest 2026-07-10: antes se daba la vuelta por la correa sin llegar; ahora persigue libremente)', () => {
     // Sala real 11x21: héroe arranca en (0,9), a ~9u del centro (0,0) donde
     // aparece la Reina. Sin correa, persigue en línea recta hasta el contacto.
@@ -523,13 +570,13 @@ describe('generateDungeon: puede producir la sala de la Reina (sorteo entre sala
 
 describe('Reina: derrota y limpieza de sala (integración con stepWorld, modo sala única)', () => {
   it('matar a la Reina no limpia la sala si aún queda una larva viva; muere la última y sí se limpia', () => {
-    const world = makeQueenWorld();
+    const world = makeQueenWorldWithColumns();
     const events = createEventQueue(64);
     world.hero.position.x = 100;
     world.hero.position.y = 100;
 
-    // Invoca una oleada para tener al menos una larva viva.
-    advance(world, events, Math.round(QUEEN_WAVE_INTERVAL / FIXED_DT) + 1);
+    // Deja que una columna pare al menos una larva.
+    advance(world, events, 1);
     const larvae = liveLarvae(world);
     expect(larvae.length).toBeGreaterThan(0);
 
@@ -544,7 +591,7 @@ describe('Reina: derrota y limpieza de sala (integración con stepWorld, modo sa
     // La sala NO se da por limpiada mientras la larva siga viva.
     expect(world.phase).toBe('playing');
 
-    // Mata también a la única larva viva: ahora sí, todos muertos.
+    // Mata también a las larvas vivas: ahora sí, todos muertos.
     for (const larva of liveLarvae(world)) {
       applyDamageToEnemy(world, larva, larva.hp, 1, 0, events);
     }
@@ -599,14 +646,14 @@ describe('Reina: la vida está en las columnas (rediseño 2026-07-10, GDD §15.3
     expect(queenState(world).columns.every((c) => c.hp === QUEEN_COLUMN_HP && !c.broken)).toBe(true);
   });
 
-  it('romper una columna (QUEEN_COLUMN_HP embestidas) baja la vida del jefe; los golpes previos solo la dañan', () => {
+  it('dos embestidas rompen una columna (QUEEN_COLUMN_HP=2): la 1.ª solo la agrieta (emite boss-column-cracked) y no baja la vida del jefe; la 2.ª rompe y sí la baja', () => {
     const world = makeQueenWorldWithColumns();
     const events = createEventQueue();
     const q = boss(world);
     const col = queenState(world).columns[0];
     const before = q.hp;
 
-    // Golpes previos (QUEEN_COLUMN_HP - 1): dañan la columna, no bajan la vida del jefe.
+    // Golpes previos (QUEEN_COLUMN_HP - 1 = 1): dañan la columna (la agrieta), no bajan la vida del jefe.
     ramColumn(world, events, col, QUEEN_COLUMN_HP - 1);
     expect(col.hp).toBe(1);
     expect(col.broken).toBe(false);
@@ -618,6 +665,17 @@ describe('Reina: la vida está en las columnas (rediseño 2026-07-10, GDD §15.3
     expect(col.broken).toBe(true);
     expect(q.hp).toBeCloseTo(before - QUEEN_MAX_HP * QUEEN_COLUMN_DAMAGE_FRACTION, 5);
     expect(collectTypes(events)).toContain('boss-column-broken');
+  });
+
+  it('al romper una columna se emite boss-column-roar (la Reina grita de dolor), además de boss-column-broken', () => {
+    const world = makeQueenWorldWithColumns();
+    const events = createEventQueue();
+    const col = queenState(world).columns[0];
+    ramColumn(world, events, col, QUEEN_COLUMN_HP);
+    expect(col.broken).toBe(true);
+    const types = collectTypes(events);
+    expect(types).toContain('boss-column-broken');
+    expect(types).toContain('boss-column-roar');
   });
 
   it('la columna rota deja de ser sólida (se retira de world.obstacles)', () => {
@@ -759,183 +817,5 @@ describe('Reina: persigue RODEANDO obstáculos (TAREA 5 rediseño 2026-07-10, "n
     advance(world, events, 300); // 5s de sobra en campo abierto
     const distEnd = Math.hypot(world.hero.position.x - q.position.x, world.hero.position.y - q.position.y);
     expect(distEnd).toBeLessThan(distStart);
-  });
-});
-
-// ── T4 (rediseño 2026-07-10): larvas guardiana (de columna) vs perseguidora ──
-
-describe('Reina: guardianas de columna (T4, rediseño 2026-07-10)', () => {
-  const guardianSpawnTicks = Math.round(QUEEN_GUARDIAN_SPAWN_INTERVAL / FIXED_DT);
-
-  it('aparece una guardiana (chasing=false) anclada a una columna y ORBITA su columna (no persigue al héroe lejano)', () => {
-    const world = makeQueenWorldWithColumns(); // 2 columnas en (±3,0)
-    const events = createEventQueue(64);
-    world.hero.position.x = 100; // héroe lejísimos: una perseguidora se iría, una guardiana no
-    world.hero.position.y = 100;
-    advance(world, events, guardianSpawnTicks * 3 + 5);
-
-    const guardians = liveLarvae(world).filter((l) => !l.chasing);
-    expect(guardians.length).toBeGreaterThanOrEqual(1);
-    for (const g of guardians) {
-      const col = queenState(world).columns.find(
-        (c) => Math.abs(c.position.x - g.patrolFrom.x) < 0.01 && Math.abs(c.position.y - g.patrolFrom.y) < 0.01,
-      );
-      expect(col).toBeDefined(); // anclada al centro de una columna
-      const dist = Math.hypot(g.position.x - g.patrolFrom.x, g.position.y - g.patrolFrom.y);
-      expect(dist).toBeLessThan(QUEEN_GUARDIAN_ORBIT_RADIUS + 1); // ronda su columna, no se va a por el héroe
-    }
-  });
-
-  it('nunca hay más de QUEEN_GUARDIAN_MAX guardianas vivas (sala real, 8 columnas)', () => {
-    const room = parseRoomData(bossQueenJson).room!;
-    const world = createWorld(room);
-    initBossEnemies(world);
-    const events = createEventQueue(64);
-    world.hero.position.x = 100;
-    world.hero.position.y = 100;
-    advance(world, events, guardianSpawnTicks * 12 + 5);
-
-    const guardians = liveLarvae(world).filter((l) => !l.chasing);
-    expect(guardians.length).toBeGreaterThanOrEqual(1);
-    expect(guardians.length).toBeLessThanOrEqual(QUEEN_GUARDIAN_MAX);
-  });
-
-  it('al romper una columna, su(s) guardiana(s) mueren con ella', () => {
-    const world = makeQueenWorldWithColumns();
-    const events = createEventQueue(64);
-    world.hero.position.x = 100;
-    world.hero.position.y = 100;
-    advance(world, events, guardianSpawnTicks * 3 + 5);
-
-    const col = queenState(world).columns[0];
-    const guardiansOfCol = () =>
-      liveLarvae(world).filter(
-        (l) => !l.chasing && Math.abs(l.patrolFrom.x - col.position.x) < 0.01 && Math.abs(l.patrolFrom.y - col.position.y) < 0.01,
-      );
-    expect(guardiansOfCol().length).toBeGreaterThanOrEqual(1);
-
-    ramColumn(world, events, col, QUEEN_COLUMN_HP);
-    expect(col.broken).toBe(true);
-    expect(guardiansOfCol().length).toBe(0);
-  });
-});
-
-// ── Órbita continua de guardianas (bug playtest 2026-07-14, 2º intento) ─────
-// El steering anterior alternaba dos modos discretos (radial/tangente) con un
-// umbral en radio+0.1: la tangente pura espiralaba hacia fuera, cruzaba el
-// umbral y el rumbo pegaba bandazos de ~90° cada pocos ticks para siempre
-// ("los ojos bailan"). El controlador nuevo persigue un punto que avanza
-// sobre la circunferencia exacta: rumbo continuo, radio que converge solo.
-
-describe('Reina: la guardiana orbita con rumbo CONTINUO (sin bandazos, bug playtest 2026-07-14)', () => {
-  /** Mundo con una guardiana y el héroe lejísimos (> QUEEN_GUARDIAN_CHARGE_RANGE): nunca telegrafía. */
-  function makeGuardianWorld() {
-    const world = makeQueenWorldWithColumns();
-    world.hero.position.x = 100;
-    world.hero.position.y = 100;
-    const guardian = liveLarvae(world).find((l) => !l.chasing)!;
-    expect(guardian).toBeDefined();
-    return { world, guardian };
-  }
-
-  it.each([[1.5], [0.5]])(
-    'empezando a %f× del radio de órbita, converge a ±0.15 del radio en ~5 s y se mantiene',
-    (factor) => {
-      const { world, guardian } = makeGuardianWorld();
-      const events = createEventQueue(64);
-      guardian.position.x = guardian.patrolFrom.x + QUEEN_GUARDIAN_ORBIT_RADIUS * factor;
-      guardian.position.y = guardian.patrolFrom.y;
-
-      advance(world, events, Math.round(5 / FIXED_DT)); // 5 s de asentamiento
-      const distTo = () => Math.hypot(guardian.position.x - guardian.patrolFrom.x, guardian.position.y - guardian.patrolFrom.y);
-      expect(distTo()).toBeGreaterThan(QUEEN_GUARDIAN_ORBIT_RADIUS - 0.15);
-      expect(distTo()).toBeLessThan(QUEEN_GUARDIAN_ORBIT_RADIUS + 0.15);
-
-      // Y SE MANTIENE: todos los ticks de los 2 s siguientes dentro de la banda.
-      for (let i = 0; i < Math.round(2 / FIXED_DT); i++) {
-        advance(world, events, 1);
-        expect(distTo()).toBeGreaterThan(QUEEN_GUARDIAN_ORBIT_RADIUS - 0.15);
-        expect(distTo()).toBeLessThan(QUEEN_GUARDIAN_ORBIT_RADIUS + 0.15);
-      }
-    },
-  );
-
-  it('tras 2 s de asentamiento, el cambio de rumbo por tick es < 0.2 rad en TODOS los ticks de 3 s (antes: saltos de ~π/2)', () => {
-    const { world, guardian } = makeGuardianWorld();
-    const events = createEventQueue(64);
-
-    advance(world, events, Math.round(2 / FIXED_DT)); // asentamiento
-    let prevHeading = Math.atan2(guardian.velocity.y, guardian.velocity.x);
-    const TAU = Math.PI * 2;
-    for (let i = 0; i < Math.round(3 / FIXED_DT); i++) {
-      advance(world, events, 1);
-      const heading = Math.atan2(guardian.velocity.y, guardian.velocity.x);
-      // Δ de rumbo normalizado a (-π, π].
-      let delta = (heading - prevHeading + Math.PI) % TAU;
-      if (delta < 0) delta += TAU;
-      delta -= Math.PI;
-      expect(Math.abs(delta)).toBeLessThan(0.2);
-      prevHeading = heading;
-    }
-  });
-
-  it('el ángulo respecto al ancla avanza de forma monótona (orbita de verdad, no se queda clavada)', () => {
-    const { world, guardian } = makeGuardianWorld();
-    const events = createEventQueue(64);
-
-    advance(world, events, Math.round(2 / FIXED_DT)); // asentamiento
-    const angleTo = () => Math.atan2(guardian.position.y - guardian.patrolFrom.y, guardian.position.x - guardian.patrolFrom.x);
-    let prevAngle = angleTo();
-    let accumulated = 0;
-    const TAU = Math.PI * 2;
-    for (let i = 0; i < Math.round(3 / FIXED_DT); i++) {
-      advance(world, events, 1);
-      const angle = angleTo();
-      let delta = (angle - prevAngle + Math.PI) % TAU;
-      if (delta < 0) delta += TAU;
-      delta -= Math.PI;
-      expect(delta).toBeGreaterThan(0); // avanza SIEMPRE (monótono), nunca retrocede
-      accumulated += delta;
-      prevAngle = angle;
-    }
-    // En 3 s a omega = SPEED/RADIUS avanza ~2.4 rad: exige progreso real.
-    const omega = QUEEN_GUARDIAN_SPEED / QUEEN_GUARDIAN_ORBIT_RADIUS;
-    expect(accumulated).toBeGreaterThan(omega * 3 * 0.7);
-  });
-});
-
-// ── Subida de dificultad (playtest 2026-07-10) ──────────────────────────────
-
-describe('Reina: guardianas presentes que embisten (playtest 2026-07-10)', () => {
-  it('A1: cada columna nace ya con guardiana desde el tick 0 (queenOnInit, sin avanzar)', () => {
-    const world = makeQueenWorldWithColumns(); // 2 columnas
-    const guardians = liveLarvae(world).filter((l) => !l.chasing);
-    expect(guardians.length).toBe(Math.min(2, QUEEN_GUARDIAN_MAX));
-    for (const g of guardians) {
-      const col = queenState(world).columns.find(
-        (c) => Math.abs(c.position.x - g.patrolFrom.x) < 0.01 && Math.abs(c.position.y - g.patrolFrom.y) < 0.01,
-      );
-      expect(col).toBeDefined(); // anclada a una columna
-    }
-  });
-
-  it('una guardiana no carga nada más nacer (cooldown inicial)', () => {
-    const world = makeQueenWorldWithColumns();
-    const events = createEventQueue(64);
-    const col = queenState(world).columns[0];
-    world.hero.position.x = col.position.x; // héroe pegado a la columna
-    world.hero.position.y = col.position.y + 0.5;
-    advance(world, events, 3); // pocos ticks, muy por debajo del cooldown inicial
-    expect(collectTypes(events)).not.toContain('boss-guardian-charge');
-  });
-
-  it('con el héroe cerca y pasado el cooldown, la guardiana telegrafía una embestida (evento boss-guardian-charge)', () => {
-    const world = makeQueenWorldWithColumns();
-    const events = createEventQueue(64);
-    const col = queenState(world).columns[0];
-    world.hero.position.x = col.position.x;
-    world.hero.position.y = col.position.y + 0.5;
-    advance(world, events, Math.round(QUEEN_GUARDIAN_CHARGE_COOLDOWN / FIXED_DT) + 4);
-    expect(collectTypes(events)).toContain('boss-guardian-charge');
   });
 });

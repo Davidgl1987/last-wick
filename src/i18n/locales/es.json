@@ -36,7 +36,9 @@
     "fps": "{n} FPS",
     "roomProgress": "Sala {i}/{n}",
     "roomAria": "Sala {i} de {n}: {name}",
-    "microTutorial": "Arrastra y suelta para lanzarte"
+    "microTutorial": "Arrastra y suelta para lanzarte",
+    "microTutorialMove": "Muévete con WASD",
+    "microTutorialWeapon": "Cambia de arma con Tab"
   },
   "weapons": {
     "body": "Cera",

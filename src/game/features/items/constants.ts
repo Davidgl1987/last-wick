@@ -48,3 +48,24 @@ export const COIN_DROP_PLACEMENT_ATTEMPTS = 6;
 export const COIN_MAGNET_RADIUS_BY_LEVEL: readonly number[] = [0, 2.5, 4, 6];
 /** Velocidad a la que una moneda atraída se acerca al héroe (u/s, constante por nivel). */
 export const COIN_MAGNET_SPEED = 7;
+
+/**
+ * Imán de VICTORIA (encargo 2026-08-31, "atrae a las monedas hasta el
+ * personaje antes de realizar la animación de victoria", aplica a TODOS los
+ * jefes): distinto del Canto de Urraca (`COIN_MAGNET_SPEED`/nivel/radio) —
+ * más rápido y sin radio, ver `stepVictoryCoinMagnet` en `items.ts`.
+ *
+ * Cálculo de holgura contra `BOSS_VICTORY_PAUSE_DURATION` = 2.5s
+ * (world/step.ts; duplicado aquí en vez de importado — este módulo es sim
+ * pura de items, importar step.ts desde aquí crearía un ciclo, ya que
+ * step.ts importa de `items.ts`/`items/constants.ts`; si cambia, revisar
+ * este cálculo): la sala de jefe más grande es boss-queen.json (11×21 u,
+ * GDD §15.3), diagonal √(11²+21²) ≈ 23.71 u — la distancia máxima posible
+ * entre héroe y moneda si ambos cayeran en esquinas opuestas al morir el
+ * jefe (peor caso teórico; en la práctica la Reina y sus larvas mueren cerca
+ * del centro/columnas, no pegadas al muro). A 12 u/s cruza esa distancia en
+ * ≈1.98s, dejando >0.5s de margen dentro de los 2.5s de pausa incluso en ese
+ * peor caso — frente a los 7 u/s del Canto de Urraca, que tardaría ≈3.39s
+ * (más que la pausa entera).
+ */
+export const VICTORY_COIN_MAGNET_SPEED = 12;

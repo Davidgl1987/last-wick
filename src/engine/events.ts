@@ -142,11 +142,22 @@ export type GameEventType =
    */
   | 'boss-columns-cleared'
   /**
-   * Reina del Enjambre (playtest 2026-07-10): una larva GUARDIANA telegrafía una
-   * embestida contra el héroe (aviso ~0.45 s antes de cargar). El render lo usa
-   * para el destello/hinchazón de aviso.
+   * Reina del Enjambre (simplificación 2026-08-31, GDD §15.3): una columna
+   * VIVA pare un minion desde su propio reloj (`QueenColumn.spawnTimer`, ver
+   * `queen/pattern.ts::queenStepColumnSpawns`) — sustituye la oleada única
+   * sincronizada desde el cuerpo. Ceniza/polvo + temblor de la columna;
+   * emitido junto al ya existente `boss-wave-spawn` (mismo instante, misma
+   * posición: la de la columna).
    */
-  | 'boss-guardian-charge'
+  | 'boss-column-spawn'
+  /**
+   * Reina del Enjambre (simplificación 2026-08-31, GDD §15.3): la Reina GRITA
+   * de dolor al romperse una columna — comunica que columna y jefe están
+   * conectados (sin el rol guardiana defendiéndola, es el único aviso de que
+   * romper una columna también le duele A ELLA). Emitido en la posición del
+   * BOSS, junto al ya existente `boss-column-broken`.
+   */
+  | 'boss-column-roar'
   /**
    * El Prisma (GDD §15.4, Fase B3): golpe con el arma equivocada para el
    * color activo (o para ninguno de los dos en solape de fase 3) — el daño se

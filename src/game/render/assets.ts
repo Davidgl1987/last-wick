@@ -285,13 +285,6 @@ export const guardianStunStarGeometry = new THREE.TetrahedronGeometry(1, 0);
 export const queenBodyMaterial = new THREE.MeshLambertMaterial({ color: '#5c2a6e' });
 /** Púas de la corona: dorado-verdoso, evoca "enjambre"/insecto sin copiar el ámbar del Guardián. */
 export const queenCrownMaterial = new THREE.MeshLambertMaterial({ color: '#9fd65c' });
-/** Pulso de invocación (GDD §15.3): breve anillo verdoso que se expande al soltar una oleada de larvas. */
-export const queenSummonPulseMaterial = new THREE.MeshBasicMaterial({
-  color: '#4dd68a',
-  transparent: true,
-  opacity: 0.55,
-  depthWrite: false,
-});
 /** Púa de la corona: cono fino y alargado (silueta de insecto/enjambre), distinto del cuerno romo del Guardián. */
 export const queenCrownSpikeGeometry = new THREE.ConeGeometry(0.14, 0.5, 6);
 
@@ -330,19 +323,6 @@ export const queenTetherMaterial = new THREE.MeshBasicMaterial({
   opacity: 0.55,
   depthWrite: false,
 });
-
-/**
- * Guardianas de la Reina (larvas embistiendo, GDD §15.3, rediseño 2026-07-10,
- * `enemy.bossStage`: 0=orbita, 1=telegrafía, 2=carga): aviso visual de que
- * van a embestir, mismo lenguaje ámbar=aviso ya usado por el resto de jefes
- * (`bossTelegraphMaterial`), sobre el cuerpo (que en reposo es el rojo
- * genérico de larva/Dummy) en vez de un anillo aparte, para que sea
- * inconfundible incluso entre el resto de larvas atacantes.
- */
-/** Telegraph (bossStage=1): parpadea alternando con el rojo base — intercambiado por EnemyViews, nunca mutado. */
-export const queenGuardianTelegraphMaterial = new THREE.MeshBasicMaterial({ color: '#ffe083' });
-/** Carga (bossStage=2, opcional): tono rojo más intenso y saturado que el reposo — "ya viene, esquiva". */
-export const queenGuardianChargeMaterial = new THREE.MeshBasicMaterial({ color: '#ff2d2d' });
 
 // ── El Prisma (GDD §15.4, Fase B3): núcleo con el color del arma activa ────
 

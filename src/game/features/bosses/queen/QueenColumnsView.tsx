@@ -5,15 +5,17 @@
  *
  * `queenState(world).columns` (sim, `queen/columns.ts`, leído del slot opaco
  * `world.bossState`) es la fuente de verdad de su vida: cada columna vale
- * `QUEEN_COLUMN_HP` (3, playtest 2026-07-10) hp intacta → 2 (leve) → 1 (grave,
- * cada golpe de embestida resta 1) → 0 con `broken=true` (rota, restos). El
- * `Obstacle` sólido correspondiente se retira de `world.obstacles` al romperse
- * (`stepQueenColumns`, `queen/columns.ts`) — por eso `RoomView.tsx` EXCLUYE del
- * pintado genérico de rocas cualquier obstáculo cuyo id local empiece por
- * `column` (mismo criterio que `queen/pattern.ts::queenOnInit` usa para poblar
- * el estado de la Reina, ver
+ * `QUEEN_COLUMN_HP` (2, simplificación 2026-08-31: al eliminar el rol
+ * guardiana ya no hace falta un forcejeo de 3 golpes) hp intacta → 1
+ * (agrietada, cada golpe de embestida resta 1 — reutiliza el aspecto más
+ * marcado que ya existía como "grave") → 0 con `broken=true` (rota, restos).
+ * El `Obstacle` sólido correspondiente se retira de `world.obstacles` al
+ * romperse (`stepQueenColumns`, `queen/columns.ts`) — por eso `RoomView.tsx`
+ * EXCLUYE del pintado genérico de rocas cualquier obstáculo cuyo id local
+ * empiece por `column` (mismo criterio que `queen/pattern.ts::queenOnInit`
+ * usa para poblar el estado de la Reina, ver
  * `QUEEN_COLUMN_ID_PREFIX`): este fichero es el ÚNICO que pinta las
- * columnas, en sus 4 estados (intacta/leve/grave/restos), evitando el
+ * columnas, en sus 3 estados (intacta/agrietada/restos), evitando el
  * doble-render.
  *
  * Patrón: igual que `PuddleView.tsx` — pool de InstancedMesh preasignado
@@ -21,21 +23,21 @@
  * cada frame en `useFrame` y mutado vía matrices; nunca `setState` por
  * frame, nunca se crean/destruyen meshes. Solo el estado que aplica a cada
  * columna queda con escala > 0 en su mesh; el resto se oculta (escala 0,
- * mismo truco que los charcos inactivos). Los 3 niveles de daño (hp=3/2/1)
- * degradan progresivamente inclinación + oscurecimiento + grieta, para que
- * se lea de un vistazo cuántos golpes le quedan a cada columna.
+ * mismo truco que los charcos inactivos). El único nivel de daño visible
+ * antes de romperse (hp=1) aplica de una vez inclinación + oscurecimiento +
+ * grieta, para que el cambio permanente se lea de un golpe.
  *
- * F3 (ART_KIT_PLAN §5): intacta/leve/grave pintan la MISMA geometría
+ * F3 (ART_KIT_PLAN §5): intacta/agrietada pintan la MISMA geometría
  * `column` del kit (footprint escalado al AABB real de la columna, altura
  * natural del kit) con un clon de `kitMaterial` teñido más oscuro por
  * estado — mismo patrón que `doorKeyGateMaterial` en RoomView.tsx (JAMÁS se
  * muta `kitMaterial`, que comparte todo el kit). El requisito de playtest
  * ("debe leerse de un golpe cuántos golpes le quedan") ya estaba resuelto en
- * los 3 tonos de gris de las materiales antiguas — se REUTILIZAN esos mismos
+ * los tonos de gris de las materiales antiguas — se REUTILIZAN esos mismos
  * tonos exactos como tinte sobre la geometría real del kit, así que el
  * contraste ya validado no cambia, solo gana el detalle de la piedra del
  * atlas. Los restos usan `rubble_half` aplastada contra el suelo (con su
- * propio tinte, el más oscuro de los cuatro).
+ * propio tinte, el más oscuro de los tres).
  *
  * `QueenTethersView` pinta la "cuerda" (GDD §15.3, feedback de playtest
  * 2026-07-10) que une a la Reina con cada columna AÚN EN PIE (intacta o
@@ -43,6 +45,17 @@
  * posición REAL de la Reina (persigue) hasta la columna. Al romperse una
  * columna, su cuerda no desaparece de golpe: se retrae (latigazo corto hacia
  * la Reina) durante `TETHER_RETRACT_DURATION` y luego se oculta.
+ *
+ * Temblor de columna (encargo de feedback visual 2026-08-31: "el spawn debe
+ * ser visible: la columna reacciona/tiembla"; también cubre el golpe de
+ * embestida): `QueenColumn.shakeUntil` (`queen/columns.ts`) es un timestamp
+ * de `world.time` de solo-ESCRITURA para la sim — este fichero es el ÚNICO
+ * lector. `columnShakeOffset` (más abajo) deriva un desplazamiento lateral
+ * (eje X) a partir de CUÁNTO FALTA para `shakeUntil`, nunca de cuánto ha
+ * pasado desde que empezó (este fichero no guarda un "inicio" propio): así
+ * decae solo, sin cortar en seco, y sigue siendo válido pase lo que pase por
+ * `SHAKE_DECAY_WINDOW`. Solo se aplica a los 2 estados EN PIE (intacta/
+ * agrietada) — los escombros no tiemblan, son una marca inerte en el suelo.
  */
 
 import { useFrame } from '@react-three/fiber';
@@ -58,41 +71,52 @@ import {
   queenTetherMaterial,
   unitBox,
 } from '@/game/render/assets';
-import { queenState } from './columns';
+import { queenState, type QueenColumn } from './columns';
 import { QUEEN_COLUMN_HP } from './constants';
 
 /** Restos/escombros: mucho más bajo que una columna en pie, aplastado contra el suelo (marca, no obstáculo). */
 const DEBRIS_HEIGHT = 0.35;
 /** Los escombros se extienden un poco más allá de la huella original de la columna (efecto "se desparramó"). */
 const DEBRIS_FOOTPRINT_SCALE = 1.2;
-/** Inclinación de una columna hp=1 (grave, feedback de director 2026-07-10: "debe leerse que le queda un golpe"). Alterna de lado por índice para que no se vean clonadas. */
+/** Inclinación de una columna hp=1 (agrietada, feedback de director 2026-07-10: "debe leerse que le queda un golpe"). Alterna de lado por índice para que no se vean clonadas. */
 const CRACKED_TILT = 0.11;
 /** La columna hp=1 se hunde/acorta ligeramente (parece parcialmente partida, no solo repintada). */
 const CRACKED_HEIGHT_SCALE = 0.92;
-/** Inclinación de una columna hp=2 (leve): mitad que la de hp=1, primer aviso sutil de daño. */
-const CRACKED_LIGHT_TILT = CRACKED_TILT * 0.5;
-/** La columna hp=2 apenas se hunde (bastante menos que hp=1): daño incipiente, no crítico todavía. */
-const CRACKED_LIGHT_HEIGHT_SCALE = 0.97;
+/** Amplitud lateral (eje X, u) del temblor de columna (encargo 2026-08-31: "0.03–0.05 u"): pequeña a propósito — la inclinación fija (CRACKED_TILT) ya comunica el daño permanente, esto es solo el instante del golpe/parto. */
+const SHAKE_AMPLITUDE = 0.04;
+/** Velocidad angular del temblor (rad/s, encargo: "~30-40 rad/s"): oscilación rápida y nerviosa, se distingue a simple vista de CRACKED_TILT (estático) y del acecho de la Reina (mucho más lento). */
+const SHAKE_ANGULAR_SPEED = 34;
+/**
+ * Ventana (s) sobre la que decae la amplitud del temblor a 0 según se acerca
+ * `shakeUntil`, igual criterio "no cortar en seco" que `TETHER_RETRACT_DURATION`
+ * más abajo. Coincide con la duración real que usa la sim hoy (0.35s, ver
+ * `columns.ts`/`larvae.ts`) para que el temblor decaiga durante TODA su
+ * ventana visible — si la sim alargase esa duración en el futuro, el temblor
+ * simplemente se sostendría a amplitud plena más tiempo antes de entrar en
+ * esta cola final, sin que este fichero necesite conocer la duración exacta.
+ */
+const SHAKE_DECAY_WINDOW = 0.35;
 /** Altura del centro del cordón sobre el suelo (ni al ras ni a la altura de la corona: lee como "atadura", no como aro). */
 const TETHER_HEIGHT = 0.55;
 /** Duración del latigazo de retracción al romper una columna: la cuerda encoge rápido hacia la Reina en vez de cortarse en seco. */
 const TETHER_RETRACT_DURATION = 0.18;
 
 /**
- * Tintes de columna agrietada (leve/grave), clones de `kitMaterial` — mismo
- * patrón que `doorKeyGateMaterial` de RoomView.tsx: se clona UNA vez a nivel
- * de módulo y se le cambia solo el color, nunca se muta `kitMaterial` en sí.
- * Los tonos son EXACTAMENTE los de las materiales planas que sustituyen
- * (`queenColumnCrackedLightMaterial`/`queenColumnCrackedMaterial` de
- * assets.ts, ya validadas en el playtest de 2026-07-10 que exige distinguir
- * los 3 niveles de daño de un vistazo): el contraste no cambia, solo se
- * aplica ahora sobre la piedra texturizada del kit en vez de una caja lisa.
+ * Tinte de columna agrietada, clon de `kitMaterial` — mismo patrón que
+ * `doorKeyGateMaterial` de RoomView.tsx: se clona UNA vez a nivel de módulo y
+ * se le cambia solo el color, nunca se muta `kitMaterial` en sí. El tono es
+ * EXACTAMENTE el de la material plana que sustituye (`queenColumnCrackedMaterial`
+ * de assets.ts, ya validado en el playtest de 2026-07-10 que exigía
+ * distinguir los niveles de daño de un vistazo): el contraste no cambia, solo
+ * se aplica ahora sobre la piedra texturizada del kit en vez de una caja lisa.
+ * Simplificación 2026-08-31 (columnas a 2 golpes en vez de 3, rol guardiana
+ * eliminado): se retira el tinte intermedio "leve" (queenColumnLightCrackMaterial),
+ * que quedaba sin uso — solo queda este tono, el más marcado, reutilizado tal
+ * cual del antiguo estado "grave".
  */
-const queenColumnLightCrackMaterial = kitMaterial.clone();
-queenColumnLightCrackMaterial.color = new THREE.Color('#63667f');
 const queenColumnGraveCrackMaterial = kitMaterial.clone();
 queenColumnGraveCrackMaterial.color = new THREE.Color('#4a4a56');
-/** Tinte de los restos/escombros: el más oscuro de los cuatro (mismo tono que la antigua `queenColumnDebrisMaterial`). */
+/** Tinte de los restos/escombros: el más oscuro de los tres (mismo tono que la antigua `queenColumnDebrisMaterial`). */
 const queenColumnDebrisTintMaterial = kitMaterial.clone();
 queenColumnDebrisTintMaterial.color = new THREE.Color('#2e2e38');
 
@@ -123,6 +147,22 @@ function kitXZCenterOffset(geometry: THREE.BufferGeometry): { x: number; z: numb
   return { x: -(box.min.x + box.max.x) / 2, z: -(box.min.z + box.max.z) / 2 };
 }
 
+/**
+ * Desplazamiento lateral (eje X, mundo) del temblor de la columna `col` en
+ * este instante, o 0 si `col.shakeUntil` ya venció (ver cabecera del
+ * fichero). Fase ligada a `time` (world.time), no a un "inicio" propio que
+ * este fichero no guarda — mismo patrón que el pulso del anillo de telegraph
+ * genérico (`EnemyViews.tsx`: `bodyRadius * (1.5 + 0.2 * Math.sin(world.time * 14))`),
+ * con un desfase por índice (`+ i` en la fase) para que varias columnas
+ * temblando a la vez no se vean clonadas (mismo criterio que `CRACKED_TILT`).
+ */
+function columnShakeOffset(col: QueenColumn, i: number, time: number): number {
+  const remaining = col.shakeUntil - time;
+  if (remaining <= 0) return 0;
+  const decay = Math.min(1, remaining / SHAKE_DECAY_WINDOW);
+  return Math.sin(time * SHAKE_ANGULAR_SPEED + i) * SHAKE_AMPLITUDE * decay;
+}
+
 export function QueenColumnsView({ session }: { session: GameSession }) {
   // Las columnas de la Reina viven en el estado del jefe, no en una sala, así
   // que se resuelven por posición: si su sala todavía está oculta no se pintan
@@ -130,7 +170,6 @@ export function QueenColumnsView({ session }: { session: GameSession }) {
   // de que el jugador pueda llegar).
   const known = useKnownRoomIds(session.world);
   const intactRef = useRef<THREE.InstancedMesh>(null);
-  const crackedLightRef = useRef<THREE.InstancedMesh>(null);
   const crackedRef = useRef<THREE.InstancedMesh>(null);
   const crackStripeRef = useRef<THREE.InstancedMesh>(null);
   const debrisRef = useRef<THREE.InstancedMesh>(null);
@@ -149,26 +188,25 @@ export function QueenColumnsView({ session }: { session: GameSession }) {
 
   useFrame(() => {
     const intact = intactRef.current;
-    const crackedLight = crackedLightRef.current;
     const cracked = crackedRef.current;
     const crackStripe = crackStripeRef.current;
     const debris = debrisRef.current;
-    if (!intact || !crackedLight || !cracked || !crackStripe || !debris) return;
+    if (!intact || !cracked || !crackStripe || !debris) return;
 
-    const columns = queenState(session.world).columns;
+    const world = session.world;
+    const columns = queenState(world).columns;
     for (let i = 0; i < columns.length; i++) {
       const col = columns[i];
       const width = col.halfW * 2;
       const depth = col.halfH * 2;
       // Footprint de `column` escalado al AABB real de la columna (igual que
-      // RockVariantInstances en RoomView.tsx): mismo footprint en los 3
-      // estados en pie, solo cambia la altura (más abajo).
+      // RockVariantInstances en RoomView.tsx): mismo footprint en los 2
+      // estados en pie (intacta/agrietada), solo cambia la altura (más abajo).
       const scaleX = width / columnSize.x;
       const scaleZ = depth / columnSize.z;
 
       if (col.broken) {
         hideInstance(intact, i);
-        hideInstance(crackedLight, i);
         hideInstance(cracked, i);
         hideInstance(crackStripe, i);
         const sx = (width * DEBRIS_FOOTPRINT_SCALE) / rubbleSize.x;
@@ -182,26 +220,32 @@ export function QueenColumnsView({ session }: { session: GameSession }) {
         continue;
       }
 
-      if (col.hp <= QUEEN_COLUMN_HP - 2) {
-        // Grave (le queda 1 golpe): máxima inclinación/oscurecimiento y
-        // grieta larga — el aspecto más dañado antes de romperse del todo.
+      if (col.hp <= QUEEN_COLUMN_HP - 1) {
+        // Agrietada (le queda 1 golpe, único nivel de daño visible antes de
+        // romperse — reutiliza el aspecto más marcado que ya existía como
+        // "grave"): máxima inclinación/oscurecimiento y grieta larga, para
+        // que el cambio permanente se lea de un golpe.
         hideInstance(intact, i);
-        hideInstance(crackedLight, i);
         hideInstance(debris, i);
         const tilt = (i % 2 === 0 ? 1 : -1) * CRACKED_TILT;
         const height = columnSize.y * CRACKED_HEIGHT_SCALE;
+        // Temblor (ver cabecera + columnShakeOffset): mismo offset lateral
+        // aplicado a la columna Y a su grieta, para que la franja se quede
+        // pegada a la cara de la piedra en vez de "flotar" sobre ella
+        // mientras tiembla.
+        const shakeX = columnShakeOffset(col, i, world.time);
         // Pivote de `column` en su BASE (no centrado como el antiguo
         // unitBox): la inclinación gira sobre el pie de la columna, un
         // "apoyo que cede" más creíble que el balanceo alrededor del centro
         // que tenía la caja plana.
-        scratch.position.set(col.position.x, columnGroundY * CRACKED_HEIGHT_SCALE, col.position.y);
+        scratch.position.set(col.position.x + shakeX, columnGroundY * CRACKED_HEIGHT_SCALE, col.position.y);
         scratch.rotation.set(0, 0, tilt);
         scratch.scale.set(scaleX, CRACKED_HEIGHT_SCALE, scaleZ);
         scratch.updateMatrix();
         cracked.setMatrixAt(i, scratch.matrix);
         // Grieta: franja fina y oscura cruzando la cara sur (+Z, la que mira
         // hacia la cámara con el encuadre isométrico del juego) en diagonal.
-        scratch.position.set(col.position.x, height * 0.55, col.position.y + depth / 2 + 0.01);
+        scratch.position.set(col.position.x + shakeX, height * 0.55, col.position.y + depth / 2 + 0.01);
         scratch.rotation.set(0, 0, tilt + Math.PI / 4);
         scratch.scale.set(width * 1.3, 0.05, 0.05);
         scratch.updateMatrix();
@@ -209,42 +253,18 @@ export function QueenColumnsView({ session }: { session: GameSession }) {
         continue;
       }
 
-      if (col.hp === QUEEN_COLUMN_HP - 1) {
-        // Leve (le quedan 2 golpes): inclinación/oscurecimiento y grieta a
-        // medias respecto al nivel grave — primer aviso, todavía sutil.
-        hideInstance(intact, i);
-        hideInstance(cracked, i);
-        hideInstance(debris, i);
-        const tilt = (i % 2 === 0 ? 1 : -1) * CRACKED_LIGHT_TILT;
-        const height = columnSize.y * CRACKED_LIGHT_HEIGHT_SCALE;
-        scratch.position.set(col.position.x, columnGroundY * CRACKED_LIGHT_HEIGHT_SCALE, col.position.y);
-        scratch.rotation.set(0, 0, tilt);
-        scratch.scale.set(scaleX, CRACKED_LIGHT_HEIGHT_SCALE, scaleZ);
-        scratch.updateMatrix();
-        crackedLight.setMatrixAt(i, scratch.matrix);
-        // Grieta más corta/fina que la de hp=1: daño incipiente, aún se lee
-        // como "le quedan golpes" sin confundirse con el estado grave.
-        scratch.position.set(col.position.x, height * 0.55, col.position.y + depth / 2 + 0.01);
-        scratch.rotation.set(0, 0, tilt + Math.PI / 4);
-        scratch.scale.set(width * 0.7, 0.035, 0.035);
-        scratch.updateMatrix();
-        crackStripe.setMatrixAt(i, scratch.matrix);
-        continue;
-      }
-
       // Intacta (col.hp >= QUEEN_COLUMN_HP, único nivel sin agrietar): sin daño visible, misma silueta que cualquier columna del kit.
-      hideInstance(crackedLight, i);
       hideInstance(cracked, i);
       hideInstance(crackStripe, i);
       hideInstance(debris, i);
-      scratch.position.set(col.position.x, columnGroundY, col.position.y);
+      const shakeX = columnShakeOffset(col, i, world.time);
+      scratch.position.set(col.position.x + shakeX, columnGroundY, col.position.y);
       scratch.rotation.set(0, 0, 0);
       scratch.scale.set(scaleX, 1, scaleZ);
       scratch.updateMatrix();
       intact.setMatrixAt(i, scratch.matrix);
     }
     intact.instanceMatrix.needsUpdate = true;
-    crackedLight.instanceMatrix.needsUpdate = true;
     cracked.instanceMatrix.needsUpdate = true;
     crackStripe.instanceMatrix.needsUpdate = true;
     debris.instanceMatrix.needsUpdate = true;
@@ -264,13 +284,6 @@ export function QueenColumnsView({ session }: { session: GameSession }) {
   return (
     <>
       <instancedMesh ref={intactRef} args={[columnGeometry, kitMaterial, count]} frustumCulled={false} castShadow receiveShadow />
-      <instancedMesh
-        ref={crackedLightRef}
-        args={[columnGeometry, queenColumnLightCrackMaterial, count]}
-        frustumCulled={false}
-        castShadow
-        receiveShadow
-      />
       <instancedMesh
         ref={crackedRef}
         args={[columnGeometry, queenColumnGraveCrackMaterial, count]}

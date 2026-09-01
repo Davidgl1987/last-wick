@@ -14,7 +14,8 @@ import type { GameSession } from '@/game/session/session';
 import type { WeaponMode } from '@/game/world/types';
 import { frameClass, Icon, type IconName } from '@/ui';
 import { type TranslationKey, useT } from '@/i18n';
-import { isTypingInTextField } from './dom-focus';
+import { isInteractiveElement, isTypingInTextField } from './dom-focus';
+import { canHijackTabForWeaponCycle, cycleWeaponMode } from './weapon-cycle';
 import './weapon-bar.css';
 
 /**
@@ -90,16 +91,42 @@ export function WeaponBar({ session }: { session: GameSession }) {
     setActive(mode);
   };
 
-  // Comodidad de PC/playtest (GDD §3): teclas 1/2/3 seleccionan directamente
-  // y la rueda del ratón cicla entre las 3 (arriba = anterior, abajo =
-  // siguiente). Mismo camino de selección que los botones (`select`), así
-  // que WeaponBar refleja el cambio igual en ambos casos. El teclado sigue
-  // sin ser necesario para jugar (sin romper táctil): son listeners extra en
-  // window, no sustituyen a los botones.
+  /** Cicla el modo activo `step` posiciones (±1): mismo camino `select` que rueda/Tab/botones (cycleWeaponMode, weapon-cycle.ts). */
+  const cycle = (step: 1 | -1) => select(cycleWeaponMode(session.world.hero.weaponMode, step));
+
+  // Comodidad de PC/playtest (GDD §3): teclas 1/2/3 seleccionan directamente,
+  // la rueda del ratón cicla entre las 3 (arriba = anterior, abajo =
+  // siguiente) y Tab/Shift+Tab cicla igual (siguiente/anterior, encargo
+  // 2026-08-31). Los tres caminos comparten `select`/`cycle`
+  // (cycleWeaponMode, weapon-cycle.ts), así que WeaponBar refleja el cambio
+  // igual en cualquier caso. El teclado sigue sin ser necesario para jugar
+  // (sin romper táctil): son listeners extra en window, no sustituyen a los
+  // botones.
+  //
+  // Tab es la ÚNICA de las cuatro que necesita cuidado de accesibilidad (es
+  // la navegación por foco nativa del navegador): solo se secuestra jugando
+  // de verdad y con el foco fuera de cualquier control interactivo — ver
+  // canHijackTabForWeaponCycle (weapon-cycle.ts) para la regla completa.
   useEffect(() => {
     const KEY_TO_MODE: Record<string, WeaponMode> = { '1': 'body', '2': 'arrow', '3': 'spell' };
 
     const onKeyDown = (e: KeyboardEvent) => {
+      // Rama separada del resto: su guarda no es solo isTypingInTextField +
+      // fase, también debe dejar pasar el Tab nativo si el foco ya está en
+      // OTRO control interactivo (botón/enlace/tabindex) — un modal con sus
+      // propios botones, por ejemplo, debe poder tabular libremente.
+      if (e.key === 'Tab') {
+        const canHijack = canHijackTabForWeaponCycle({
+          phase: session.world.phase,
+          isTypingInTextField: isTypingInTextField(),
+          isFocusOnInteractiveElement: isInteractiveElement(document.activeElement),
+        });
+        if (!canHijack) return; // deja pasar la navegación nativa del navegador
+        e.preventDefault();
+        cycle(e.shiftKey ? -1 : 1); // Shift+Tab = arma anterior, Tab = siguiente
+        return;
+      }
+
       if (isTypingInTextField()) return;
       if (session.world.phase !== 'playing') return;
       const mode = KEY_TO_MODE[e.key];
@@ -109,10 +136,7 @@ export function WeaponBar({ session }: { session: GameSession }) {
     const onWheel = (e: WheelEvent) => {
       if (isTypingInTextField()) return;
       if (session.world.phase !== 'playing') return;
-      const currentIndex = MODES.findIndex((m) => m.mode === session.world.hero.weaponMode);
-      const step = e.deltaY > 0 ? 1 : -1; // abajo = siguiente, arriba = anterior
-      const nextIndex = (currentIndex + step + MODES.length) % MODES.length;
-      select(MODES[nextIndex].mode);
+      cycle(e.deltaY > 0 ? 1 : -1); // abajo = siguiente, arriba = anterior
     };
 
     window.addEventListener('keydown', onKeyDown);

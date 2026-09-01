@@ -47,6 +47,10 @@ export const SILENT_EVENTS: readonly GameEventType[] = [
   // por segundo, GDD §15.2): puramente visual, sonar saturaría el bus y no
   // aporta nada que 'boss-telegraph' (el aviso real de la carga) no cubra ya.
   'boss-charge-dust',
+  // Reina del Enjambre (simplificación 2026-08-31): una columna pare un
+  // minion — sin sonido propio, el 'boss-wave-spawn' simultáneo (misma
+  // posición, mismo instante) ya suena.
+  'boss-column-spawn',
 ];
 
 /** Rango en X (u de mundo) que corresponde a paneo estéreo extremo. */
@@ -102,14 +106,28 @@ export const SFX_BY_EVENT: Partial<Record<GameEventType, EventSfx>> = {
   'boss-barrel-spawn': { clip: 'boss-barrel-spawn' },
   'boss-barrel-land': { clip: 'boss-barrel-land' },
   'boss-barrel-charge-stun': { clip: 'boss-barrel-charge-stun' },
-  'boss-wave-spawn': { clip: 'boss-wave-spawn' },
-  // Varias larvas guardianas pueden telegrafiar carga casi a la vez (GDD
-  // §15.3): minInterval alto para que suene como una sola alerta, no una
-  // ametralladora de avisos.
-  'boss-guardian-charge': { clip: 'boss-guardian-charge', minInterval: 220 },
+  // Simplificación 2026-08-31 (queen/constants.ts::QUEEN_COLUMN_SPAWN_INTERVAL_BY_PHASE):
+  // cada columna VIVA de la Reina para un minion por su cuenta cada 4-6s y
+  // hay hasta 8 columnas — este clip suena mucho más a menudo que la antigua
+  // oleada única sincronizada, y repetido siempre IGUAL canta (encargo David
+  // 2026-08-31: "una pequeña variación... para que no suene siempre la misma
+  // risa"). rateJitter=0.12 (más alto que enemy-hit=0.06/enemy-died=0.04
+  // aposta: aquí es la MISMA voz sonando en bucle, no una entre varias
+  // variantes, así que necesita más variación para no cantar) sin llegar a
+  // desafinar. minInterval=80ms (orden de wall-bounce=60/enemy-shot=70) solo
+  // amortigua el caso de DOS columnas pariendo en el mismo instante o casi:
+  // muy por debajo del hueco mínimo real entre partos de columnas DISTINTAS
+  // (queenOnInit desfasa cada columna en `spawnInterval/8`; en fase 3, la más
+  // rápida, eso son 4/8=0.5s), así que nunca silencia un parto legítimo.
+  'boss-wave-spawn': { clip: 'boss-wave-spawn', rateJitter: 0.12, minInterval: 80 },
   'boss-column-cracked': { clip: 'boss-column-cracked' },
   'boss-column-broken': { clip: 'boss-column-broken' },
   'boss-columns-cleared': { clip: 'boss-columns-cleared', bus: 'music' },
+  // Simplificación 2026-08-31: la Reina grita al romperse una columna — no
+  // hay clip de rugido propio en el pack de audio (no se pueden añadir .mp3
+  // nuevos), así que reutiliza el clip de cambio de fase ('boss-phase-changed'),
+  // el otro momento en que la Reina "reacciona" con voz propia.
+  'boss-column-roar': { clip: 'boss-phase-changed' },
   'enemy-shot': { clip: 'enemy-shot', rateJitter: 0.05, minInterval: 70 },
 };
 

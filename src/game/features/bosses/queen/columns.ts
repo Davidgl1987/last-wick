@@ -11,7 +11,7 @@ import { applyDamageToEnemy } from '@/game/features/combat/combat';
 import { pushEvent, type EventQueue } from '@/engine/events';
 import type { Vec2 } from '@/engine/geometry';
 import type { BossState, Enemy, World } from '@/game/world/types';
-import { QUEEN_COLUMN_DAMAGE_FRACTION, QUEEN_COLUMN_HIT_COOLDOWN, QUEEN_COLUMN_STUN_DURATION, QUEEN_COLUMN_TOUCH_SKIN, QUEEN_LARVA_ID_PREFIX } from './constants';
+import { QUEEN_COLUMN_DAMAGE_FRACTION, QUEEN_COLUMN_HIT_COOLDOWN, QUEEN_COLUMN_STUN_DURATION, QUEEN_COLUMN_TOUCH_SKIN } from './constants';
 
 /**
  * Columna destructible de la sala de la Reina (GDD §15.3 rediseño 2026-07-10):
@@ -27,6 +27,23 @@ export interface QueenColumn {
   hp: number; // QUEEN_COLUMN_HP → 1 (agrietada) → 0 (rota)
   broken: boolean;
   roomId?: string;
+  /**
+   * Cuenta atrás (s) hasta que esta columna pare su próximo minion
+   * (simplificación 2026-08-31, `queen/pattern.ts::queenStepColumnSpawns`):
+   * cada columna VIVA tiene su propio reloj — desfasado por índice en
+   * `queenOnInit` para que no paran todas a la vez — en vez de una oleada
+   * única sincronizada desde el cuerpo del jefe. Una columna rota deja de
+   * descontarlo (se filtra por `!broken` antes de tocarlo).
+   */
+  spawnTimer: number;
+  /**
+   * world.time hasta el que dura el temblor visual de esta columna
+   * (simplificación 2026-08-31): se fija al parir un minion y al recibir un
+   * impacto de embestida. Campo de solo-ESCRITURA para la sim — el render
+   * (pendiente, otro agente) es quien lo consumirá; nada en columns.ts ni en
+   * pattern.ts lo lee.
+   */
+  shakeUntil: number;
 }
 
 /**
@@ -116,8 +133,12 @@ export function stepQueenColumns(world: World, cooldowns: Map<string, number>, e
     cooldowns.set(col.id, world.time);
 
     col.hp -= 1;
+    // Temblor visual de la columna (simplificación 2026-08-31, §6): cualquier
+    // impacto de embestida lo dispara, la agriete o la rompa. Campo de
+    // solo-escritura aquí — lo consume el render (pendiente, otro agente).
+    col.shakeUntil = world.time + 0.35;
     if (col.hp > 0) {
-      // Cada golpe que NO rompe avisa (hp 2 y 1 con QUEEN_COLUMN_HP=3): el
+      // Cada golpe que NO rompe avisa (hp 1 con QUEEN_COLUMN_HP=2): el
       // render deriva el aspecto de daño de `col.hp`.
       pushEvent(events, 'boss-column-cracked', col.position.x, col.position.y, 1);
     }
@@ -126,22 +147,17 @@ export function stepQueenColumns(world: World, cooldowns: Map<string, number>, e
       const idx = world.obstacles.findIndex((o) => o.id === col.id);
       if (idx >= 0) world.obstacles.splice(idx, 1);
 
-      // Sus guardianas caen con ella (rediseño 2026-07-10): las larvas
-      // guardianas (chasing=false) ancladas (patrolFrom) al centro de esta
-      // columna mueren al romperla — "la columna cae y su defensora con ella".
-      for (let g = 0; g < world.enemies.length; g++) {
-        const e = world.enemies[g];
-        if (e.hp <= 0 || e.chasing || !e.id.startsWith(QUEEN_LARVA_ID_PREFIX)) continue;
-        if (Math.abs(e.patrolFrom.x - col.position.x) < 0.01 && Math.abs(e.patrolFrom.y - col.position.y) < 0.01) {
-          e.hp = 0;
-        }
-      }
-
       const boss = world.enemies.find(
         (e) => e.kind === 'boss' && e.bossId === 'queen' && (e.roomId === undefined || e.roomId === col.roomId),
       );
       if (boss && boss.hp > 0) {
         applyDamageToEnemy(world, boss, boss.maxHp * QUEEN_COLUMN_DAMAGE_FRACTION, 0, 0, events, true);
+        // La Reina GRITA de dolor al romperse una columna (simplificación
+        // 2026-08-31): comunica que columna y jefe están conectados — sin el
+        // rol guardiana defendiéndola, este es el único aviso de que ROMPER
+        // una columna también le duele A ELLA. Emitido en la posición del
+        // BOSS (no de la columna): el grito es suyo.
+        pushEvent(events, 'boss-column-roar', boss.position.x, boss.position.y, 1);
         // La Reina queda ATURDIDA (vulnerable, daño completo) un rato tras
         // romperle una columna (playtest 2026-07-10: "si le atacas justo al
         // romper una columna, ahí sí le haces más daño"). Si con ESTA rotura ya

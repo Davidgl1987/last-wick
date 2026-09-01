@@ -12,6 +12,7 @@ import {
   COIN_MAGNET_SPEED,
   ITEM_PICKUP_RADIUS,
   POTION_HEAL,
+  VICTORY_COIN_MAGNET_SPEED,
 } from './constants';
 import { pushEvent, type EventQueue } from '@/engine/events';
 import type { Item, World } from '@/game/world/types';
@@ -206,5 +207,58 @@ export function stepItems(world: World, dt: number, events: EventQueue): void {
     }
     if (item.kind === 'coin') stepCoinMagnet(world, item, dt);
     tryPickup(world, item, events);
+  }
+}
+
+/**
+ * Imán de VICTORIA al derrotar a un jefe (encargo 2026-08-31, "haz un efecto
+ * imán y atrae a las monedas hasta el personaje antes de realizar la
+ * animación de victoria", aplica a TODOS los jefes): llamado SOLO desde la
+ * rama `'boss-victory-pause'` de `stepWorld` (world/step.ts), con el mundo
+ * congelado a propósito (por eso recibe `dt`/`events` explícitos en vez de
+ * pasar por `stepItems`, que solo corre en fase 'playing'). A diferencia de
+ * `stepCoinMagnet` (mejora Canto de Urraca): ignora `coinMagnetLevel` y no
+ * tiene radio de activación (toda moneda de la sala cae dentro, sin importar
+ * la distancia), y usa `VICTORY_COIN_MAGNET_SPEED` (12 u/s, más rápido que
+ * los 7 u/s del Canto de Urraca — ver el cálculo de holgura contra
+ * `BOSS_VICTORY_PAUSE_DURATION` en items/constants.ts). Recogida real
+ * reutilizando `tryPickup`, igual que el imán normal.
+ *
+ * Filtra "moneda de la sala del héroe" por GEOMETRÍA (`world.bounds`, el AABB
+ * interior de la sala ACTUAL — se mantiene fijo durante la pausa porque
+ * `stepRoomTransition` no corre con el mundo congelado), NUNCA por
+ * `item.roomId`: las 4 salas de jefe (boss-*.json) no traen monedas propias
+ * (0 items), así que toda moneda de una pelea de jefe llega por
+ * `dropCoinAt`, que reutiliza el primer slot de moneda INACTIVO que
+ * encuentra en `world.items` sin importar de qué sala era — puede traer
+ * arrastrado el `roomId` de una sala ya visitada y vaciada páginas atrás.
+ * `item.position` sí es siempre la real (la fija `dropCoinAt` en el punto de
+ * muerte), así que el AABB de la sala actual es el único filtro fiable.
+ */
+export function stepVictoryCoinMagnet(world: World, dt: number, events: EventQueue): void {
+  const hero = world.hero;
+  const bounds = world.bounds;
+  const items = world.items;
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    if (!item.active || item.kind !== 'coin') continue;
+    if (
+      item.position.x < bounds.minX ||
+      item.position.x > bounds.maxX ||
+      item.position.y < bounds.minY ||
+      item.position.y > bounds.maxY
+    ) {
+      continue; // moneda de otra sala (geometría, ver cabecera de la función): no es de aquí, no se toca
+    }
+
+    const dx = hero.position.x - item.position.x;
+    const dy = hero.position.y - item.position.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist > 1e-6) {
+      const step = Math.min(dist, VICTORY_COIN_MAGNET_SPEED * dt);
+      item.position.x += (dx / dist) * step;
+      item.position.y += (dy / dist) * step;
+    }
+    tryPickup(world, item, events); // misma recogida por contacto que el resto de items, ver cabecera
   }
 }

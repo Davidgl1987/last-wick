@@ -324,6 +324,26 @@
   letter-spacing: 0.015em;
   text-align: center;
   white-space: nowrap;
+  /* Pistas de teclado (WASD/Tab, encargo 2026-08-31, useKeyboardHint.ts):
+     líneas EXTRA opcionales bajo la pista principal, mismo marco/fondo (sin
+     panel nuevo) — apiladas en columna en vez de la única línea de antes.
+     display:flex no cambia nada visualmente cuando solo hay un hijo (táctil
+     puro, sin señal de teclado): se pinta igual que el <span> suelto de
+     antes de esta feature. */
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* Líneas secundarias de teclado (WASD/Tab): subordinadas a la pista
+   principal (arrastrar y soltar) — más pequeñas y atenuadas, para que no
+   compitan por atención ni "tapen el juego" (encargo de David). Mismo
+   --ui-text-dim que .hud-room-progress de arriba; heredan white-space:nowrap
+   del contenedor .hud-microtutorial-text.ui-frame. */
+.hud-microtutorial-hint {
+  font-size: clamp(11px, 3vw, 13px);
+  font-weight: 600;
+  color: var(--ui-text-dim);
 }
 
 @keyframes microtutorial-drag {

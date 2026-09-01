@@ -47,7 +47,8 @@ const ALL_EVENT_TYPES = {
   'boss-column-cracked': true,
   'boss-column-broken': true,
   'boss-columns-cleared': true,
-  'boss-guardian-charge': true,
+  'boss-column-spawn': true,
+  'boss-column-roar': true,
   'boss-immune-hit': true,
 } satisfies Record<GameEventType, true>;
 
@@ -120,6 +121,28 @@ describe('eventSfx (tabla evento → sonido)', () => {
 
     it('no lanza para eventos lejanos del oyente (fuera de rango audible)', () => {
       expect(() => playEventSfx(makeEvent('enemy-hit', { x: 1000, y: 1000 }), 0, 0, 'body')).not.toThrow();
+    });
+  });
+
+  describe('boss-wave-spawn (variación de pitch, encargo 2026-08-31: "no suene siempre la misma risa")', () => {
+    it('tiene rateJitter perceptible (mismo orden que enemy-hit/enemy-died) para no repetirse siempre igual', () => {
+      const config = SFX_BY_EVENT['boss-wave-spawn'];
+      expect(config?.rateJitter).toBeGreaterThan(0);
+      // "Claramente perceptible pero sin desafinar" (encargo): por debajo del
+      // jitter ya usado en otros eventos NO cantaría menos que antes; muy por
+      // encima empezaría a sonar como un pitch roto en vez de variación.
+      expect(config?.rateJitter).toBeGreaterThanOrEqual(0.1);
+      expect(config?.rateJitter).toBeLessThanOrEqual(0.2);
+    });
+
+    it('tiene minInterval corto (evita amontonar dos columnas pariendo casi a la vez, sin silenciar partos legítimos)', () => {
+      const config = SFX_BY_EVENT['boss-wave-spawn'];
+      expect(config?.minInterval).toBeGreaterThan(0);
+      // Hueco mínimo real entre partos de columnas DISTINTAS (fase 3, la más
+      // rápida): QUEEN_COLUMN_SPAWN_INTERVAL_BY_PHASE[2]=4s / 8 columnas =
+      // 500ms desfasadas por queenOnInit. minInterval debe quedar muy por
+      // debajo para no tragarse un parto legítimo.
+      expect(config?.minInterval).toBeLessThan(500);
     });
   });
 });

@@ -1,165 +1,90 @@
 /**
- * Larvas de la Reina del Enjambre (GDD §15.3, rediseño 2026-07-10): conviven
- * dos roles — PERSEGUIDORAS (nacen del boss, persiguen al héroe) y GUARDIANAS
- * (nacen de una columna, la orbitan y embisten). NO son un `BossDef` ni un
- * `EnemyKind` nuevo — son `Enemy` normales de `kind:'dummy'` con `hp`/`radius`
- * propios, viviendo como slots PREASIGNADOS al final de `world.enemies` (ver
+ * Larvas de la Reina del Enjambre (GDD §15.3, simplificación 2026-08-31):
+ * único rol — perseguir al héroe. NO son un `BossDef` ni un `EnemyKind`
+ * nuevo — son `Enemy` normales de `kind:'dummy'` con `hp`/`radius` propios,
+ * viviendo como slots PREASIGNADOS al final de `world.enemies` (ver
  * `queen/pattern.ts::queenOnInit`), igual pool preasignado que
  * proyectiles/charcos.
  */
 
 import { pushEvent, type EventQueue } from '@/engine/events';
 import type { Enemy, World } from '@/game/world/types';
-import { queenState } from './columns';
-import { QUEEN_CHASER_PER_WAVE_BY_PHASE, QUEEN_GUARDIAN_CHARGE_COOLDOWN, QUEEN_GUARDIAN_CHARGE_DURATION, QUEEN_GUARDIAN_CHARGE_RANGE, QUEEN_GUARDIAN_CHARGE_SPEED, QUEEN_GUARDIAN_MAX, QUEEN_GUARDIAN_ORBIT_RADIUS, QUEEN_GUARDIAN_SPAWN_INTERVAL, QUEEN_GUARDIAN_SPEED, QUEEN_GUARDIAN_TELEGRAPH, QUEEN_LARVA_CHASE_SPEED_PHASE2, QUEEN_LARVA_CHASE_SPEED_PHASE3, QUEEN_LARVA_HP, QUEEN_LARVA_ID_PREFIX, QUEEN_LARVA_MAX, QUEEN_LARVA_SPEED } from './constants';
+import type { QueenColumn } from './columns';
+import { QUEEN_LARVA_CHASE_SPEED_PHASE2, QUEEN_LARVA_CHASE_SPEED_PHASE3, QUEEN_LARVA_HP, QUEEN_LARVA_ID_PREFIX, QUEEN_LARVA_RADIUS, QUEEN_LARVA_SPEED } from './constants';
 
 export function isQueenLarva(enemy: Enemy): boolean {
   return enemy.id.startsWith(QUEEN_LARVA_ID_PREFIX);
 }
 
-/** Nº de larvas vivas (hp>0) de ESTA Reina (cap de rendimiento, GDD §15.3/§15.6). */
-function queenLiveLarvaCount(world: World, boss: Enemy): number {
-  const enemies = world.enemies;
-  let count = 0;
-  for (let i = 0; i < enemies.length; i++) {
-    const e = enemies[i];
-    if (isQueenLarva(e) && e.roomId === boss.roomId && e.hp > 0) count++;
-  }
-  return count;
-}
-
 /**
- * Perseguidoras: nacen del BOSS cada oleada y persiguen al héroe (rediseño
- * 2026-07-10). Su número escala con la fase (`QUEEN_CHASER_PER_WAVE_BY_PHASE` =
- * 1/2/3), respetando el cap TOTAL de larvas vivas (`QUEEN_LARVA_MAX`).
+ * Activa un slot de larva libre como PERSEGUIDORA nacida de la columna `col`
+ * (simplificación 2026-08-31, sustituye a la antigua `queenActivateGuardian`
+ * — mismo cuerpo de "buscar un slot libre en el pool preasignado", pero el
+ * único rol que queda es perseguir). Nace en el BORDE del AABB de la columna,
+ * en la dirección hacia el héroe (nunca en su centro — "debe salir
+ * claramente de la columna"): raycast desde el centro de `col` hacia el
+ * héroe, el eje (X o Y) que satura antes fija la distancia exacta al borde,
+ * más `QUEEN_LARVA_RADIUS` para que el CUERPO de la larva quede fuera del
+ * volumen de la columna, no solo su centro tangente al borde. Devuelve true
+ * si había un slot libre.
  */
-export function queenSpawnChasers(world: World, boss: Enemy, events: EventQueue): void {
-  const total = queenLiveLarvaCount(world, boss);
-  const wanted = Math.min(QUEEN_CHASER_PER_WAVE_BY_PHASE[boss.bossPhase - 1], QUEEN_LARVA_MAX - total);
-  if (wanted <= 0) return;
-
-  let toSpawn = wanted;
+export function queenSpawnLarvaFromColumn(world: World, boss: Enemy, col: QueenColumn, events: EventQueue): boolean {
   const enemies = world.enemies;
-  for (let i = 0; i < enemies.length && toSpawn > 0; i++) {
+  for (let i = 0; i < enemies.length; i++) {
     const larva = enemies[i];
     if (!isQueenLarva(larva) || larva.roomId !== boss.roomId || larva.hp > 0) continue;
 
-    larva.hp = QUEEN_LARVA_HP;
-    larva.maxHp = QUEEN_LARVA_HP;
-    larva.position.x = boss.position.x;
-    larva.position.y = boss.position.y;
-    larva.velocity.x = 0;
-    larva.velocity.y = 0;
-    larva.hitFlashUntil = 0;
-    larva.knockbackUntil = 0;
-    larva.chasing = true; // rol: perseguidora
-
-    const dx = world.hero.position.x - larva.position.x;
-    const dy = world.hero.position.y - larva.position.y;
+    const dx = world.hero.position.x - col.position.x;
+    const dy = world.hero.position.y - col.position.y;
     const len = Math.hypot(dx, dy) || 1;
-    larva.facing.x = dx / len;
-    larva.facing.y = dy / len;
+    const dirX = dx / len;
+    const dirY = dy / len;
+    const edgeDist =
+      Math.min(
+        Math.abs(dirX) > 1e-6 ? col.halfW / Math.abs(dirX) : Infinity,
+        Math.abs(dirY) > 1e-6 ? col.halfH / Math.abs(dirY) : Infinity,
+      ) + QUEEN_LARVA_RADIUS;
 
-    toSpawn--;
-  }
-  // intensity = nº de larvas REALMENTE invocadas (GDD/events.ts: puede ser
-  // menor que `wanted` si no había slots libres suficientes bajo el cap de
-  // vivas) — antes quedaba hardcodeado a 1, en desacuerdo con el contrato
-  // documentado en `GameEventType['boss-wave-spawn']` (engine/events.ts).
-  pushEvent(events, 'boss-wave-spawn', boss.position.x, boss.position.y, wanted - toSpawn);
-}
-
-/** Nº de guardianas vivas (larvas con `chasing=false`) de esta Reina. */
-function queenLiveGuardianCount(world: World, boss: Enemy): number {
-  const enemies = world.enemies;
-  let count = 0;
-  for (let i = 0; i < enemies.length; i++) {
-    const e = enemies[i];
-    if (isQueenLarva(e) && e.roomId === boss.roomId && e.hp > 0 && !e.chasing) count++;
-  }
-  return count;
-}
-
-/** true si alguna guardiana viva está anclada (`patrolFrom`) al centro de la columna `col`. */
-function queenColumnHasGuardian(world: World, boss: Enemy, cx: number, cy: number): boolean {
-  const enemies = world.enemies;
-  for (let i = 0; i < enemies.length; i++) {
-    const e = enemies[i];
-    if (!isQueenLarva(e) || e.roomId !== boss.roomId || e.hp <= 0 || e.chasing) continue;
-    if (Math.abs(e.patrolFrom.x - cx) < 0.01 && Math.abs(e.patrolFrom.y - cy) < 0.01) return true;
-  }
-  return false;
-}
-
-/**
- * Activa un slot de larva libre como GUARDIANA de la columna `col` (playtest
- * 2026-07-10): nace en el borde de su órbita, con `chasing=false`, `patrolFrom`
- * anclado a la columna y su máquina de embestida en reposo (`bossStage=0` +
- * cooldown inicial en `bossTimer`, para que no cargue nada más nacer). Devuelve
- * true si había un slot libre.
- */
-export function queenActivateGuardian(
-  world: World,
-  boss: Enemy,
-  col: { position: { x: number; y: number } },
-  events: EventQueue | null,
-): boolean {
-  const enemies = world.enemies;
-  for (let i = 0; i < enemies.length; i++) {
-    const larva = enemies[i];
-    if (!isQueenLarva(larva) || larva.roomId !== boss.roomId || larva.hp > 0) continue;
     larva.hp = QUEEN_LARVA_HP;
     larva.maxHp = QUEEN_LARVA_HP;
-    larva.position.x = col.position.x + QUEEN_GUARDIAN_ORBIT_RADIUS;
-    larva.position.y = col.position.y;
+    larva.position.x = col.position.x + dirX * edgeDist;
+    larva.position.y = col.position.y + dirY * edgeDist;
     larva.velocity.x = 0;
     larva.velocity.y = 0;
     larva.hitFlashUntil = 0;
     larva.knockbackUntil = 0;
-    larva.chasing = false; // rol: guardiana
-    larva.patrolFrom.x = col.position.x; // ancla = su columna
-    larva.patrolFrom.y = col.position.y;
-    larva.bossStage = 0; // máquina de embestida: 0=orbita
-    larva.bossTimer = QUEEN_GUARDIAN_CHARGE_COOLDOWN; // no carga nada más nacer
-    if (events) pushEvent(events, 'boss-wave-spawn', col.position.x, col.position.y, 1);
+    larva.chasing = true; // único rol: perseguidora
+    larva.facing.x = dirX;
+    larva.facing.y = dirY;
+
+    // Temblor visual de la columna al parir (encargo de feedback visual
+    // 2026-08-31: "el spawn debe ser visible: la columna reacciona/tiembla").
+    // Mismo campo y misma duración (0.35s) que usa `stepQueenColumns` al
+    // recibir un impacto de embestida (`columns.ts`) — el render
+    // (QueenColumnsView.tsx) no distingue el motivo del temblor, solo cuánto
+    // falta para `shakeUntil`. Sin esta línea el campo se quedaba a 0 para
+    // siempre en el caso de parto, pese a que su propio JSDoc (columns.ts) y
+    // el comentario de abajo ya prometían el temblor en el spawn.
+    col.shakeUntil = world.time + 0.35;
+
+    // Dos eventos en la posición de la COLUMNA (no del boss): el genérico ya
+    // existente ('boss-wave-spawn', intensity=1, sin cambios de contrato) y
+    // el nuevo específico de columna ('boss-column-spawn': ceniza/polvo +
+    // temblor de la columna, ver `engine/events.ts`).
+    pushEvent(events, 'boss-wave-spawn', col.position.x, col.position.y, 1);
+    pushEvent(events, 'boss-column-spawn', col.position.x, col.position.y, 1);
     return true;
   }
   return false;
 }
 
 /**
- * Guardianas: defienden las columnas (playtest 2026-07-10). El grueso nace ya
- * en `queenOnInit` (A1: cada columna con defensora desde el segundo 1); este
- * paso solo REPONE, cada `QUEEN_GUARDIAN_SPAWN_INTERVAL`, una guardiana (de 1 en
- * 1) a una columna intacta que se quedó sin defensora, dentro del cupo.
+ * Movimiento de las larvas vivas (simplificación 2026-08-31: único rol,
+ * perseguir — antes bifurcaba por `chasing` entre perseguidora y guardiana en
+ * órbita): recalcula rumbo al héroe cada tick, más rápida por fase. No pasan
+ * por `stepEnemyAi` (sin detección ni correa).
  */
-export function queenStepGuardians(world: World, boss: Enemy, dt: number, events: EventQueue): void {
-  boss.bossTimer -= dt;
-  if (boss.bossTimer > 0) return;
-  boss.bossTimer = QUEEN_GUARDIAN_SPAWN_INTERVAL;
-
-  if (queenLiveGuardianCount(world, boss) >= QUEEN_GUARDIAN_MAX) return;
-  if (queenLiveLarvaCount(world, boss) >= QUEEN_LARVA_MAX) return;
-
-  const columns = queenState(world).columns;
-  for (let c = 0; c < columns.length; c++) {
-    const col = columns[c];
-    if (col.broken) continue;
-    if (col.roomId !== undefined && col.roomId !== boss.roomId) continue;
-    if (queenColumnHasGuardian(world, boss, col.position.x, col.position.y)) continue;
-    queenActivateGuardian(world, boss, col, events);
-    return; // una por tick de cadencia (o no había slot libre)
-  }
-}
-
-/**
- * Movimiento de las larvas vivas (rediseño 2026-07-10): bifurca por rol.
- * PERSEGUIDORA (`chasing=true`) recalcula rumbo al héroe cada tick, más rápida
- * por fase. GUARDIANA (`chasing=false`) ORBITA su columna ancla (`patrolFrom`)
- * a velocidad lenta y radio `QUEEN_GUARDIAN_ORBIT_RADIUS` — ronda su columna en
- * vez de perseguir. No pasan por `stepEnemyAi` (sin detección ni correa).
- */
-export function queenStepLarvae(world: World, boss: Enemy, dt: number, events: EventQueue): void {
+export function queenStepLarvae(world: World, boss: Enemy, dt: number): void {
   const chaseSpeed =
     boss.bossPhase >= 3 ? QUEEN_LARVA_CHASE_SPEED_PHASE3 : boss.bossPhase === 2 ? QUEEN_LARVA_CHASE_SPEED_PHASE2 : QUEEN_LARVA_SPEED;
 
@@ -168,93 +93,17 @@ export function queenStepLarvae(world: World, boss: Enemy, dt: number, events: E
     const larva = enemies[i];
     if (!isQueenLarva(larva) || larva.roomId !== boss.roomId || larva.hp <= 0) continue;
 
-    let dirX: number;
-    let dirY: number;
-    let speed: number;
-    if (larva.chasing) {
-      const dx = world.hero.position.x - larva.position.x;
-      const dy = world.hero.position.y - larva.position.y;
-      const len = Math.hypot(dx, dy) || 1;
-      dirX = dx / len;
-      dirY = dy / len;
-      speed = chaseSpeed;
-    } else if (larva.bossStage === 2) {
-      // GUARDIANA cargando: avanza recto en el rumbo fijado al telegrafiar
-      // (esquivable). El daño al héroe lo resuelve el contacto genérico.
-      larva.bossTimer -= dt;
-      dirX = larva.facing.x;
-      dirY = larva.facing.y;
-      speed = QUEEN_GUARDIAN_CHARGE_SPEED;
-      if (larva.bossTimer <= 0) {
-        larva.bossStage = 0;
-        larva.bossTimer = QUEEN_GUARDIAN_CHARGE_COOLDOWN; // descanso antes de otra carga
-      }
-    } else if (larva.bossStage === 1) {
-      // GUARDIANA telegrafiando: encara al héroe pero NO se mueve (aviso).
-      larva.bossTimer -= dt;
-      const dxh = world.hero.position.x - larva.position.x;
-      const dyh = world.hero.position.y - larva.position.y;
-      const lenh = Math.hypot(dxh, dyh) || 1;
-      dirX = dxh / lenh;
-      dirY = dyh / lenh;
-      speed = 0;
-      if (larva.bossTimer <= 0) {
-        larva.facing.x = dirX; // fija el rumbo de carga hacia el héroe (ahora)
-        larva.facing.y = dirY;
-        larva.bossStage = 2;
-        larva.bossTimer = QUEEN_GUARDIAN_CHARGE_DURATION;
-      }
-    } else {
-      // GUARDIANA en reposo: orbita su ancla; si el héroe se acerca y el cooldown
-      // venció, telegrafía una embestida (playtest 2026-07-10).
-      //
-      // Controlador de órbita CONTINUO (bug playtest 2026-07-14, 2º intento —
-      // "los ojos bailan"): el steering anterior alternaba entre dos modos
-      // discretos (radial hacia el ancla si dist > radio+0.1, tangente pura si
-      // no). La tangente pura integrada en pasos discretos ESPIRALA hacia
-      // fuera → cruza el umbral → radial → vuelve a entrar → tangente…, y el
-      // rumbo pegaba bandazos de ~90° cada pocos ticks para siempre (los ojos
-      // del dummy, anclados al frente del cuerpo, se recolocaban alrededor de
-      // la cabeza con cada bandazo). Fix: perseguir un punto objetivo que
-      // AVANZA sobre la circunferencia exacta — el rumbo cambia de forma
-      // continua, el radio converge solo (el objetivo siempre está EN el
-      // círculo) y no hay umbral que cruzar.
-      larva.bossTimer -= dt;
-      const ax = larva.position.x - larva.patrolFrom.x;
-      const ay = larva.position.y - larva.patrolFrom.y;
-      const dist = Math.hypot(ax, ay);
-      // Ángulo actual respecto al ancla (degenerado en el centro exacto: 0).
-      const theta = dist > 1e-6 ? Math.atan2(ay, ax) : 0;
-      // Velocidad angular equivalente a la lineal de órbita actual.
-      const omega = QUEEN_GUARDIAN_SPEED / QUEEN_GUARDIAN_ORBIT_RADIUS;
-      const thetaNext = theta + omega * dt;
-      const targetX = larva.patrolFrom.x + QUEEN_GUARDIAN_ORBIT_RADIUS * Math.cos(thetaNext);
-      const targetY = larva.patrolFrom.y + QUEEN_GUARDIAN_ORBIT_RADIUS * Math.sin(thetaNext);
-      const tx = targetX - larva.position.x;
-      const ty = targetY - larva.position.y;
-      const tlen = Math.hypot(tx, ty);
-      if (tlen > 1e-6) {
-        dirX = tx / tlen;
-        dirY = ty / tlen;
-      } else {
-        dirX = larva.facing.x; // ya exactamente sobre el objetivo: conserva rumbo
-        dirY = larva.facing.y;
-      }
-      speed = QUEEN_GUARDIAN_SPEED;
-      const dxh = world.hero.position.x - larva.position.x;
-      const dyh = world.hero.position.y - larva.position.y;
-      if (larva.bossTimer <= 0 && dxh * dxh + dyh * dyh <= QUEEN_GUARDIAN_CHARGE_RANGE * QUEEN_GUARDIAN_CHARGE_RANGE) {
-        larva.bossStage = 1;
-        larva.bossTimer = QUEEN_GUARDIAN_TELEGRAPH;
-        pushEvent(events, 'boss-guardian-charge', larva.position.x, larva.position.y, 1);
-      }
-    }
+    const dx = world.hero.position.x - larva.position.x;
+    const dy = world.hero.position.y - larva.position.y;
+    const len = Math.hypot(dx, dy) || 1;
+    const dirX = dx / len;
+    const dirY = dy / len;
 
     larva.facing.x = dirX;
     larva.facing.y = dirY;
-    larva.position.x += dirX * speed * dt;
-    larva.position.y += dirY * speed * dt;
-    larva.velocity.x = dirX * speed;
-    larva.velocity.y = dirY * speed;
+    larva.position.x += dirX * chaseSpeed * dt;
+    larva.position.y += dirY * chaseSpeed * dt;
+    larva.velocity.x = dirX * chaseSpeed;
+    larva.velocity.y = dirY * chaseSpeed;
   }
 }

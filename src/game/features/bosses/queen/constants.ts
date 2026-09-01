@@ -17,8 +17,8 @@ export const QUEEN_HIT_DAMAGE_CAP_FRACTION: [number, number, number] = [0.6, 0.6
  */
 export const QUEEN_DAMAGE_OUTSIDE_WINDOW = 0.15;
 
-/** Golpes de embestida que aguanta una columna de la Reina (playtest 2026-07-10: subido a 3 para que romperla sea un forcejeo bajo el fuego de su guardiana). */
-export const QUEEN_COLUMN_HP = 3;
+/** Golpes de embestida que aguanta una columna de la Reina (bajado de 3 a 2 en la simplificación 2026-08-31: al eliminar el rol guardiana ya no hay fuego defensivo que forzar un forcejeo largo — intacta → 1 golpe agrieta → 2.º golpe rompe). */
+export const QUEEN_COLUMN_HP = 2;
 /**
  * Prefijo del id LOCAL (tras el `roomId:` opcional) de las rocas que son
  * columnas de la Reina (T2 render, GDD §15.3): boss-queen.json las nombra
@@ -51,14 +51,14 @@ export const QUEEN_COLUMN_STUN_DURATION = 1.4;
  */
 export const QUEEN_COLUMN_TOUCH_SKIN = 0.05;
 
-/** Velocidad de desplazamiento fase 1: lenta, gestión de terreno, no persecución agresiva (GDD §15.3). */
-export const QUEEN_MOVE_SPEED_PHASE1 = 0.65;
-/** Fase 2 (66%): rastro más rápido → la propia Reina se mueve algo más rápido para tejerlo (GDD §15.3). */
-export const QUEEN_MOVE_SPEED_PHASE2 = 0.95;
-/** Fase 3 (33%): pánico, más movimiento (GDD §15.3). */
-export const QUEEN_MOVE_SPEED_PHASE3 = 1.3;
-/** Cada cuánto la Reina elige un nuevo punto de deambulación dentro de su sala (s). */
-export const QUEEN_WANDER_INTERVAL = 2.6;
+// (Aquí vivían QUEEN_MOVE_SPEED_PHASE1/2/3 y QUEEN_WANDER_INTERVAL, la
+// velocidad por fase y la cadencia de la deambulación aleatoria. Quedaron sin
+// un solo uso —comprobado con grep— al retirarse el wander en la TAREA 5 del
+// rediseño 2026-07-10 (`queenStepMove` persigue al héroe con evasión, sin
+// punto de deambulación propio) y al sustituirse el escalado por fase por el
+// escalado POR COLUMNAS ROTAS, ver QUEEN_STALK_SPEED_BASE/PER_COLUMN más
+// abajo. Se borran en la simplificación 2026-08-31 para que nadie las tome
+// por el tuning vivo del jefe.)
 
 /**
  * Rastro de la Reina (GDD §15.3 "como el Trail, pero más grande y duradero"):
@@ -80,47 +80,37 @@ export const QUEEN_TRAIL_CROSS_SPEED = 4.5;
 export const QUEEN_TRAIL_DOT_GRACE = 0.4;
 
 /**
- * Larvas (GDD §15.3/§15.6): oleada cada ~3s, Dummy débil de 1 HP, avanzan
- * hacia el héroe (línea recta en fase 1, persiguen de verdad en fase 2/3).
- * Cap de larvas vivas simultáneas por rendimiento (QUEEN_LARVA_MAX): la Reina
+ * Larvas (GDD §15.3/§15.6, simplificación 2026-08-31 — playtest: "un único
+ * rol, perseguir"): Dummy débil de 1 HP que nace de una COLUMNA VIVA (ya no
+ * del cuerpo del jefe) y persigue al héroe desde el instante en que nace
+ * (línea recta en fase 1, persecución real recalculada en fase 2/3). Cap de
+ * larvas vivas simultáneas por rendimiento (QUEEN_LARVA_MAX): la Reina
  * reserva ese nº de slots en `world.enemies` (pool preasignado, mismo espíritu
  * que `createProjectilePool`/`createPuddlePool`) en vez de hacer `.push` en
  * caliente — evita el bug de renderers que hacen `.map` sobre un array que
  * crece a mitad de partida sin trigger de re-render (ver AGENTS.md, nota de
  * `BarrelViews`/`ItemViews`): los slots ya existen desde el spawn de la sala,
- * inactivos (hp=0) hasta que una oleada los active.
+ * inactivos (hp=0) hasta que una columna activa uno.
  */
-export const QUEEN_WAVE_INTERVAL = 3;
+/**
+ * Cadencia (s) con la que CADA columna viva pare un minion, por fase del jefe
+ * (simplificación 2026-08-31: sustituye la oleada única sincronizada desde el
+ * cuerpo — `queen/pattern.ts::queenStepColumnSpawns`). Se acelera por fase,
+ * igual criterio que el rastro (`QUEEN_TRAIL_DROP_INTERVAL*`): más presión
+ * conforme avanza la pelea.
+ */
+export const QUEEN_COLUMN_SPAWN_INTERVAL_BY_PHASE: [number, number, number] = [6, 5, 4];
 /**
  * Cap TOTAL de larvas vivas de la Reina (pool preasignado en `queenOnInit`).
- * Rediseño 2026-07-10 (GDD §15.3): conviven dos roles — PERSEGUIDORAS (nacen
- * del boss, persiguen al héroe) y GUARDIANAS (nacen de una columna, la
- * orbitan). El pool reserva este máximo para ambas.
+ * Simplificación 2026-08-31 (GDD §15.3, playtest: "eliminar el rol
+ * guardiana"): un ÚNICO rol —perseguidora—, así que basta con una plaza por
+ * columna de la sala real (8 en boss-queen.json); bajado de 10 (que reservaba
+ * cupo para perseguidoras Y guardianas a la vez).
  */
-export const QUEEN_LARVA_MAX = 10;
-/** Perseguidoras invocadas por oleada según la fase (rediseño 2026-07-10: 1/2/3): nacen del boss y persiguen al héroe. */
-export const QUEEN_CHASER_PER_WAVE_BY_PHASE: [number, number, number] = [1, 2, 3];
-/** Cap de guardianas vivas simultáneas (rediseño 2026-07-10): defienden columnas sin ahogar el cupo de perseguidoras. */
-export const QUEEN_GUARDIAN_MAX = 5;
-/** Cadencia (s) con la que aparece una guardiana nueva en una columna intacta sin defensora (de 1 en 1). */
-export const QUEEN_GUARDIAN_SPAWN_INTERVAL = 2;
-/** Velocidad de órbita de una guardiana alrededor de su columna (lenta: ronda, no persigue al héroe). */
-export const QUEEN_GUARDIAN_SPEED = 0.8;
-/** Radio de órbita de la guardiana respecto al centro de su columna. */
-export const QUEEN_GUARDIAN_ORBIT_RADIUS = 1.0;
-/** Distancia (u) del héroe a la que una guardiana decide EMBESTIRLE (playtest 2026-07-10: dejan de ser pasivas). */
-export const QUEEN_GUARDIAN_CHARGE_RANGE = 2.4;
-/** Aviso (s) antes de que la guardiana cargue (telegrafía: se hincha/retrocede; la carga es esquivable). */
-export const QUEEN_GUARDIAN_TELEGRAPH = 0.45;
-/** Duración (s) de la carga de la guardiana. */
-export const QUEEN_GUARDIAN_CHARGE_DURATION = 0.4;
-/** Velocidad (u/s) de la carga de la guardiana. */
-export const QUEEN_GUARDIAN_CHARGE_SPEED = 4.5;
-/** Descanso (s) entre cargas de una guardiana (vuelve a orbitar mientras tanto). */
-export const QUEEN_GUARDIAN_CHARGE_COOLDOWN = 2.5;
+export const QUEEN_LARVA_MAX = 8;
 export const QUEEN_LARVA_HP = 1;
 export const QUEEN_LARVA_RADIUS = 0.26;
-/** Velocidad de una PERSEGUIDORA hacia el héroe (fase 1). */
+/** Velocidad de una perseguidora hacia el héroe (fase 1). */
 export const QUEEN_LARVA_SPEED = 1.1;
 /** Perseguidoras más rápidas y agresivas en fase 2/3 (GDD §15.3). */
 export const QUEEN_LARVA_CHASE_SPEED_PHASE2 = 1.35;
@@ -139,10 +129,13 @@ export const QUEEN_LARVA_ID_PREFIX = 'queen-larva-';
  */
 /**
  * Velocidad de persecución de la Reina ESCALADA POR COLUMNAS ROTAS (playtest
- * 2026-07-10: "cada columna rota la enfurece y te persigue más rápido"). Con 8
- * columnas: 1.2 (0 rotas) → ~4.2 (8 rotas), así el remate deja de ser un tiro
- * tranquilo — al final casi te alcanza aunque te muevas. Sustituye el escalado
- * por fase anterior.
+ * 2026-07-10: "cada columna rota la enfurece y te persigue más rápido").
+ * Bajado de 0.38 a 0.15 en el playtest 2026-08-31 ("incrementos moderados, no
+ * extremos"): con las 8 columnas del diseño anterior, 1.2 + 8×0.38 ≈ 4.24 u/s
+ * dejaba al héroe sin margen de huida (más del doble de HERO_WALK_SPEED, el
+ * paseo WASD). Con 8 columnas rotas: 1.2 (0 rotas) → 2.4 (8 rotas) —
+ * HERO_WALK_SPEED = 2.0, así que el remate aprieta pero ya no es casi
+ * inevitable. Sustituye el escalado por fase anterior.
  */
 export const QUEEN_STALK_SPEED_BASE = 1.2;
-export const QUEEN_STALK_SPEED_PER_COLUMN = 0.38;
+export const QUEEN_STALK_SPEED_PER_COLUMN = 0.15;

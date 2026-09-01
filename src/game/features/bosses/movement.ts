@@ -21,23 +21,23 @@ export function bossRoomBounds(world: World, boss: Enemy): AABB {
 
 /**
  * Movimiento genérico a una `speed` dada hacia un punto (tx,ty) con evitación
- * por circunnavegación tangencial (axis-slide, fix B1.6.1). Extraído de
- * `guardianStepPatrolMove` (que lo aplica a `boss.patrolTo`, las esquinas del
- * perímetro) para que `guardianStepReposition` (GDD §15.2, playtest
- * 2026-07-06 "no carga si tiene una roca/muro demasiado cerca") pueda
- * reutilizar EXACTAMENTE la misma lógica apuntando a un punto distinto (hacia
- * el centro de la sala, buscando línea despejada) sin pisar `patrolTo` — que
- * debe conservar intacto el ciclo de las 4 esquinas para cuando el Guardián
- * vuelva a patrullar de verdad.
+ * por circunnavegación tangencial (axis-slide, fix B1.6.1). Extraída
+ * originalmente de la patrulla perimetral del Guardián (GDD §15.2, fase B1),
+ * eliminada en el rediseño 2026-08-31 (ver
+ * `guardian/pattern.ts::GUARDIAN_STAGE_CHASE`: ahora persigue siempre al
+ * héroe en vez de patrullar ciego). La función sigue viva porque
+ * `GUARDIAN_STAGE_REPOSITION` (GDD §15.2, playtest 2026-07-06 "no carga si
+ * tiene una roca/muro demasiado cerca") ya la reutilizaba apuntando a un
+ * objetivo distinto (el centro de la sala); con el rediseño, CHASE se suma
+ * como tercer llamador, apuntando al héroe.
  *
  * Generalizada con un parámetro `speed` (TAREA 5 del rediseño de la Reina,
  * docs/plans/QUEEN_REDESIGN_PLAN.md: "debe perseguir RODEANDO columnas, no
- * atravesarlas"): antes leía `GUARDIAN_PATROL_SPEED` fijo dentro de la
- * función, válido solo para el Guardián. Ahora la Reina reutiliza EXACTAMENTE
- * el mismo algoritmo desde `queenStepMove`, pasando
- * `QUEEN_STALK_SPEED_BY_PHASE[bossPhase-1]` — sin duplicar la circunnavegación
- * tangencial. El comportamiento del Guardián no cambia: todas sus llamadas
- * siguen pasando `GUARDIAN_PATROL_SPEED`.
+ * atravesarlas"): antes leía un valor fijo dentro de la función, válido solo
+ * para el Guardián. Ahora la Reina reutiliza EXACTAMENTE el mismo algoritmo
+ * desde `queenStepMove`, pasando `QUEEN_STALK_SPEED_BY_PHASE[bossPhase-1]`; el
+ * Guardián pasa `GUARDIAN_CHASE_SPEED` (antes `GUARDIAN_PATROL_SPEED`,
+ * renombrada en el mismo rediseño).
  */
 export function moveBossTowardWithAvoidance(world: World, boss: Enemy, tx: number, ty: number, dt: number, speed: number): void {
   const dx = tx - boss.position.x;
@@ -128,7 +128,7 @@ export function moveBossTowardWithAvoidance(world: World, boss: Enemy, tx: numbe
  * Intenta mover al jefe por (vx,vy)·step con un empuje adicional (nX,nY)·push
  * que lo despega del vértice, a la `speed` dada (para que `boss.velocity`
  * quede coherente con el movimiento real aplicado, sea Guardián a
- * GUARDIAN_PATROL_SPEED o Reina a QUEEN_STALK_SPEED_BY_PHASE). Si el destino
+ * GUARDIAN_CHASE_SPEED o Reina a QUEEN_STALK_SPEED_BY_PHASE). Si el destino
  * está despejado, aplica el movimiento (posición + velocity para el render) y
  * devuelve true. Solo escalares: cero asignaciones.
  */
@@ -160,7 +160,7 @@ function bossTrySlide(
  * detección: cada llamador decide qué hacer con el resultado — a diferencia
  * de `collideCircleAabb`/`collideInnerBounds` de physics.ts, que además
  * resuelven con reflexión elástica, aquí interesa solo saber SI choca, para
- * rodearlo (Guardián en patrulla/reposición, Reina persiguiendo) o, en el
+ * rodearlo (Guardián en persecución/reposición, Reina persiguiendo) o, en el
  * caso del Guardián cargando, detener en seco y aturdir).
  */
 export function bossHitsSolid(world: World, boss: Enemy, x: number, y: number): boolean {
