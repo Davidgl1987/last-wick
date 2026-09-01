@@ -39,8 +39,8 @@ const GUARDIAN_BARREL_INNER_OFFSET = 1.6;
  * anillo (boss-guardian.json, rocas en (±3.2,±3.2)): los 4 huecos entre rocas
  * adyacentes (a `GUARDIAN_BARREL_GAP_OFFSET` del centro, sobre cada eje) y los
  * 4 puntos interiores hacia el centro (a `GUARDIAN_BARREL_INNER_OFFSET` en
- * ambos ejes) — pero nunca el centro exacto, donde patrulla/aparece el
- * Guardián. Orden fijo, sin significado semántico salvo estabilidad de tests.
+ * ambos ejes) — pero nunca el centro exacto, donde aparece el Guardián.
+ * Orden fijo, sin significado semántico salvo estabilidad de tests.
  */
 export function guardianBarrelSpawnPoints(bounds: AABB): { x: number; y: number }[] {
   const midX = (bounds.minX + bounds.maxX) / 2;

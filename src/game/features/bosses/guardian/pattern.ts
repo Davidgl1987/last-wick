@@ -8,9 +8,11 @@
  * - `facing`: dirección unitaria de la carga en curso (fijada al final del
  *   telegraph, hacia la última posición vista del héroe; no se recalcula
  *   durante la carga, GDD §15.2 "carga en línea recta").
- * - `patrolTo`: siguiente esquina objetivo de la patrulla perimetral
- *   (recorrido cíclico de las 4 esquinas de la sala, no ida/vuelta).
- *   `patrolFrom` no se usa.
+ * - `patrolTo`/`patrolFrom`: NO se usan (rediseño 2026-08-31, GDD §15.2: la
+ *   patrulla perimetral por las 4 esquinas de la sala desaparece — el
+ *   Guardián persigue SIEMPRE al héroe a GUARDIAN_CHASE_SPEED, ver
+ *   GUARDIAN_STAGE_CHASE más abajo. Motivo: el jugador podía mantenerse lejos
+ *   y matarlo a proyectiles sin interactuar con su carga).
  * Los barriles rodantes (GDD §15.2, playtest 2026-07-06) NO necesitan estado
  * propio en el Guardián: la cadencia de aparición se deriva sin estado del
  * "slot" de world.time (mismo truco que GUARDIAN_DUST_INTERVAL más abajo),
@@ -20,20 +22,27 @@
  * - `bossStage`: GUARDIAN_STAGE_* de abajo.
  * - `bossCounter`: nº de cargas YA completadas en la secuencia encadenada
  *   actual (0 al iniciar; fase 2/3 encadena GUARDIAN_PHASE2_CHARGE_COUNT
- *   antes de volver a patrullar, GDD §15.2).
+ *   antes de volver a perseguir, GDD §15.2).
  */
 
 import { applyDamageToHero, applyKnockbackToHero } from '@/game/features/combat/combat';
 import { pushEvent, type EventQueue } from '@/engine/events';
 import { explodeBarrel } from '@/game/features/hazards/hazards';
 import { dropPotionAt } from '@/game/features/items/items';
-import type { AABB } from '@/engine/geometry';
 import type { Enemy, World } from '@/game/world/types';
-import { bossHitsSolid, bossRoomBounds, moveBossTowardWithAvoidance } from '@/game/features/bosses/movement';
+import { bossHitsSolid, moveBossTowardWithAvoidance } from '@/game/features/bosses/movement';
 import { guardianFindLiveBarrelAt, guardianStepBarrelSpawn } from './barrels';
-import { GUARDIAN_BARREL_STUN_DURATION, GUARDIAN_CHARGE_DAMAGE_PHASE1, GUARDIAN_CHARGE_DAMAGE_PHASE3, GUARDIAN_CHARGE_KNOCKBACK_SPEED, GUARDIAN_CHARGE_MAX_DURATION, GUARDIAN_CHARGE_SPEED, GUARDIAN_DETECT_RANGE, GUARDIAN_DOUBLE_CHARGE_PAUSE, GUARDIAN_DUST_INTERVAL, GUARDIAN_HIT_DAMAGE_CAP_FRACTION, GUARDIAN_MIN_CHARGE_CLEARANCE, GUARDIAN_PATROL_SPEED, GUARDIAN_PHASE2_CHARGE_COUNT, GUARDIAN_RADIUS, GUARDIAN_RECOVER_PAUSE, GUARDIAN_SHARD_LIFETIME, GUARDIAN_SHARD_RADIUS, GUARDIAN_STUN_DURATION, GUARDIAN_TELEGRAPH_DURATION } from './constants';
+import { GUARDIAN_BARREL_STUN_DURATION, GUARDIAN_CHARGE_DAMAGE_PHASE1, GUARDIAN_CHARGE_DAMAGE_PHASE3, GUARDIAN_CHARGE_KNOCKBACK_SPEED, GUARDIAN_CHARGE_MAX_DURATION, GUARDIAN_CHARGE_SPEED, GUARDIAN_CHASE_SPEED, GUARDIAN_DETECT_RANGE, GUARDIAN_DOUBLE_CHARGE_PAUSE, GUARDIAN_DUST_INTERVAL, GUARDIAN_FAR_CHARGE_RANGE, GUARDIAN_HIT_DAMAGE_CAP_FRACTION, GUARDIAN_MIN_CHARGE_CLEARANCE, GUARDIAN_PHASE2_CHARGE_COUNT, GUARDIAN_RECOVER_PAUSE, GUARDIAN_SHARD_LIFETIME, GUARDIAN_SHARD_RADIUS, GUARDIAN_STUN_DURATION, GUARDIAN_TELEGRAPH_DURATION } from './constants';
 
-const GUARDIAN_STAGE_PATROL = 0;
+/**
+ * Persecución lenta constante hacia el héroe (rediseño 2026-08-31, GDD §15.2:
+ * sustituye la patrulla perimetral de las 4 esquinas — con ella el jugador
+ * podía quedarse fuera de GUARDIAN_DETECT_RANGE y matarlo a proyectiles sin
+ * tocar su carga). El Guardián avanza SIEMPRE hacia `world.hero.position` a
+ * GUARDIAN_CHASE_SPEED; ver el doble umbral de carga (GUARDIAN_DETECT_RANGE /
+ * GUARDIAN_FAR_CHARGE_RANGE) en el propio stage, más abajo.
+ */
+const GUARDIAN_STAGE_CHASE = 0;
 const GUARDIAN_STAGE_TELEGRAPH = 1;
 const GUARDIAN_STAGE_CHARGING = 2;
 const GUARDIAN_STAGE_STUNNED = 3;
@@ -43,64 +52,23 @@ const GUARDIAN_STAGE_CHAIN_PAUSE = 4;
  * Reposicionamiento antes de cargar (GDD §15.2, playtest 2026-07-06 "no carga
  * si tiene una roca/muro demasiado cerca"): el héroe ya está detectado pero el
  * recorrido de carga hacia él está bloqueado a corta distancia — en vez de
- * telegrafiar, el Guardián se mueve (a velocidad de patrulla) hacia el centro
+ * telegrafiar, el Guardián se mueve (a GUARDIAN_CHASE_SPEED) hacia el centro
  * de su sala buscando línea despejada, y reintenta la comprobación cada tick.
  * Evita el exploit de estrellarlo una y otra vez contra una roca pegada
  * mientras el héroe le pega gratis al lado.
  */
 const GUARDIAN_STAGE_REPOSITION = 5;
 
-/** Las 4 esquinas del rectángulo de patrulla perimetral, en orden cíclico (con margen respecto a la pared). */
-function guardianPatrolCorners(bounds: AABB): { x: number; y: number }[] {
-  const margin = GUARDIAN_RADIUS + 0.5;
-  return [
-    { x: bounds.minX + margin, y: bounds.minY + margin },
-    { x: bounds.maxX - margin, y: bounds.minY + margin },
-    { x: bounds.maxX - margin, y: bounds.maxY - margin },
-    { x: bounds.minX + margin, y: bounds.maxY - margin },
-  ];
-}
-
 /**
- * Avanza la patrulla perimetral lenta hacia la esquina objetivo (`patrolTo`),
- * saltando a la siguiente al llegar.
- *
- * Evitación por deslizamiento de eje (axis-slide, fix B1.6.1 tras playtest
- * 2026-07-06): en B1.6 las rocas pasaron de las esquinas de la sala al
- * interior, así que el tramo recto patrulla-esquina puede atravesar una roca
- * (el tramo inicial desde el centro, o la recuperación tras una carga que
- * termina a mitad de arena). El movimiento recto de antes no comprobaba
- * `bossHitsSolid`: la resolución de colisión general (physics.ts) lo
- * empujaba fuera del sólido cada frame, cancelando el avance neto → el boss
- * quedaba clavado contra la roca para siempre (nunca progresa, nunca detecta
- * al héroe). El axis-slide prueba el eje X solo, luego Y solo, y como último
- * recurso se desvía hacia el muro más cercano para retomar el perímetro.
+ * Distancia (u) del punto objetivo al que RETROCEDE el Guardián mientras
+ * reposiciona (GUARDIAN_STAGE_REPOSITION). No es un destino que deba
+ * alcanzar: se recalcula cada tick desde su posición actual, así que su único
+ * papel es dar una dirección de retroceso sostenida — de ahí que baste con
+ * que sea holgadamente mayor que el corte de `dist < 0.15` de
+ * `moveBossTowardWithAvoidance`, donde estaba el punto muerto que congelaba
+ * al jefe cuando el objetivo era un punto FIJO y alcanzable (ver el stage).
  */
-function guardianStepPatrolMove(world: World, boss: Enemy, dt: number): void {
-  const dx = boss.patrolTo.x - boss.position.x;
-  const dy = boss.patrolTo.y - boss.position.y;
-  const dist = Math.hypot(dx, dy);
-  if (dist < 0.15) {
-    const corners = guardianPatrolCorners(bossRoomBounds(world, boss));
-    // Encuentra la esquina más cercana al objetivo actual y avanza a la siguiente (recorrido cíclico).
-    let nearestIndex = 0;
-    let nearestDist = Infinity;
-    for (let i = 0; i < corners.length; i++) {
-      const d = Math.hypot(corners[i].x - boss.patrolTo.x, corners[i].y - boss.patrolTo.y);
-      if (d < nearestDist) {
-        nearestDist = d;
-        nearestIndex = i;
-      }
-    }
-    const next = corners[(nearestIndex + 1) % corners.length];
-    boss.patrolTo.x = next.x;
-    boss.patrolTo.y = next.y;
-    boss.velocity.x = 0;
-    boss.velocity.y = 0;
-    return;
-  }
-  moveBossTowardWithAvoidance(world, boss, boss.patrolTo.x, boss.patrolTo.y, dt, GUARDIAN_PATROL_SPEED);
-}
+const GUARDIAN_REPOSITION_BACKSTEP = 3;
 
 /** Nº de puntos de muestreo a lo largo de GUARDIAN_MIN_CHARGE_CLEARANCE al comprobar recorrido de carga despejado. */
 const GUARDIAN_CHARGE_CLEARANCE_SAMPLES = 6;
@@ -199,10 +167,10 @@ function spawnGuardianShardField(world: World, x: number, y: number): void {
  * héroe. Con recorrido despejado, telegrafía normal (comportamiento intacto:
  * su ventana sigue siendo estrellarse tras el aviso). Sin recorrido, entra en
  * GUARDIAN_STAGE_REPOSITION en vez de telegrafiar — nunca se aturde pegado a
- * una roca a bocajarro del héroe. Se llama tanto desde PATROL (primera carga
- * de la secuencia) como desde CHAIN_PAUSE/REPOSITION (reintentos y cargas
- * encadenadas de fase 2/3), sin tocar `bossCounter` (ya gestionado por cada
- * llamador).
+ * una roca a bocajarro del héroe. Se llama tanto desde CHASE (primera carga
+ * de la secuencia, ya sea por umbral cercano o lejano) como desde
+ * CHAIN_PAUSE/REPOSITION (reintentos y cargas encadenadas de fase 2/3), sin
+ * tocar `bossCounter` (ya gestionado por cada llamador).
  */
 function guardianTryEnterChargeOrReposition(world: World, boss: Enemy, events: EventQueue): void {
   const dx = world.hero.position.x - boss.position.x;
@@ -222,7 +190,7 @@ function guardianTryEnterChargeOrReposition(world: World, boss: Enemy, events: E
 
 export function guardianStepPattern(world: World, boss: Enemy, dt: number, events: EventQueue): void {
   // Barriles rodantes (GDD §15.2): cadencia independiente del stage actual —
-  // aparecen mientras el Guardián patrulla, telegrafía, carga o está aturdido.
+  // aparecen mientras el Guardián persigue, telegrafía, carga o está aturdido.
   guardianStepBarrelSpawn(world, boss, dt, events);
 
   switch (boss.bossStage) {
@@ -337,7 +305,7 @@ export function guardianStepPattern(world: World, boss: Enemy, dt: number, event
           boss.bossTimer = GUARDIAN_DOUBLE_CHARGE_PAUSE;
         } else {
           boss.bossCounter = 0;
-          boss.bossStage = GUARDIAN_STAGE_PATROL;
+          boss.bossStage = GUARDIAN_STAGE_CHASE;
           boss.bossTimer = GUARDIAN_RECOVER_PAUSE;
         }
       }
@@ -353,19 +321,46 @@ export function guardianStepPattern(world: World, boss: Enemy, dt: number, event
     }
 
     case GUARDIAN_STAGE_REPOSITION: {
-      // Se mueve (a velocidad de patrulla) hacia el centro de su sala buscando
-      // línea despejada hacia el héroe (GDD §15.2, playtest 2026-07-06): no
-      // toca `patrolTo` (el ciclo de esquinas de la patrulla normal queda
-      // intacto para cuando vuelva a patrullar de verdad).
-      const bounds = bossRoomBounds(world, boss);
-      const centerX = (bounds.minX + bounds.maxX) / 2;
-      const centerY = (bounds.minY + bounds.maxY) / 2;
-      moveBossTowardWithAvoidance(world, boss, centerX, centerY, dt, GUARDIAN_PATROL_SPEED);
+      // Toma carrerilla: RETROCEDE alejándose del héroe a
+      // GUARDIAN_CHASE_SPEED, reintentando cada tick la comprobación de línea
+      // despejada (GDD §15.2, playtest 2026-07-06). Retroceder es justo lo
+      // que gana `GUARDIAN_MIN_CHARGE_CLEARANCE`: la roca que bloquea sigue
+      // donde estaba, pero deja de caer dentro de las primeras 2.7 u del
+      // recorrido de carga.
+      //
+      // Antes apuntaba al CENTRO de la sala, y eso tenía un punto muerto real
+      // (fix 2026-08-31): el Guardián se quedaba CONGELADO para siempre. En
+      // cuanto llegaba al centro, `moveBossTowardWithAvoidance` lo paraba en
+      // seco (su corte de `dist < 0.15`); y desde el centro de
+      // `boss-guardian.json` las 4 rocas del anillo quedan, por simetría, a
+      // menos de GUARDIAN_MIN_CHARGE_CLEARANCE en las CUATRO diagonales, así
+      // que nunca había línea, nunca salía del stage y nunca volvía a
+      // moverse — bastaba con ponerse en diagonal para dejarlo clavado y
+      // dispararle gratis (traza: 13 s a 0.0000 u de desplazamiento), el
+      // mismo exploit que este rediseño venía a cerrar. El objetivo de ahora
+      // se recalcula cada tick a partir de su propia posición, así que nunca
+      // se alcanza y el stage no puede quedarse sin salida.
+      //
+      // Tampoco vale perseguir al héroe aquí: lo devolvería contra el MISMO
+      // obstáculo que disparó el reposicionamiento (el comentario original
+      // del stage ya lo advertía, y es cierto — se comprobó rompiendo la
+      // doble carga encadenada de fase 2/3 al intentarlo).
+      const hdx = world.hero.position.x - boss.position.x;
+      const hdy = world.hero.position.y - boss.position.y;
+      const hlen = Math.hypot(hdx, hdy) || 1;
+      moveBossTowardWithAvoidance(
+        world,
+        boss,
+        boss.position.x - (hdx / hlen) * GUARDIAN_REPOSITION_BACKSTEP,
+        boss.position.y - (hdy / hlen) * GUARDIAN_REPOSITION_BACKSTEP,
+        dt,
+        GUARDIAN_CHASE_SPEED,
+      );
       guardianTryEnterChargeOrReposition(world, boss, events);
       break;
     }
 
-    case GUARDIAN_STAGE_PATROL:
+    case GUARDIAN_STAGE_CHASE:
     default: {
       if (boss.bossTimer > 0) {
         boss.bossTimer -= dt;
@@ -373,11 +368,22 @@ export function guardianStepPattern(world: World, boss: Enemy, dt: number, event
         boss.velocity.y = 0;
         break;
       }
-      guardianStepPatrolMove(world, boss, dt);
+      // Persecución lenta constante (rediseño 2026-08-31, GDD §15.2): SIEMPRE
+      // hacia el héroe, nunca patrulla ciega — así deja de ser gratis
+      // mantenerse lejos y matarlo a proyectiles sin tocar su carga.
+      moveBossTowardWithAvoidance(world, boss, world.hero.position.x, world.hero.position.y, dt, GUARDIAN_CHASE_SPEED);
 
+      // Doble umbral de carga: CERCA (GUARDIAN_DETECT_RANGE, comportamiento
+      // original intacto desde B1) o LEJOS (GUARDIAN_FAR_CHARGE_RANGE, cierra
+      // el hueco contra quien se mantiene a distancia). En la banda media
+      // entre ambos NO carga — solo se acerca a GUARDIAN_CHASE_SPEED, que es
+      // deliberadamente menor que HERO_WALK_SPEED (ver su comentario en
+      // constants.ts): el paseo WASD puede abrir hueco hasta cruzar el umbral
+      // lejano, pero no mantenerlo indefinidamente sin pagar una carga.
       const dx = world.hero.position.x - boss.position.x;
       const dy = world.hero.position.y - boss.position.y;
-      if (Math.hypot(dx, dy) <= GUARDIAN_DETECT_RANGE) {
+      const dist = Math.hypot(dx, dy);
+      if (dist <= GUARDIAN_DETECT_RANGE || dist >= GUARDIAN_FAR_CHARGE_RANGE) {
         boss.bossCounter = 0;
         guardianTryEnterChargeOrReposition(world, boss, events);
       }
@@ -388,7 +394,7 @@ export function guardianStepPattern(world: World, boss: Enemy, dt: number, event
 
 export function guardianOnPhaseChanged(world: World, boss: Enemy): void {
   // Sin reset de bossStage/timers propios: un cambio de fase a mitad de
-  // patrulla/telegraph/carga no debe interrumpir el gesto en curso (GDD §15.1
+  // persecución/telegraph/carga no debe interrumpir el gesto en curso (GDD §15.1
   // punto 3: "intensifica, nunca sustituye a mitad"). El único efecto de
   // cruzar a fase 2/3 es que la PRÓXIMA vez que el Guardián sale de
   // STUNNED (guardianChargesForPhase) decide encadenar una segunda carga, y

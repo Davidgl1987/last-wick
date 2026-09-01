@@ -2,13 +2,38 @@
 
 /** Vida máxima (GDD §15.6). */
 export const GUARDIAN_MAX_HP = 40;
-/** Velocidad de patrulla perimetral, lenta (u/s). */
-export const GUARDIAN_PATROL_SPEED = 1.1;
-/** Distancia a la que detecta al héroe y empieza el telegraph de carga (u). */
+/**
+ * Velocidad de persecución lenta y constante (u/s; rediseño 2026-08-31, GDD
+ * §15.2, feedback de David: "puedo alejarme y matarlo a proyectiles sin
+ * interactuar con su carga"). Deliberadamente MENOR que HERO_WALK_SPEED (2.0,
+ * `features/hero/constants.ts`): el paseo WASD debe seguir pudiendo abrir
+ * hueco, pero al hacerlo el jugador cruza GUARDIAN_FAR_CHARGE_RANGE y se come
+ * una carga — kitear deja de ser gratis, sin volver al Guardián agobiante (no
+ * alcanza a un héroe que se aleja en línea recta, solo le hace elegir entre
+ * acercarse o cargar). Antes `GUARDIAN_PATROL_SPEED=1.1`, velocidad de la
+ * patrulla perimetral por las 4 esquinas de la sala, eliminada en este
+ * rediseño (ver `guardian/pattern.ts::GUARDIAN_STAGE_CHASE`).
+ */
+export const GUARDIAN_CHASE_SPEED = 1.6;
+/**
+ * Umbral CERCANO de carga (u): a esta distancia o menos, telegrafía de
+ * inmediato — comportamiento intacto desde B1. Rediseño 2026-08-31: ahora
+ * coexiste con el umbral LEJANO `GUARDIAN_FAR_CHARGE_RANGE`; en la banda
+ * media entre ambos el Guardián solo persigue andando, sin cargar.
+ */
 export const GUARDIAN_DETECT_RANGE = 4.5;
+/**
+ * Umbral LEJANO de carga (u; rediseño 2026-08-31, GDD §15.2): a esta
+ * distancia o más TAMBIÉN telegrafía, para cerrar el hueco contra un héroe
+ * que se mantiene lejos a base de proyectiles sin tocar su carga (el exploit
+ * que motivó el rediseño). Entre `GUARDIAN_DETECT_RANGE` y este umbral (banda
+ * media) NO carga: a media distancia se acerca despacio; a distancia larga
+ * carga para cerrar el hueco.
+ */
+export const GUARDIAN_FAR_CHARGE_RANGE = 7;
 /** Duración del aviso de carga: brillo/vibración (GDD §15.2, mínimo 0.6s del framework). */
 export const GUARDIAN_TELEGRAPH_DURATION = 0.8;
-/** Velocidad de la carga recta (u/s): notablemente más rápida que su patrulla. */
+/** Velocidad de la carga recta (u/s): notablemente más rápida que su persecución. */
 export const GUARDIAN_CHARGE_SPEED = 7.5;
 /** Duración máxima de una carga antes de abortar por seguridad si no choca con nada (s). */
 export const GUARDIAN_CHARGE_MAX_DURATION = 2.5;
@@ -25,7 +50,7 @@ export const GUARDIAN_CHARGE_DAMAGE_PHASE3 = 2;
 export const GUARDIAN_DAMAGE_OUTSIDE_WINDOW = 0.2;
 /** Empujón fuerte al héroe si la carga le golpea (u/s). */
 export const GUARDIAN_CHARGE_KNOCKBACK_SPEED = 6.5;
-/** Cooldown de patrulla tras recuperarse del aturdimiento antes de poder detectar de nuevo (s). */
+/** Cooldown tras recuperarse del aturdimiento, antes de que la persecución vuelva a poder detectar/cargar (s). */
 export const GUARDIAN_RECOVER_PAUSE = 0.4;
 /**
  * Distancia mínima despejada (u) exigida en la dirección hacia el héroe antes
@@ -34,7 +59,7 @@ export const GUARDIAN_RECOVER_PAUSE = 0.4;
  * línea hacia el héroe, el Guardián NO carga — se estrellaría al instante,
  * a bocajarro del héroe, que le pegaría gratis mientras vuelve a cargar
  * contra la misma roca (camping). En su lugar reposiciona (ver
- * `guardianStepPatrolMove`) y reintenta cada tick. Algo mayor que
+ * `GUARDIAN_STAGE_REPOSITION` en pattern.ts) y reintenta cada tick. Algo mayor que
  * GUARDIAN_RADIUS (0.62) para dejar margen real de carga, no solo evitar
  * el contacto inmediato.
  */

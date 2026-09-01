@@ -151,10 +151,28 @@ export const BURST_BY_EVENT: Record<GameEventType, BurstSpec> = {
   // no rompe nada) — se queda en el splat genérico. Romperse: burst mayor +
   // trauma notorio (−12% de vida del jefe) — ESE sí es "explosión" (columna
   // reventando), por eso entra en la familia de `disc`.
-  'boss-column-cracked': { color: '#c9c2a8', size: 0.08, count: 10, life: 0.35, speed: 2.0, trauma: 0.12, texture: 'splat02' },
-  'boss-column-broken': { color: '#c9c2a8', size: 0.14, count: 26, life: 0.5, speed: 3.2, trauma: 0.3, texture: 'disc' },
+  // Reforzado 2026-08-31 (encargo de feedback visual: "al primer golpe:
+  // grieta claramente visible, polvo, pequeños fragmentos... al destruirse:
+  // efecto de destrucción MUCHO más fuerte"): los valores de arriba eran los
+  // de ANTES del rediseño de columnas por-golpe (2 hp en vez de 3, sin rol
+  // guardiana) y se quedaban cortos para el único aviso de daño visible antes
+  // de romperse. `boss-column-broken` sube mucho más que `boss-column-cracked`
+  // (proporción ~1.6-2.6× según el campo) para que la diferencia entre
+  // "avisa" y "revienta" se sienta; se mantiene por debajo del trauma de
+  // 'boss-defeated'/'barrel-explosion' (1) y de 'boss-columns-cleared' (0.5,
+  // la ÚLTIMA columna) — romper una columna cualquiera nunca debe sacudir la
+  // cámara más que el hito de quedarse sin ninguna.
+  'boss-column-cracked': { color: '#c9c2a8', size: 0.09, count: 16, life: 0.4, speed: 2.4, trauma: 0.18, texture: 'splat02' },
+  'boss-column-broken': { color: '#c9c2a8', size: 0.17, count: 42, life: 0.65, speed: 4.2, trauma: 0.45, texture: 'disc' },
   'boss-columns-cleared': { color: '#ff6bcb', size: 0.16, count: 34, life: 0.7, speed: 3.6, trauma: 0.5, texture: 'splat02' },
-  'boss-guardian-charge': { color: '#4dd68a', size: 0.07, count: 6, life: 0.3, speed: 1.8, trauma: 0.05, texture: 'splat02' },
+  // Simplificación 2026-08-31: una columna VIVA pare un minion (sustituye la
+  // oleada única desde el cuerpo) — ceniza/polvo gris pálido, pequeño y sin
+  // trauma (aviso ambiental, como 'boss-wave-spawn', que se emite a la vez).
+  'boss-column-spawn': { color: '#b9b1a0', size: 0.07, count: 8, life: 0.35, speed: 1.6, trauma: 0, texture: 'splat02' },
+  // Simplificación 2026-08-31: la Reina grita de dolor al romperse una
+  // columna — mismo rosa-enjambre que 'boss-columns-cleared'/'enemy-died',
+  // con trauma notorio (comunica que columna y jefe están conectados).
+  'boss-column-roar': { color: '#ff6bcb', size: 0.12, count: 14, life: 0.45, speed: 2.4, trauma: 0.25, texture: 'splat02' },
   // El Prisma (GDD §15.4): chispazo blanco y barato al golpear con el arma
   // equivocada — feedback de "inmune", deliberadamente más pequeño y sin
   // trauma que 'enemy-hit'/'boss-hit' (no hay daño real que reforzar). Sigue

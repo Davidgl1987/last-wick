@@ -3,52 +3,54 @@
  *
  * Reuso de campos de `Enemy` (mismo espíritu que el Guardián, ver nota en
  * `guardian/pattern.ts`): la Reina NUNCA pasa por `stepEnemyAi`, así que:
- * - `patrolTo`/`patrolFrom`/`bossTimer`: sin uso propio en la Reina desde la
- *   TAREA 5 del rediseño (docs/plans/QUEEN_REDESIGN_PLAN.md, "persigue
- *   RODEANDO obstáculos"): la deambulación aleatoria previa (que atravesaba
- *   columnas, sin evasión) se retira — `queenStepMove` persigue al héroe
- *   directamente con `moveBossTowardWithAvoidance` (misma circunnavegación
- *   tangencial del Guardián, generalizada en esta tarea), que YA rodea
- *   columnas/rocas; sumar un wander sin evadir solo reintroducía el problema
- *   que esta tarea corrige. Quedan en su valor inicial del pool y no se leen.
+ * - `patrolTo`/`patrolFrom`/`bossTimer`/`bossTelegraphUntil`: sin uso propio
+ *   en la Reina. `patrolTo`/`patrolFrom` desde la TAREA 5 del rediseño
+ *   (docs/plans/QUEEN_REDESIGN_PLAN.md, "persigue RODEANDO obstáculos"): la
+ *   deambulación aleatoria previa (que atravesaba columnas, sin evasión) se
+ *   retira — `queenStepMove` persigue al héroe directamente con
+ *   `moveBossTowardWithAvoidance` (misma circunnavegación tangencial del
+ *   Guardián, generalizada en esta tarea), que YA rodea columnas/rocas; sumar
+ *   un wander sin evadir solo reintroducía el problema que esta tarea
+ *   corrige. `bossTimer`/`bossTelegraphUntil` quedan inertes desde la
+ *   simplificación 2026-08-31 (elimina el rol guardiana y la oleada única
+ *   sincronizada desde el cuerpo: el reloj de parto ahora vive POR COLUMNA,
+ *   ver `queen/columns.ts::QueenColumn.spawnTimer`). Quedan en su valor
+ *   inicial del pool y no se leen.
  * - `bossCounter`: cuenta atrás (en segundos, no ticks) hasta soltar el
  *   próximo charco de rastro — comparte "reloj" con `trailDropTimer` del Trail
  *   normal en espíritu, pero como campo genérico de jefe.
- * - `bossTelegraphUntil`: reutilizado como reloj de cuenta atrás hasta la
- *   próxima oleada de larvas (QUEEN_WAVE_INTERVAL); no es un telegraph real
- *   (la Reina no tiene, GDD §15.3), pero el campo ya existe y el render lo
- *   deja en paz porque `bossId==='queen'` no dibuja el anillo genérico de
- *   telegraph (ver EnemyViews.tsx: solo bossVulnerable pinta algo, y aquí es
- *   permanente).
  *
  * Larvas: NO son un `BossDef` ni un `EnemyKind` nuevo — son `Enemy` normales
  * de `kind:'dummy'` con `hp`/`radius` propios, viviendo como slots
  * PREASIGNADOS al final de `world.enemies` (ver `queenOnInit`), igual pool
- * preasignado que proyectiles/charcos. `enemy.facing` guarda su dirección de
- * avance fija (fase 1, línea recta); en fase 2/3 se recalcula cada tick
- * (persecución real) y no se usa `facing` como caché.
+ * preasignado que proyectiles/charcos. Simplificación 2026-08-31 (GDD §15.3,
+ * playtest: "eliminar el rol guardiana"): único rol, perseguidora — nace del
+ * BORDE de una columna viva con rumbo inicial al héroe (`queenSpawnLarvaFromColumn`,
+ * `queen/larvae.ts`) y persigue de verdad desde el primer tick (fase 1
+ * incluida); en fase 2/3 solo cambia la velocidad de persecución, no el
+ * comportamiento.
  */
 
 import type { EventQueue } from '@/engine/events';
 import { dropPotionAt } from '@/game/features/items/items';
 import type { Enemy, World } from '@/game/world/types';
 import { moveBossTowardWithAvoidance } from '@/game/features/bosses/movement';
-import { queenBrokenColumnCount, type QueenState } from './columns';
-import { QUEEN_COLUMN_HP, QUEEN_GUARDIAN_MAX, QUEEN_LARVA_HP, QUEEN_LARVA_ID_PREFIX, QUEEN_LARVA_MAX, QUEEN_LARVA_RADIUS, QUEEN_STALK_SPEED_BASE, QUEEN_STALK_SPEED_PER_COLUMN, QUEEN_TRAIL_DROP_INTERVAL, QUEEN_TRAIL_DROP_INTERVAL_PHASE2, QUEEN_TRAIL_PUDDLE_LIFETIME, QUEEN_TRAIL_PUDDLE_RADIUS, QUEEN_WAVE_INTERVAL } from './constants';
-import { queenActivateGuardian, queenSpawnChasers, queenStepGuardians, queenStepLarvae } from './larvae';
+import { queenBrokenColumnCount, queenState, type QueenState } from './columns';
+import { QUEEN_COLUMN_HP, QUEEN_COLUMN_SPAWN_INTERVAL_BY_PHASE, QUEEN_LARVA_HP, QUEEN_LARVA_ID_PREFIX, QUEEN_LARVA_MAX, QUEEN_LARVA_RADIUS, QUEEN_STALK_SPEED_BASE, QUEEN_STALK_SPEED_PER_COLUMN, QUEEN_TRAIL_DROP_INTERVAL, QUEEN_TRAIL_DROP_INTERVAL_PHASE2, QUEEN_TRAIL_PUDDLE_LIFETIME, QUEEN_TRAIL_PUDDLE_RADIUS } from './constants';
+import { queenSpawnLarvaFromColumn, queenStepLarvae } from './larvae';
 
 /**
  * Reserva `QUEEN_LARVA_MAX` slots de larva en `world.enemies`, inactivos
- * (hp=0) hasta que una oleada los active (GDD §15.3: "invoca larvas por
- * oleadas"). Se hace UNA vez al construir el mundo (`onInit`, llamado desde
- * `lifecycle.ts::initBossEnemies`) para que el render (`EnemyViews`, que hace
- * `.map` sobre `world.enemies` en el cuerpo del componente, no en useFrame)
- * los vea desde el primer render — evita el bug de entidades que nacen sin
- * mesh por `.push` a mitad de partida (ver nota de `BarrelViews`/`ItemViews`
- * en AGENTS.md). `collectDeadDrops` (step.ts) los marca como "ya soltaron
- * moneda" desde el primer tick (hp<=0 antes de activarse nunca): así, al
- * activarse y morir de verdad más tarde, nunca sueltan moneda — cumple GDD
- * §15.3 "sin drop de moneda" sin tocar el pipeline de drops.
+ * (hp=0) hasta que una columna activa uno (GDD §15.3). Se hace UNA vez al
+ * construir el mundo (`onInit`, llamado desde `lifecycle.ts::initBossEnemies`)
+ * para que el render (`EnemyViews`, que hace `.map` sobre `world.enemies` en
+ * el cuerpo del componente, no en useFrame) los vea desde el primer render —
+ * evita el bug de entidades que nacen sin mesh por `.push` a mitad de partida
+ * (ver nota de `BarrelViews`/`ItemViews` en AGENTS.md). `collectDeadDrops`
+ * (step.ts) los marca como "ya soltaron moneda" desde el primer tick (hp<=0
+ * antes de activarse nunca): así, al activarse y morir de verdad más tarde,
+ * nunca sueltan moneda — cumple GDD §15.3 "sin drop de moneda" sin tocar el
+ * pipeline de drops.
  */
 export function queenOnInit(world: World, boss: Enemy): void {
   for (let i = 0; i < QUEEN_LARVA_MAX; i++) {
@@ -122,16 +124,20 @@ export function queenOnInit(world: World, boss: Enemy): void {
       hp: QUEEN_COLUMN_HP,
       broken: false,
       roomId: o.roomId,
+      spawnTimer: 0, // desfasado más abajo, una vez se conoce el total de columnas
+      shakeUntil: 0,
     });
   }
 
-  // A1 (playtest 2026-07-10): cada columna nace YA con su guardiana (hasta el
-  // cupo QUEEN_GUARDIAN_MAX), para que no haya ventana libre en la que arrasar
-  // las columnas seguidas. El resto lo repone `queenStepGuardians`.
-  let placedGuardians = 0;
-  for (const col of state.columns) {
-    if (placedGuardians >= QUEEN_GUARDIAN_MAX) break;
-    if (queenActivateGuardian(world, boss, col, null)) placedGuardians++;
+  // Simplificación 2026-08-31 (elimina el rol guardiana, GDD §15.3): cada
+  // columna arranca con su reloj de parto DESFASADO por índice — en vez de
+  // pre-poblar guardianas en el tick 0 — para que las columnas no paran
+  // (paren) todas a la vez; `queenStepColumnSpawns` descuenta cada reloj cada
+  // tick. El desfase usa la cadencia de fase 1 (bossPhase siempre vale 1 aquí,
+  // recién creado el jefe en world/create.ts).
+  const spawnInterval = QUEEN_COLUMN_SPAWN_INTERVAL_BY_PHASE[boss.bossPhase - 1];
+  for (let i = 0; i < state.columns.length; i++) {
+    state.columns[i].spawnTimer = (i / state.columns.length) * spawnInterval;
   }
 }
 
@@ -204,12 +210,31 @@ function queenStepTrail(world: World, boss: Enemy, dt: number): void {
   }
 }
 
-/** Cadencia de oleadas de perseguidoras (GDD §15.6: "oleada cada ~3s"), independiente del rastro/guardianas. */
-function queenStepWaves(world: World, boss: Enemy, dt: number, events: EventQueue): void {
-  boss.bossTelegraphUntil -= dt;
-  if (boss.bossTelegraphUntil > 0) return;
-  boss.bossTelegraphUntil = QUEEN_WAVE_INTERVAL;
-  queenSpawnChasers(world, boss, events);
+/**
+ * Cadencia de parto de minions (simplificación 2026-08-31, GDD §15.3,
+ * playtest: "eliminar el rol guardiana" — sustituye la oleada única
+ * sincronizada desde el cuerpo, `queenStepWaves`/`queenSpawnChasers`): CADA
+ * columna VIVA de la sala del jefe tiene su propio reloj (`col.spawnTimer`,
+ * desfasado por índice en `queenOnInit`), independiente del resto. Una
+ * columna rota deja de generar (se filtra por `!col.broken`). El slot que
+ * activa sale del pool preasignado compartido (`queenSpawnLarvaFromColumn`,
+ * `queen/larvae.ts`) — si está agotado (QUEEN_LARVA_MAX larvas vivas), la
+ * columna simplemente no consigue plaza este ciclo; su reloj se resetea
+ * igual, así que lo reintenta en el siguiente.
+ */
+function queenStepColumnSpawns(world: World, boss: Enemy, dt: number, events: EventQueue): void {
+  const interval = QUEEN_COLUMN_SPAWN_INTERVAL_BY_PHASE[boss.bossPhase - 1];
+  const columns = queenState(world).columns;
+  for (let i = 0; i < columns.length; i++) {
+    const col = columns[i];
+    if (col.broken) continue;
+    if (col.roomId !== undefined && col.roomId !== boss.roomId) continue;
+
+    col.spawnTimer -= dt;
+    if (col.spawnTimer > 0) continue;
+    col.spawnTimer = interval;
+    queenSpawnLarvaFromColumn(world, boss, col, events);
+  }
 }
 
 export function queenStepPattern(world: World, boss: Enemy, dt: number, events: EventQueue): void {
@@ -224,9 +249,8 @@ export function queenStepPattern(world: World, boss: Enemy, dt: number, events: 
 
   queenStepMove(world, boss, dt);
   queenStepTrail(world, boss, dt);
-  queenStepWaves(world, boss, dt, events);
-  queenStepGuardians(world, boss, dt, events);
-  queenStepLarvae(world, boss, dt, events);
+  queenStepColumnSpawns(world, boss, dt, events);
+  queenStepLarvae(world, boss, dt);
 }
 
 export function queenOnPhaseChanged(world: World, boss: Enemy): void {

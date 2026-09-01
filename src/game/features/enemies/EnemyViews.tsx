@@ -26,11 +26,6 @@
  *   doradas orbitando sobre la cabeza — todo con geometrías/materiales
  *   compartidos de assets.ts, encima (no en sustitución) de los anillos
  *   genéricos de telegraph/vulnerabilidad ya heredados.
- * - Guardianas de la Reina (larvas `chasing===false`, GDD §15.3, rediseño
- *   2026-07-10): aviso de embestida sobre `enemy.bossStage` (0=orbita,
- *   1=TELEGRAFÍA, 2=carga) — parpadeo ámbar + hinchazón pulsante durante la
- *   telegrafía, tono rojo intenso y constante mientras carga; el flash de
- *   golpe (hitFlash, ya existente) tiene prioridad y nunca se pisan.
  * - El Prisma (GDD §15.4, Fase B3, `bossId==='prisma'`): el núcleo (mismo
  *   `bodyRef` compartido) MUTA su color al del arma activa
  *   (`enemy.bossWeaponGateA`, mapeado con `WEAPON_COLOR` — el mismo mapeo
@@ -98,8 +93,6 @@ import {
   enemyHitFlashMaterial,
   guardianBodyMaterial,
   queenBodyMaterial,
-  queenGuardianChargeMaterial,
-  queenGuardianTelegraphMaterial,
   prismaCoreMaterial,
   shooterMaterial,
   spikeMaterial,
@@ -279,12 +272,14 @@ function EnemyMesh({
   const guardianStunGroupRef = useRef<Group>(null);
   const guardianStunStarRefs = useRef<(Mesh | null)[]>([]);
   const wasGuardianTelegraphing = useRef(false);
-  // Reina del Enjambre (GDD §15.3): pulso de invocación (anillo que se
-  // expande brevemente cada vez que suelta una oleada de larvas); la corona
-  // (JSX más abajo) es estática, sin ref necesaria.
-  const queenSummonPulseRef = useRef<Mesh>(null);
-  const queenSummonPulseUntil = useRef(0);
-  const lastQueenWaveTimer = useRef(0);
+  // Reina del Enjambre (GDD §15.3, simplificación 2026-08-31): grito/animación
+  // de dolor al perder una columna, pintado sobre el propio cuerpo del jefe
+  // (bodyRef, ya declarado arriba) — sustituye al extinto pulso de invocación
+  // (anillo bajo los pies, sin uso desde que la Reina dejó de invocar desde
+  // el cuerpo; ver `queen/BossView.tsx`), que por eso ya no necesita ref de
+  // mesh propio. La corona (JSX más abajo) sigue siendo estática, sin ref.
+  const lastQueenVulnerableUntil = useRef(0);
+  const queenRoarUntil = useRef(0);
   // El Prisma (GDD §15.4): 3 gemas orbitando el núcleo, silueta propia.
   const prismaGemRefs = useRef<(Mesh | null)[]>([]);
   // La Tormenta (GDD §15.5): anillo de Saturno segmentado alrededor del
@@ -384,34 +379,6 @@ function EnemyMesh({
       const body = bodyRef.current;
       if (body) {
         body.material = flashing ? enemyHitFlashMaterial : restingBodyMaterial(kind, bossId);
-      }
-    }
-
-    // Guardiana de la Reina (larva `chasing===false`, GDD §15.3, máquina de
-    // embestida en `bossStage`: 0=orbita, 1=TELEGRAFÍA, 2=carga): aviso
-    // legible de que va a embestir — parpadeo ámbar + hinchazón pulsante
-    // durante la telegrafía, tono rojo intenso y constante mientras carga.
-    // El flash de golpe (arriba) tiene prioridad: nunca se pisan.
-    if (isLarva && !flashing) {
-      // Cubre también la perseguidora (`chasing===true`) y la guardiana en
-      // reposo (`bossStage===0`) para restaurar el aspecto normal: una larva
-      // es un objeto reciclado por la sim (pool por `hp<=0`, ver
-      // `queenActivateGuardian`/`queenSpawnChasers`), así que puede renacer
-      // con otro rol tras morir a mitad de carga — sin este `else` quedaría
-      // con el material rojo intenso de carga pegado indefinidamente.
-      const body = bodyRef.current;
-      if (body) {
-        if (!enemy.chasing && enemy.bossStage === 1) {
-          const blink = Math.sin(world.time * 22) > 0;
-          body.material = blink ? queenGuardianTelegraphMaterial : restingBodyMaterial(kind, bossId);
-          body.scale.setScalar(bodyRadius * (1 + 0.15 * (0.5 + 0.5 * Math.sin(world.time * 22))));
-        } else if (!enemy.chasing && enemy.bossStage === 2) {
-          body.material = queenGuardianChargeMaterial;
-          body.scale.setScalar(bodyRadius * 1.12);
-        } else {
-          body.material = restingBodyMaterial(kind, bossId);
-          body.scale.setScalar(bodyRadius);
-        }
       }
     }
 
@@ -526,7 +493,7 @@ function EnemyMesh({
     }
 
     if (kind === 'boss' && bossId === 'queen') {
-      applyQueenBossFrame({ enemy, world, bodyRadius, queenSummonPulseRef, queenSummonPulseUntil, lastQueenWaveTimer });
+      applyQueenBossFrame({ enemy, world, bodyRadius, bodyRef, lastQueenVulnerableUntil, queenRoarUntil });
     }
 
     if (kind === 'boss' && bossId === 'prisma') {
@@ -614,7 +581,7 @@ function EnemyMesh({
       {kind === 'boss' && bossId === 'guardian' && (
         <GuardianBossExtras guardianStunGroupRef={guardianStunGroupRef} guardianStunStarRefs={guardianStunStarRefs} />
       )}
-      {kind === 'boss' && bossId === 'queen' && <QueenBossExtras queenSummonPulseRef={queenSummonPulseRef} />}
+      {kind === 'boss' && bossId === 'queen' && <QueenBossExtras />}
       {kind === 'boss' && bossId === 'prisma' && <PrismaBossExtras prismaGemRefs={prismaGemRefs} />}
       {kind === 'boss' && bossId === 'storm' && <StormBossExtras stormHaloRef={stormHaloRef} />}
     </group>
