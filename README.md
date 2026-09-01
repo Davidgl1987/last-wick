@@ -85,4 +85,4 @@ Parámetros de URL, combinables entre sí (herramientas de playtest):
 
 ## Arquitectura en una línea
 
-Simulación 2D propia, pura y determinista a 60 Hz (`src/game/sim/`, sin React ni three.js, testeada con vitest) + render "tonto" con React Three Fiber que la lee e interpola (`src/game/render/`), juice por cola de eventos (`src/game/juice/`) y HUD en DOM (`src/game/ui/`). Detalles y presupuesto de rendimiento en [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+Simulación 2D propia, pura y determinista a 60 Hz (`src/engine/` genérico + `src/game/world/` y los `.ts` de cada `src/game/features/*/`, sin React ni three.js, testeada con vitest) + render "tonto" con React Three Fiber que la lee e interpola (`src/game/render/` y los `.tsx` de cada feature), juice por cola de eventos (`src/game/features/effects/`) y HUD en DOM (`src/game/ui/`). Detalles y presupuesto de rendimiento en [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
