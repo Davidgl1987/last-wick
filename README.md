@@ -24,8 +24,8 @@ Roguelite de tirachinas por salas, **móvil primero** (navegador). Lanzas al hé
 
 Una run entera encadena **una mazmorra por cada jefe**, en **orden fijo de dificultad creciente** (mazmorras aleatorias entre uno y otro; ver [GDD §15](docs/GDD.md)):
 
-1. **Guardián de Canto** — el jefe de embestida: patrulla, telegrafía, carga en línea recta y queda aturdido al chocar contra roca/pared (su ventana). Examina rebote y embestida, el pilar más antiguo del juego.
-2. **Reina del Enjambre** — el jefe de control de espacio: invoca oleadas de larvas y deja un rastro grande que ensucia la sala; su vida real vive en las columnas destructibles de su arena, no en su cuerpo. Examina gestionar el terreno bajo presión, no solo esquivar.
+1. **Guardián de Canto** — el jefe de embestida: te persigue sin descanso (pero más despacio que tu paso), telegrafía, carga en línea recta y queda aturdido al chocar contra roca/pared (su ventana). Examina rebote y embestida, el pilar más antiguo del juego.
+2. **Reina del Enjambre** — el jefe de control de espacio: sus columnas paren larvas perseguidoras y deja un rastro grande que ensucia la sala; su vida real vive en esas columnas destructibles de su arena, no en su cuerpo. Examina gestionar el terreno bajo presión, no solo esquivar.
 3. **El Prisma** — el jefe de las 3 armas: escudo de color rotatorio (azul/amarillo/violeta) donde solo el arma del color activo hace daño de verdad. Examina dominar y alternar cuerpo/flecha/hechizo.
 4. **La Tormenta** — el jefe de esquive puro (bullet hell): tres patrones de balas (espiral, anillos, ráfaga radial) con pasillo siempre garantizado; cualquier arma le hace daño, el examen es sobrevivir. El más difícil, por eso cierra la run.
 
