@@ -31,7 +31,14 @@ const MOVE_KEY_AXES: Record<MoveKeyCode, { axis: 'x' | 'y'; sign: 1 | -1 }> = {
 /** Orden fijo de recorrido para `recompute()`/`clear()` (evita depender de iteración de Set/Map). */
 const MOVE_KEY_CODES = Object.keys(MOVE_KEY_AXES) as MoveKeyCode[];
 
-function isMoveKeyCode(code: string): code is MoveKeyCode {
+/**
+ * true si `code` es una tecla de movimiento reconocida (WASD/flechas).
+ * Exportada (encargo 2026-08-31, Tab para cambiar de arma): `game/ui/
+ * keyboard-hint.ts` la reutiliza para decidir cuándo mostrar las pistas de
+ * teclado del microtutorial — Tab se suma aparte allí, no es una tecla de
+ * movimiento y no pertenece a `MOVE_KEY_AXES`.
+ */
+export function isMoveKeyCode(code: string): code is MoveKeyCode {
   return Object.prototype.hasOwnProperty.call(MOVE_KEY_AXES, code);
 }
 

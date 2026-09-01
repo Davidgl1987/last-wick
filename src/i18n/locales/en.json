@@ -36,7 +36,9 @@
     "fps": "{n} FPS",
     "roomProgress": "Room {i}/{n}",
     "roomAria": "Room {i} of {n}: {name}",
-    "microTutorial": "Drag and release to launch"
+    "microTutorial": "Drag and release to launch",
+    "microTutorialMove": "Move with WASD",
+    "microTutorialWeapon": "Switch weapon with Tab"
   },
   "weapons": {
     "body": "Wax",

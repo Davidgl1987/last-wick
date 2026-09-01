@@ -17,12 +17,16 @@ import { useUiStore } from '@/game/session/store';
 import { Button, frameClass, Icon } from '@/ui';
 import { tRoomName, useT } from '@/i18n';
 import './hud.css';
+import { useShowKeyboardHints } from './useKeyboardHint';
 import { WeaponBar } from './WeaponBar';
 
 const NOTICE_DURATION_MS = 1200;
 
 export function HUD({ session, showMicroTutorial }: { session: GameSession; showMicroTutorial: boolean }) {
   const t = useT();
+  // Pistas de teclado del microtutorial de abajo (WASD/Tab) — ver cabecera de
+  // useKeyboardHint.ts para las dos señales que la activan.
+  const showKeyboardHints = useShowKeyboardHints();
   const hp = useUiStore((s) => s.hp);
   const maxHp = useUiStore((s) => s.maxHp);
   const coins = useUiStore((s) => s.coins);
@@ -161,7 +165,19 @@ export function HUD({ session, showMicroTutorial }: { session: GameSession; show
               />
             </svg>
           </div>
-          <span className={frameClass('plain', 'hud-microtutorial-text')}>{t('hud.microTutorial')}</span>
+          <div className={frameClass('plain', 'hud-microtutorial-text')}>
+            <span>{t('hud.microTutorial')}</span>
+            {/* Pistas de teclado (encargo 2026-08-31): solo en escritorio o
+                en cuanto se detecte uso real de WASD/flechas/Tab — ver
+                useKeyboardHint.ts. En táctil puro no se pintan, el cartel
+                queda igual que antes de esta feature. */}
+            {showKeyboardHints && (
+              <>
+                <span className="hud-microtutorial-hint">{t('hud.microTutorialMove')}</span>
+                <span className="hud-microtutorial-hint">{t('hud.microTutorialWeapon')}</span>
+              </>
+            )}
+          </div>
         </div>
       )}
       <BossHealthBar session={session} />

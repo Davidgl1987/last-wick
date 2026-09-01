@@ -8,9 +8,9 @@
 import { describe, expect, it } from 'vitest';
 import { applyDamageToEnemy } from '@/game/features/combat/combat';
 import { createEventQueue, drainEvents, type GameEvent } from '@/engine/events';
-import { COIN_DROP_MIN_SEPARATION, COIN_MAGNET_RADIUS_BY_LEVEL } from './constants';
+import { COIN_DROP_MIN_SEPARATION, COIN_MAGNET_RADIUS_BY_LEVEL, VICTORY_COIN_MAGNET_SPEED } from './constants';
 import { dropCoinAt, stepItems } from './items';
-import { stepWorld } from '@/game/world/step';
+import { BOSS_VICTORY_PAUSE_DURATION, stepWorld } from '@/game/world/step';
 import { createWorld } from '@/game/world/create';
 import type { EnemySpawn, ItemSpawn, RoomData, World } from '@/game/world/types';
 
@@ -253,5 +253,103 @@ describe('imán de monedas (Canto de Urraca, docs/plans/ECONOMY_PLAN.md F2)', ()
     expect(COIN_MAGNET_RADIUS_BY_LEVEL[2]).toBe(4);
     stepItems(world, FIXED_DT, events);
     expect(world.items[0].position.x).toBeLessThan(4); // dentro del radio de nivel 2, ya se acerca
+  });
+});
+
+describe('imán de monedas de VICTORIA (encargo 2026-08-31: "atrae a las monedas hasta el personaje antes de la animación de victoria", TODOS los jefes)', () => {
+  /** Fuerza la fase 'boss-victory-pause' sin pasar por un jefe/mazmorra real (equivalente ligero al helper de dungeon-world.test.ts, aquí sobre un World de sala única). */
+  function enterVictoryPause(world: World, nextPhase: 'victory' | 'boss-reward' = 'victory'): void {
+    world.phase = 'boss-victory-pause';
+    world.bossVictoryPauseUntil = world.time + BOSS_VICTORY_PAUSE_DURATION;
+    world.bossVictoryNextPhase = nextPhase;
+  }
+
+  /**
+   * Avanza `stepWorld` hasta que la fase deje de ser 'boss-victory-pause'.
+   * Guiado por `world.phase` (no por un nº de ticks calculado a mano, mismo
+   * motivo que `advanceThroughBossVictoryPause` en dungeon-world.test.ts: el
+   * error de coma flotante de sumar FIXED_DT repetidamente hace que
+   * `BOSS_VICTORY_PAUSE_DURATION / FIXED_DT` ticks exactos no siempre basten).
+   */
+  function advanceThroughVictoryPause(world: World, events: ReturnType<typeof createEventQueue>, maxTicks = 300): void {
+    let guard = 0;
+    while (world.phase === 'boss-victory-pause' && guard < maxTicks) {
+      stepWorld(world, events);
+      guard++;
+    }
+    expect(guard).toBeLessThan(maxTicks); // red de seguridad: si esto salta, el imán no llegó a tiempo
+  }
+
+  it('una moneda lejana se acerca al héroe tick a tick y acaba recogida, sin que el héroe se mueva', () => {
+    const world = makeWorld([{ id: 'c1', kind: 'coin', position: { x: 8, y: 0 } }]);
+    const events = createEventQueue(16);
+    world.hero.velocity.x = 0;
+    world.hero.velocity.y = 0;
+    const heroXBefore = world.hero.position.x;
+    const heroYBefore = world.hero.position.y;
+    enterVictoryPause(world);
+
+    stepWorld(world, events);
+    // Un tick a VICTORY_COIN_MAGNET_SPEED=12 u/s: 8 - 12/60 = 7.8, se acercó pero no llegó todavía.
+    expect(world.items[0].position.x).toBeLessThan(8);
+    expect(world.items[0].position.x).toBeCloseTo(8 - VICTORY_COIN_MAGNET_SPEED * FIXED_DT, 9);
+    expect(world.items[0].active).toBe(true);
+
+    const types: string[] = [];
+    advanceThroughVictoryPause(world, events);
+    drainEvents(events, (e: GameEvent) => types.push(e.type));
+
+    expect(world.items[0].active).toBe(false);
+    expect(world.hero.coins).toBe(1);
+    expect(world.stats.coinsCollected).toBe(1);
+    expect(types).toContain('item-pickup');
+    // El mundo está CONGELADO a propósito durante 'boss-victory-pause'
+    // (world/step.ts): el héroe no se mueve ni una unidad pese a que la
+    // moneda sí lo hace hasta él.
+    expect(world.hero.position.x).toBe(heroXBefore);
+    expect(world.hero.position.y).toBe(heroYBefore);
+  });
+
+  it('al terminar la pausa no quedan monedas activas, ni con la moneda en la esquina más lejana posible de la sala de jefe más grande (boss-queen.json, 11×21 u)', () => {
+    const world = createWorld(
+      makeRoom({
+        width: 11,
+        height: 21,
+        items: [
+          { id: 'near', kind: 'coin', position: { x: 0, y: 0 } },
+          { id: 'mid-edge', kind: 'coin', position: { x: -5, y: 9 } },
+          // Peor caso teórico (ver cálculo de holgura en items/constants.ts):
+          // esquina opuesta a la del héroe, a ~0.1u de los 4 muros.
+          { id: 'far-corner', kind: 'coin', position: { x: 5.4, y: 10.4 } },
+        ],
+      }),
+    );
+    const events = createEventQueue(16);
+    // Héroe en la esquina opuesta a 'far-corner': distancia ≈ diagonal completa de la sala (~23.4u de las ~23.71u teóricas).
+    world.hero.position.x = -5.4;
+    world.hero.position.y = -10.4;
+    world.hero.velocity.x = 0;
+    world.hero.velocity.y = 0;
+    enterVictoryPause(world);
+
+    advanceThroughVictoryPause(world, events);
+
+    expect(world.phase).toBe('victory'); // la transición de fase de siempre sigue intacta
+    expect(world.items.filter((i) => i.kind === 'coin' && i.active)).toHaveLength(0);
+    expect(world.hero.coins).toBe(3);
+    expect(world.stats.coinsCollected).toBe(3);
+  });
+
+  it("NO actúa durante 'playing' (ahí manda el imán de mejora, con su radio y su nivel): una moneda lejana con coinMagnetLevel=0 no se mueve", () => {
+    const world = makeWorld([{ id: 'c1', kind: 'coin', position: { x: 8, y: 0 } }]);
+    const events = createEventQueue(16);
+    expect(world.phase).toBe('playing');
+    expect(world.hero.modifiers.coinMagnetLevel).toBe(0);
+
+    for (let i = 0; i < 60; i++) stepWorld(world, events);
+
+    expect(world.items[0].position.x).toBeCloseTo(8, 9);
+    expect(world.items[0].position.y).toBeCloseTo(0, 9);
+    expect(world.items[0].active).toBe(true);
   });
 });

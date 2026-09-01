@@ -29,7 +29,7 @@ import { pushEvent, type EventQueue } from '@/engine/events';
 import { stepHeroWalk } from '@/game/features/hero/walk';
 import { stepBarrels, stepEnemyHazards, stepHeroHazards, stepPuddles } from '@/game/features/hazards/hazards';
 import { COIN_DROPS_BY_KIND, COIN_DROP_MAX_RADIUS, COIN_DROP_MIN_RADIUS } from '@/game/features/items/constants';
-import { dropCoinAt, stepItems } from '@/game/features/items/items';
+import { dropCoinAt, stepItems, stepVictoryCoinMagnet } from '@/game/features/items/items';
 import type { GamePhase, World } from './types';
 
 /**
@@ -253,6 +253,12 @@ export function stepWorld(world: World, events: EventQueue): void {
   // clímax de 'boss-defeated' todavía está en pantalla.
   if (world.phase === 'boss-victory-pause') {
     world.time += FIXED_DT;
+    // Imán de monedas de victoria (encargo 2026-08-31, TODOS los jefes): el
+    // mundo sigue congelado (nada más se avanza en esta rama, ver cabecera
+    // del fichero), pero las monedas de la sala del jefe SÍ vuelan hacia el
+    // héroe y se cobran antes de que la pausa ceda paso a la animación de
+    // victoria/modal. Detalle e imán en items.ts::stepVictoryCoinMagnet.
+    stepVictoryCoinMagnet(world, FIXED_DT, events);
     if (world.time >= world.bossVictoryPauseUntil) {
       const nextPhase = world.bossVictoryNextPhase ?? 'boss-reward';
       world.phase = nextPhase;
